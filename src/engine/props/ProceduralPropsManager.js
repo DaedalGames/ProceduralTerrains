@@ -146,7 +146,12 @@ export class ProceduralPropsManager {
 
     this.windUniforms = createWindUniforms();
     // Optional Mini Terrain light map (sun visibility / AO), shared by all.
-    this._miniLight = { tex: { value: null }, enabled: { value: 0 }, half: { value: 512 } };
+    this._miniLight = {
+      tex: { value: null }, enabled: { value: 0 }, half: { value: 512 }, groundRef: { value: null },
+    };
+    // Live ground (Mini): while set, a terrain edit keeps the previous complete
+    // scatter on screen (re-grounded on the GPU) until its sectors are rebuilt.
+    this._liveGround = null;
     const lit = (name, windStrengthMul, foliage = true) => createPropLitMaterial({
       shared: sharedUniforms, wind: this.windUniforms, windStrengthMul, foliage, name, miniLight: this._miniLight,
     });
@@ -160,6 +165,14 @@ export class ProceduralPropsManager {
     this._meshPool = new Map();
     this._customModels = new Map();
     this._sectors = new Map();
+    // Live ground only: the last COMPLETE scatter, per sector, shown until
+    // that sector is rebuilt after a terrain / scatter edit (same world only),
+    // so props never blink out while a slider is dragged. Partial rebuilds are
+    // dropped by a further edit; the stale set stays one coherent scatter.
+    this._staleSectors = new Map();
+    this._staleWorld = '';
+    this._staleRevision = -1;
+    this._scatterRevision = -1;
     this._desiredSectors = new Set();
     this._buildQueue = [];
     this._queued = new Set();
@@ -242,6 +255,7 @@ export class ProceduralPropsManager {
     const scatterChanged = structuralChanged || (paintChanged && (!dirtyBounds || dirtyBounds.all));
     this._scatterKey = scatterKey;
     this._lastPaintRevision = paintRevision;
+    this._pendingRevision = terrainRevision;
 
     if (!structuralChanged && paintChanged && dirtyBounds && !dirtyBounds.all && mode !== 'planet') {
       this._invalidateBounds(dirtyBounds);
@@ -301,6 +315,17 @@ export class ProceduralPropsManager {
   _updateFlat({ mode, center, params, sampler, scatterChanged, synchronous }) {
     if (!sampler) return;
     if (scatterChanged) {
+      const world = `${mode}|${this._sectorSize}|${params.chunkSize}|${params.chunkCount}`;
+      if (!this._liveGround || world !== this._staleWorld) this._staleSectors.clear();
+      this._staleWorld = world;
+      if (this._liveGround && !this._staleSectors.size && this.scatterSettled) {
+        for (const [key, buckets] of this._sectors) {
+          for (const list of Object.values(buckets)) for (const item of list) item.stale = true;
+          this._staleSectors.set(key, buckets);
+        }
+        this._staleRevision = this._scatterRevision;
+      }
+      this._scatterRevision = this._pendingRevision;
       this._sectors.clear();
       this._buildQueue.length = 0;
       this._queued.clear();
@@ -326,6 +351,7 @@ export class ProceduralPropsManager {
       }
     }
     for (const key of this._sectors.keys()) if (!desired.has(key)) this._sectors.delete(key);
+    for (const key of this._staleSectors.keys()) if (!desired.has(key)) this._staleSectors.delete(key);
     queued.sort((a, b) => a.d - b.d);
     for (const entry of queued) { this._buildQueue.push(entry); this._queued.add(entry.key); }
     this._desiredSectors = desired;
@@ -365,10 +391,23 @@ export class ProceduralPropsManager {
     } finally {
       if (batchActive) sampler.endBatch?.();
     }
-    if (activeChanged || built) this._commitFlat(center, radius, params);
+    // complete: the stale scatter has been fully replaced
+    const settledNow = this._staleSectors.size > 0 && !this._buildQueue.length && !this._sectorJob;
+    if (settledNow) this._staleSectors.clear();
+    if (activeChanged || built || settledNow) this._commitFlat(center, radius, params);
     else this._diagnostics.cacheHits++;
     this._diagnostics.sectors = this._sectors.size;
     this._diagnostics.queuedSectors = this._buildQueue.length;
+  }
+
+  /** Every desired sector is built for the current scatter (flat modes). */
+  get scatterSettled() {
+    return !this._buildQueue.length && !this._sectorJob && !this._staleSectors.size;
+  }
+
+  /** Terrain revision the current scatter was built for. */
+  get scatterRevision() {
+    return this._scatterRevision;
   }
 
   _invalidateBounds(bounds) {
@@ -552,6 +591,10 @@ export class ProceduralPropsManager {
   _commitFlat(center, radius, params) {
     const all = emptyBuckets();
     for (const sector of this._sectors.values()) {
+      for (const key of Object.keys(all)) all[key].push(...sector[key]);
+    }
+    for (const [sectorKey, sector] of this._staleSectors) {
+      if (this._sectors.has(sectorKey)) continue;
       for (const key of Object.keys(all)) all[key].push(...sector[key]);
     }
     this._commitBuckets(all, center, radius, params, false);
@@ -771,9 +814,21 @@ export class ProceduralPropsManager {
         });
       }
     }
+    // Items kept from the previous scatter render in their own batches so the
+    // Mini live ground can re-seat them (custom models are left as placed).
+    const split = [];
+    for (const spec of specs) {
+      const [name, geometry, material, items, fadeKey] = spec;
+      if (!this._liveGround || name.startsWith('custom-') || !items.some((item) => item.stale)) {
+        split.push([name, geometry, material, items, fadeKey, 0]);
+        continue;
+      }
+      split.push([name, geometry, material, items.filter((item) => !item.stale), fadeKey, 0]);
+      split.push([`${name}-stale`, geometry, material, items.filter((item) => item.stale), fadeKey, 1]);
+    }
     let triangles = 0, drawCalls = 0;
-    for (const [name, geometry, material, items, fadeKey] of specs) {
-      this._updateInstanced(name, geometry, material, items, active, fadeKey);
+    for (const [name, geometry, material, items, fadeKey, shift] of split) {
+      this._updateInstanced(name, geometry, material, items, active, fadeKey, shift);
       if (items.length) {
         drawCalls++;
         const available = geometry.index ? geometry.index.count : geometry.getAttribute('position').count;
@@ -794,7 +849,7 @@ export class ProceduralPropsManager {
     this._diagnostics.drawCalls = drawCalls;
   }
 
-  _updateInstanced(name, geometry, material, items, active, fadeKey = null) {
+  _updateInstanced(name, geometry, material, items, active, fadeKey = null, stale = 0) {
     let mesh = this._meshPool.get(name);
     if (!mesh && !items.length) return;
     if (!mesh || mesh.instanceMatrix.count < items.length || mesh.geometry !== geometry || mesh.material !== material) {
@@ -812,6 +867,7 @@ export class ProceduralPropsManager {
     }
     mesh.count = items.length;
     active.add(name);
+    mesh.userData.propStale = stale;
     const rangeKey = fadeKey || name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
     const fade = this._fadeRanges?.[rangeKey] || [0, 0, 1e6, 1e6 + 1];
     mesh.userData.propFadeRanges = fade;
@@ -820,6 +876,7 @@ export class ProceduralPropsManager {
       if (!uniforms) return;
       uniforms.center.value.copy(camera.position);
       uniforms.ranges.value.fromArray(mesh.userData.propFadeRanges);
+      if (uniforms.groundShift) uniforms.groundShift.value = mesh.userData.propStale ? this._groundShiftActive() : 0;
       // one material serves several LOD batches with different ranges
       mesh.material.uniformsNeedUpdate = true;
     };
@@ -842,11 +899,25 @@ export class ProceduralPropsManager {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
-  /** Mini Terrain cliff shadows / AO on props (null disables). */
-  setMiniLightMap(texture, half = 512) {
+  /**
+   * Mini Terrain cliff shadows / AO on props (null disables). `ground`
+   * ({ texture, revision }: the light map captured when the scatter of that
+   * terrain revision was complete) enables the live ground: edits keep the
+   * previous scatter visible, re-seated on the live relief, until rebuilt.
+   */
+  setMiniLightMap(texture, half = 512, ground = null) {
     this._miniLight.tex.value = texture || null;
     this._miniLight.enabled.value = texture ? 1 : 0;
     this._miniLight.half.value = half;
+    this._miniLight.groundRef.value = ground?.texture ?? null;
+    if (!ground && this._liveGround) this._staleSectors.clear();
+    this._liveGround = ground;
+  }
+
+  _groundShiftActive() {
+    return this._liveGround?.texture
+      && this._liveGround.revision === this._staleRevision
+      && this._miniLight.enabled.value > 0.5 ? 1 : 0;
   }
 
   tickWind(timeSeconds, params) {
@@ -876,6 +947,8 @@ export class ProceduralPropsManager {
     this._disposed = true;
     this._clearMeshes();
     this._sectors.clear();
+    this._staleSectors.clear();
+    this._liveGround = null;
     this._planetBuildState = null;
     this._buildQueue.length = 0;
     this.scene.remove(this.group);

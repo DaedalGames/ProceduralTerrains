@@ -277,6 +277,12 @@ uniform float uWindSpeed;
 uniform float uGustScale;
 uniform float uGustIntensity;
 uniform float uWindStrengthMul;
+// Mini diorama: a batch placed on an older relief follows the live one by
+// the height change under its root (light map B now - B when it was placed)
+uniform sampler2D uMiniLightTex;
+uniform sampler2D uMiniGroundRef;
+uniform float uMiniHalf;
+uniform float uMiniGroundShift;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
 varying vec3 vAlbedo;
@@ -292,6 +298,13 @@ ${WIND_VERT_BODY}
     normalBasis = normalBasis * mat3(instanceMatrix);
   #endif
   vec4 wp = modelMatrix * local;
+  #ifdef USE_INSTANCING
+    if (uMiniGroundShift > 0.5) {
+      vec3 root = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      vec2 groundUv = clamp(root.xz / (uMiniHalf * 2.0) + 0.5, 0.0, 1.0);
+      wp.y += textureLod(uMiniLightTex, groundUv, 0.0).b - textureLod(uMiniGroundRef, groundUv, 0.0).b;
+    }
+  #endif
   vWorldPos = wp.xyz;
   vNormalW = normalize(normalBasis * normal);
   vec3 tint = vec3(1.0);
@@ -393,6 +406,7 @@ export function createPropLitMaterial({ shared = null, wind = null, windStrength
   const fade = {
     center: { value: new THREE.Vector3() },
     ranges: { value: new THREE.Vector4(0, 0, 1e6, 1e6 + 1) },
+    groundShift: { value: 0 },
   };
   const material = new THREE.ShaderMaterial({
     name,
@@ -408,6 +422,8 @@ export function createPropLitMaterial({ shared = null, wind = null, windStrength
       uMiniLightTex: miniLight?.tex ?? { value: null },
       uMiniLightEnabled: miniLight?.enabled ?? { value: 0 },
       uMiniHalf: miniLight?.half ?? { value: 512 },
+      uMiniGroundRef: miniLight?.groundRef ?? { value: null },
+      uMiniGroundShift: fade.groundShift,
       uPropFadeCenter: fade.center,
       uPropFadeRanges: fade.ranges,
       uTime: wind?.uTime ?? { value: 0 },

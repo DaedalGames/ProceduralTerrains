@@ -1751,14 +1751,16 @@ export default function App() {
       return;
       }
       const k = String(e.key ?? '').toLowerCase();
-      if (k === 's' && exploreMode !== 'plane') engineRef.current?.setSplineEditingEnabled(!splineState.enabled);
+      if (k === 's' && worldMode !== 'infinite' && exploreMode === 'none' && !document.pointerLockElement) {
+        engineRef.current?.setSplineEditingEnabled(!splineState.enabled);
+      }
       else if (k === 'r' && e.shiftKey && !e.altKey) engineRef.current?.createSpline('river');
       else if (k === 'r' && e.altKey && !e.shiftKey) engineRef.current?.createSpline('road');
       else if (k === 'a') engineRef.current?.setAnalysisSettings({ enabled: !analysisState.enabled });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, splineState.enabled, analysisState.enabled, exploreMode]);
+  }, [undo, redo, splineState.enabled, analysisState.enabled, exploreMode, worldMode]);
 
   // ---- export: blocking overlay, button disabled via panel busy state ----
   const onExport = async (options) => {
@@ -1829,7 +1831,7 @@ export default function App() {
   const exploring = exploreMode !== 'none' && exploreMode !== 'freecam';
   const planetExploring = isPlanet && exploring;
   const fpsView = isInfinite || planetExploring;
-  const touchExplore = isInfinite || exploring;
+  const touchExplore = isInfinite || exploring || exploreMode === 'freecam';
   const studioLike = isStudio || (isPlanet && !exploring);
   const showStudioUI = !previewMode && !paintMode && studioLike;
   const nodeToolsVisible = !['nodes', 'manual'].includes(workspaceProjectMode) || uiPrefs.nodeToolsVisible !== false;
@@ -2888,7 +2890,7 @@ export default function App() {
             </>
           )}
 
-          {touchExplore && <TouchControls mode={exploreMode} onInput={handleTouchInput} />}
+          {touchExplore && <TouchControls key={`${worldMode}:${exploreMode}`} mode={exploreMode} onInput={handleTouchInput} />}
 
           {exploreMode === 'plane' && <PlaneHUD liveMetrics={liveMetrics} />}
 

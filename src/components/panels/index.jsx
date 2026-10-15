@@ -914,7 +914,8 @@ function ExportPanel({ ctx }) {
     format: 'glb', meshRes: '512', includeMesh: true, includeSkirts: true, includeBase: true,
     bakeColor: true, texRes: '2048', bakeLighting: false, bakeNormal: true,
     exportHeightmap: false, exportSplat: false, exportCollision: false, collisionRes: '128',
-    exportWater: false, exportPreset: true,
+    // a Mini diorama is exported whole: its water block is part of the piece
+    exportWater: !!ctx.miniTerrain, exportPreset: true,
     exportWaterMask: false, exportDepthMap: false, exportShorelineMask: false, exportFoamMask: false,
     excludeWaterFromExport: false, exportWaterMetadata: false,
     exportTileMode: 'merged', exportSplineMasks: false,
@@ -1024,7 +1025,12 @@ function ExportPanel({ ctx }) {
         {opt.exportCollision && (
           <SelectRow label={translateText("Collision Resolution")} value={opt.collisionRes} options={COLL_OPTIONS} onChange={(v) => set('collisionRes', v)} />
         )}
-        <ToggleRow label={translateText("Include Water Plane")} value={opt.exportWater} onChange={(v) => set('exportWater', v)} />
+        <ToggleRow
+          label={translateText(ctx.miniTerrain ? 'Include Water Block' : 'Include Water Plane')}
+          value={opt.exportWater}
+          onChange={(v) => set('exportWater', v)}
+          info={ctx.miniTerrain ? translateText('Exports the diorama water as a volume: the surface plus its cut faces, with a glass-like transmission material (glTF).') : undefined}
+        />
         {ctx.worldMode === 'studio' && <ToggleRow label={translateText("Export Spline Masks")} value={opt.exportSplineMasks} onChange={(v) => set('exportSplineMasks', v)} />}
         {opt.exportWater && (
           <ToggleRow label={translateText("Exclude Water from Export")} value={opt.excludeWaterFromExport} onChange={(v) => set('excludeWaterFromExport', v)} />

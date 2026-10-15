@@ -147,13 +147,11 @@ export default function TouchControls({ onInput, mode = 'none' }) {
   useEffect(() => {
     if (mode !== 'plane') {
       stateRef.current.throttle = 0;
-      if (throttleFillRef.current) throttleFillRef.current.style.height = '0%';
-      sync();
     } else if (stateRef.current.throttle <= 0) {
       stateRef.current.throttle = 0.65;
-      if (throttleFillRef.current) throttleFillRef.current.style.height = '65%';
-      sync();
     }
+    if (throttleFillRef.current) throttleFillRef.current.style.height = `${stateRef.current.throttle * 100}%`;
+    sync();
   }, [mode, sync]);
 
   return (
@@ -165,6 +163,7 @@ export default function TouchControls({ onInput, mode = 'none' }) {
         onPointerMove={move.onPointerMove}
         onPointerUp={move.onPointerUp}
         onPointerCancel={move.onPointerUp}
+        onLostPointerCapture={move.onPointerUp}
       >
         <div ref={move.knobRef} className="touch-joystick-knob" />
         <span className="touch-joystick-label">{translateText("Move")}</span>
@@ -176,6 +175,7 @@ export default function TouchControls({ onInput, mode = 'none' }) {
         onPointerMove={look.onPointerMove}
         onPointerUp={look.onPointerUp}
         onPointerCancel={look.onPointerUp}
+        onLostPointerCapture={look.onPointerUp}
       >
         <div ref={look.knobRef} className="touch-joystick-knob" />
         <span className="touch-joystick-label">{translateText("Look")}</span>
@@ -188,6 +188,7 @@ export default function TouchControls({ onInput, mode = 'none' }) {
           onPointerMove={onThrottleMove}
           onPointerUp={onThrottleUp}
           onPointerCancel={onThrottleUp}
+          onLostPointerCapture={onThrottleUp}
           aria-label={translateText("Plane throttle")}
         >
           <div ref={throttleFillRef} className="touch-throttle-fill" style={{ height: `${stateRef.current.throttle * 100}%` }} />

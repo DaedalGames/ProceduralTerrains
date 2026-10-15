@@ -146,7 +146,8 @@ export class WorkerCanvasFacade extends TerrainEventTarget {
   setTerrainViewport(width, height) { this.viewport = { ...this.viewport, width, height }; }
   setPointerCapture() {}
   releasePointerCapture() {}
-  requestPointerLock() { document.pointerLockElement = this; }
+  // Only the real browser canvas can acquire pointer lock.
+  requestPointerLock() {}
   focus() {}
 }
 
@@ -154,13 +155,13 @@ export class WorkerCanvasFacade extends TerrainEventTarget {
  * Builds the worker's window/document stand-ins and links the propagation
  * path canvas → document → window. Returns them without installing globals.
  */
-export function createWorkerDom(canvasFacade) {
+export function createWorkerDom(canvasFacade, { exitPointerLock } = {}) {
   const windowTarget = new TerrainEventTarget();
   const documentTarget = new TerrainEventTarget();
   documentTarget.eventParent = windowTarget;
   documentTarget.visibilityState = 'visible';
   documentTarget.pointerLockElement = null;
-  documentTarget.exitPointerLock = () => { documentTarget.pointerLockElement = null; };
+  documentTarget.exitPointerLock = () => { exitPointerLock?.(); };
   documentTarget.createElement = (tag) => {
     if (tag === 'canvas') return new OffscreenCanvas(1, 1);
     return new TerrainEventTarget();

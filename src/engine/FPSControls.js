@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bindTouchLook, requestMouseLock } from './FirstPersonInput.js';
 
 // ============================================================================
 // First-person flying camera for Infinite World Mode.
@@ -51,6 +52,7 @@ export class FPSControls {
   }
 
   _attach() {
+    this._disposeTouchLook = bindTouchLook(this.dom, this._onMouseMove);
     this.dom.addEventListener('click', this._onClick);
     this.dom.addEventListener('wheel', this._onWheel, { passive: false });
     document.addEventListener('mousemove', this._onMouseMove);
@@ -60,6 +62,7 @@ export class FPSControls {
   }
 
   dispose() {
+    this._disposeTouchLook();
     this.dom.removeEventListener('click', this._onClick);
     this.dom.removeEventListener('wheel', this._onWheel);
     document.removeEventListener('mousemove', this._onMouseMove);
@@ -85,9 +88,9 @@ export class FPSControls {
 
   // ---- event handlers ----
 
-  _onClick() {
+  _onClick(event) {
     if (!this._locked) {
-      this.dom.requestPointerLock();
+      requestMouseLock(this.dom, event);
     }
   }
 
@@ -97,7 +100,7 @@ export class FPSControls {
   }
 
   _onMouseMove(e) {
-    if (!this._locked) return;
+    if (!this._locked && e.pointerType !== 'touch') return;
     this.yaw -= e.movementX * this.mouseSensitivity;
     this.pitch -= e.movementY * this.mouseSensitivity;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));

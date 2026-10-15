@@ -5,6 +5,9 @@ import { readRenderTargetPixelsAsync, withExportRenderTarget } from '../render/R
 import { serializeGlb, canvasPngBytes } from '../../export/ExportEncoding.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {
+  buildMiniSectionWalls, buildMiniSocle, buildMiniWaterVolume, createMiniWallMaterial, createMiniWaterMaterial,
+} from '../mini/MiniExport.js';
 import { zipSync } from 'fflate';
 import {
   createTileExportManifest,
@@ -368,8 +371,10 @@ export class TerrainExporter {
       return { canvas, raw16 };
     };
 
+    // A Mini diorama exports its own section (depth, strata, water block, socle).
+    const mini = options.mini && tiles.length === 1 ? options.mini : null;
     const skirtDepth = Math.max(24, heightScale * 0.08);
-    const baseHeight = -skirtDepth;
+    const baseHeight = mini ? -mini.baseDepth : -skirtDepth;
     const multi = tiles.length > 1;
     const separateTileExport = multi && tileShape === 'square' && tileMode === 'separate';
 
@@ -437,10 +442,32 @@ export class TerrainExporter {
         terrainMesh.name = multi ? `Terrain_Tile_${cell.cx}_${cell.cz}` : 'Terrain_Surface';
         exportGroup.add(terrainMesh);
 
+        // Mini: the cut-away section with its strata (bottom included with the
+        // base slab option), then the socle under it.
+        if (mini && includeSkirts) {
+          const wallGeo = buildMiniSectionWalls({
+            at, res: meshRes, half: cellSize / 2, baseY: baseHeight, seaLevel, cut: mini.cut,
+          });
+          if (!includeBase) {
+            // drop the bottom quad (last 6 indices)
+            const index = wallGeo.getIndex();
+            wallGeo.setIndex(Array.from(index.array).slice(0, index.count - 6));
+          }
+          const wallMesh = new THREE.Mesh(wallGeo, createMiniWallMaterial());
+          wallMesh.name = 'Terrain_Base_Slab';
+          exportGroup.add(wallMesh);
+          if (includeBase && mini.socle) {
+            exportGroup.add(buildMiniSocle({
+              half: cellSize / 2, margin: mini.socle.margin, height: mini.socle.height,
+              topY: baseHeight, color: mini.socle.color,
+            }));
+          }
+        }
+
         // walls + base. 'separate' gives every tile all four walls (standalone
         // diorama pieces); 'merged' walls only outward-facing edges so adjacent
         // tiles fuse into one continuous landscape.
-        if (includeSkirts && tileShape !== 'circle') {
+        if (includeSkirts && tileShape !== 'circle' && !mini) {
           const sides = (multi && tileMode === 'merged')
             ? {
                 bottom: !hasNeighbor(cell.cx, cell.cz - 1),
@@ -625,8 +652,20 @@ export class TerrainExporter {
       }
     }
 
+    // F. Mini: the water block (surface + cut faces over the water column)
+    if (mini && exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
+      onToast('Building water volume...');
+      const { at } = await bakeHeightGrid(0, 0, cellSize, cellSize, meshRes, meshRes);
+      const waterMesh = new THREE.Mesh(
+        buildMiniWaterVolume({ at, res: meshRes, half: cellSize / 2, seaLevel, baseY: baseHeight }),
+        createMiniWaterMaterial(mini.water),
+      );
+      waterMesh.name = 'Water_Volume';
+      exportGroup.add(waterMesh);
+    }
+
     // F. Add Water Mesh spanning the whole assembly
-    if (!separateTileExport && exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
+    if (!mini && !separateTileExport && exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
       onToast('Adding water plane...');
       const waterGeo = tileShape === 'circle' ? new THREE.CircleGeometry(diskRadiusWorld, 96) : new THREE.PlaneGeometry(unionSpanX, unionSpanZ);
       waterGeo.rotateX(-Math.PI / 2);

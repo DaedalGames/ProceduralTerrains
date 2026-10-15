@@ -6,19 +6,24 @@ import * as THREE from 'three';
 // The engine has no shadow maps and the terrain is displaced in its vertex
 // shader, so instead of touching every terrain program (and its 16-sampler
 // budget) the Mini presentation:
-//   1. BAKES a small light map over the footprint on the GPU, from the very
-//      height bake the terrain already samples (uTerrainHeightTex):
+//   1. BAKES a small light map over the footprint on the GPU, from a grid of
+//      the terrain's own VERTEX heights (TerrainHeightBaker.renderHeightGrid:
+//      the compiled height program, one sample per surface vertex). The
+//      terrain displaces its vertices analytically, so this grid is exact and
+//      current in the very frame of an edit; the slow progressive full bake
+//      (fragment normals only) is never waited for:
 //        R = sun visibility (height-field ray march toward the sun, soft
 //            penumbra growing with distance to the occluder),
 //        G = ambient occlusion (8-direction horizon estimate),
 //        B = terrain height (world units, filtered: smooth water depth);
-//   2. APPLIES it with a decal mesh that follows the same height bake, drawn
+//   2. APPLIES it with a decal mesh on the same vertex grid, drawn
 //      right after the terrain with multiplicative blending (dst × factor), so
 //      it darkens terrain only (props and water are separate objects).
 // The water shader samples the same map for cliff shadows on the surface.
 //
 // Re-baked only when the terrain field, the sun direction or the footprint
-// change. Static loop bounds, masks instead of break — ANGLE/FXC friendly.
+// change (at most once per frame while a slider is dragged).
+// Static loop bounds, masks instead of break — ANGLE/FXC friendly.
 // ============================================================================
 
 const BAKE_VERTEX = /* glsl */ `
@@ -29,14 +34,18 @@ void main() {
 }
 `;
 
+// Texel i of the (segments + 1)^2 grid holds the height of vertex i, at
+// x = -half + i * width / segments: sampling a vertex position hits a texel
+// centre exactly, in between it interpolates like the terrain triangles.
 const HEIGHT_FETCH = /* glsl */ `
-uniform sampler2D uTerrainHeightTex;
-uniform vec2 uBakeOrigin;
-uniform vec2 uBakeSpan;
+uniform sampler2D uMiniHeightGrid;
+uniform float uMiniGridSegments;
+uniform float uHalf;
 uniform float uHeightScale;
 float miniBakedHeight(vec2 xz) {
-  vec2 uv = (xz - uBakeOrigin) / max(uBakeSpan, vec2(1.0));
-  return textureLod(uTerrainHeightTex, clamp(uv, 0.0, 1.0), 0.0).a * uHeightScale;
+  vec2 g = (xz + uHalf) / max(uHalf * 2.0, 1.0) * uMiniGridSegments;
+  vec2 uv = (g + 0.5) / (uMiniGridSegments + 1.0);
+  return textureLod(uMiniHeightGrid, clamp(uv, 0.0, 1.0), 0.0).a * uHeightScale;
 }
 `;
 
@@ -44,7 +53,6 @@ const BAKE_FRAGMENT = /* glsl */ `
 precision highp float;
 ${HEIGHT_FETCH}
 uniform vec3 uSunDir;
-uniform float uHalf;
 uniform float uSoftness;
 varying vec2 vUv;
 
@@ -82,7 +90,6 @@ void main() {
 
 const DECAL_VERTEX = /* glsl */ `
 ${HEIGHT_FETCH}
-uniform float uHalf;
 varying vec2 vXZ;
 void main() {
   vec2 xz = position.xz * uHalf;
@@ -111,6 +118,15 @@ void main() {
 }
 `;
 
+const COPY_FRAGMENT = /* glsl */ `
+precision highp float;
+uniform sampler2D uSource;
+varying vec2 vUv;
+void main() {
+  gl_FragColor = texture2D(uSource, vUv);
+}
+`;
+
 function buildDecalGrid(segments) {
   const geo = new THREE.PlaneGeometry(2, 2, segments, segments);
   geo.rotateX(-Math.PI / 2);
@@ -131,18 +147,19 @@ export class MiniLightMap {
     this.target.texture.generateMipmaps = false;
     this.target.texture.name = 'MiniLightMap';
 
+    this.grid = null;   // (segments + 1)^2 vertex heights, see ensureGrid
     const heightUniforms = {
-      uTerrainHeightTex: sharedUniforms.uTerrainHeightTex,
-      uBakeOrigin: sharedUniforms.uBakeOrigin,
-      uBakeSpan: sharedUniforms.uBakeSpan,
+      uMiniHeightGrid: { value: null },
+      uMiniGridSegments: { value: 256 },
+      uHalf: { value: 512 },
       uHeightScale: sharedUniforms.uHeightScale,
     };
+    this._heightUniforms = heightUniforms;
     this.bakeMaterial = new THREE.ShaderMaterial({
       name: 'MiniLightMapBake',
       uniforms: {
         ...heightUniforms,
         uSunDir: { value: new THREE.Vector3(0.5, 0.7, 0.3) },
-        uHalf: { value: 512 },
         uSoftness: { value: 3 },
       },
       vertexShader: BAKE_VERTEX,
@@ -162,7 +179,6 @@ export class MiniLightMap {
       uniforms: {
         ...heightUniforms,
         uMiniLightTex: { value: this.target.texture },
-        uHalf: { value: 512 },
         uShadowStrength: { value: 0.62 },
         uAOStrength: { value: 0.85 },
         uShadowTint: { value: new THREE.Vector3(0.6, 0.66, 0.8) },
@@ -186,6 +202,45 @@ export class MiniLightMap {
     this._segments = 256;
     this._key = '';
     this.ready = false;
+
+    // Snapshot of the map taken when the props scatter of a terrain revision
+    // was complete: props kept on screen during a later edit are re-seated by
+    // (B now - B then) under their root. Allocated on first use.
+    this.reference = null;
+    this._copyMaterial = new THREE.ShaderMaterial({
+      name: 'MiniLightMapCopy',
+      uniforms: { uSource: { value: this.target.texture } },
+      vertexShader: BAKE_VERTEX,
+      fragmentShader: COPY_FRAGMENT,
+      depthTest: false,
+      depthWrite: false,
+    });
+  }
+
+  /** Copy the current map into `reference` (see constructor). */
+  snapshot(renderer) {
+    if (!renderer || !this.ready) return null;
+    if (!this.reference) {
+      this.reference = new THREE.WebGLRenderTarget(this.size, this.size, {
+        type: THREE.HalfFloatType,
+        depthBuffer: false,
+        stencilBuffer: false,
+      });
+      this.reference.texture.minFilter = THREE.LinearFilter;
+      this.reference.texture.magFilter = THREE.LinearFilter;
+      this.reference.texture.generateMipmaps = false;
+      this.reference.texture.name = 'MiniLightMapReference';
+    }
+    const previous = renderer.getRenderTarget();
+    try {
+      this._quad.material = this._copyMaterial;
+      renderer.setRenderTarget(this.reference);
+      renderer.render(this.bakeScene, this.bakeCamera);
+    } finally {
+      this._quad.material = this.bakeMaterial;
+      renderer.setRenderTarget(previous);
+    }
+    return this.reference.texture;
   }
 
   get texture() {
@@ -193,26 +248,56 @@ export class MiniLightMap {
   }
 
   setLayout({ half, segments }) {
-    this.bakeMaterial.uniforms.uHalf.value = half;
-    this.decalMaterial.uniforms.uHalf.value = half;
+    this._heightUniforms.uHalf.value = half;
     this.bakeMaterial.uniforms.uSoftness.value = Math.max(1.5, half * 0.006);
     if (segments && segments !== this._segments) {
       this._segments = segments;
       this.decal.geometry.dispose();
       this.decal.geometry = buildDecalGrid(segments);
+      this.invalidate();
     }
   }
 
+  /** The vertex-height grid render target ((segments + 1)^2, half float). */
+  ensureGrid() {
+    const n = this._segments + 1;
+    if (!this.grid || this.grid.width !== n) {
+      this.grid?.dispose();
+      this.grid = new THREE.WebGLRenderTarget(n, n, {
+        type: THREE.HalfFloatType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        depthBuffer: false,
+        stencilBuffer: false,
+        generateMipmaps: false,
+      });
+      this.grid.texture.colorSpace = THREE.NoColorSpace;
+      this.grid.texture.name = 'MiniVertexHeightGrid';
+      this._heightUniforms.uMiniHeightGrid.value = this.grid.texture;
+      this.ready = false;
+      this._key = '';
+    }
+    this._heightUniforms.uMiniGridSegments.value = this._segments;
+    return this.grid;
+  }
+
+  /** Whether the published bake was made for `key`. */
+  isCurrent(key) {
+    return this.ready && this._key === key;
+  }
+
   /**
-   * Re-bake when the key (terrain generation, sun, footprint) changed.
+   * Re-bake when the key (terrain generation, height program, sun, footprint)
+   * changed. `renderHeights(gridTarget)` fills the vertex-height grid and
+   * returns false when no height program is available (nothing is changed).
    * Returns true when a bake was rendered this call.
    */
-  update(renderer, key, sunDir) {
-    if (!renderer || !this.shared.uTerrainHeightTex?.value) {
-      this.ready = false;
-      return false;
-    }
+  update(renderer, key, sunDir, renderHeights) {
+    if (!renderer || !renderHeights) return false;
     if (key === this._key && this.ready) return false;
+    const grid = this.ensureGrid();
+    if (!renderHeights(grid)) return false;
     this._key = key;
     this.bakeMaterial.uniforms.uSunDir.value.copy(sunDir);
     const previous = renderer.getRenderTarget();
@@ -234,7 +319,7 @@ export class MiniLightMap {
   }
 
   get materials() {
-    return [this.bakeMaterial, this.decalMaterial];
+    return [this.bakeMaterial, this.decalMaterial, this._copyMaterial];
   }
 
   dispose() {
@@ -244,5 +329,10 @@ export class MiniLightMap {
     this.bakeMaterial.dispose();
     this.decalMaterial.dispose();
     this.target.dispose();
+    this.grid?.dispose();
+    this.grid = null;
+    this.reference?.dispose();
+    this.reference = null;
+    this._copyMaterial.dispose();
   }
 }

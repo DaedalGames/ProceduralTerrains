@@ -420,6 +420,38 @@ export class TerrainHeightBaker {
     }
   }
 
+  /**
+   * Render the published height program once over a whole small `target`,
+   * with a caller uv transform (same convention as the stripes). One sample
+   * per texel: only A (height / heightScale) is meaningful. Consumers that
+   * must follow edits in the very frame they happen (the Mini light map) use
+   * it for a coarse vertex-aligned grid instead of waiting for the
+   * progressive full bake. Reuses the compiled program; never compiles.
+   */
+  renderHeightGrid(target, uvTransform) {
+    const material = this.material;
+    if (!material || !target) return false;
+    const r = this.renderer;
+    const prevTarget = r.getRenderTarget();
+    const prevTransform = this._bakeUvTransform.value.clone();
+    const count = material.uniforms.uBakeSampleCount;
+    const prevCount = count.value;
+    this.mesh.material = material;
+    this._bakeUvTransform.value.copy(uvTransform);
+    count.value = 1;
+    try {
+      target.viewport.set(0, 0, target.width, target.height);
+      target.scissorTest = false;
+      r.setRenderTarget(target);
+      r.render(this.scene, this.cam);
+    } finally {
+      r.setRenderTarget(prevTarget);
+      this._bakeUvTransform.value.copy(prevTransform);
+      count.value = prevCount;
+    }
+    return true;
+  }
+
   /** Synchronous compatibility path used by exports and focused tests. */
   bake(octaves, stackGLSL = DEFAULT_STACK_GLSL, cols = 1, rows = 1) {
     this.begin(octaves, stackGLSL, cols, rows);

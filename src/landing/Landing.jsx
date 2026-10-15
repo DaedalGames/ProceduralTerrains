@@ -9,7 +9,7 @@ import { APP_NAME, APP_VERSION, AUTHOR_PORTFOLIO_URL, AUTHOR_X_URL, CURSOR_PACK_
 import { projectStore, projectSyncStore, normalizeProject } from '../project/ProjectStore.js';
 import { projectApi } from '../project/projectApi.js';
 import { buildUnifiedProjectIndex } from '../project/projectSync.js';
-import { PROJECT_TEMPLATES, getProjectTemplate, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
+import { PROJECT_TEMPLATES, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
 import { NODE_PROJECT_TEMPLATES, getNodeProjectTemplate, nodeTemplatePreviewCacheKey } from '../project/NodeProjectTemplates.js';
 import { MINI_COMPOSITION_IDS, MINI_RECIPES } from '../engine/mini/MiniTerrainSettings.js';
 import { TERRAIN_GRADIENT_OPTIONS, terrainGradientCss } from '../engine/terrain/graph/TerrainGradientPresets.js';
@@ -29,6 +29,20 @@ import LanguageSwitch from '../i18n/LanguageSwitch.jsx';
 import { formatRelativeTime } from '../i18n/language.js';
 
 const NODE_TEMPLATE_ICONS = { boxes: Boxes, mountain: Mountain, layers: Layers3, waves: Waves, orbit: Orbit, route: Route };
+const MINI_TEMPLATES = [
+  ...PROJECT_TEMPLATES.map((template) => ({ ...template, name: template.id === 'blank' ? 'Procedural' : template.name })),
+  ...MINI_COMPOSITION_IDS.map((id) => ({
+    id,
+    name: MINI_RECIPES[id].labelEn,
+    description: {
+      cove: 'A sheltered cove framed by cliffs and tropical water.',
+      islet: 'A wooded island with sandy shores and shallow water.',
+      lake: 'A quiet lake surrounded by mountain peaks and forest.',
+    }[id],
+    icon: id === 'lake' ? 'mountain' : 'waves',
+  })),
+];
+const templateCatalog = (kind) => kind === 'mini' ? MINI_TEMPLATES : kind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
 const VISIBILITY_ICONS = { private: Lock, unlisted: Eye, public: Globe2 };
 const AUTH_VIEWS = new Set(['login', 'register']);
 const HASH_VIEWS = new Set(['login', 'register', 'profile', 'community', 'plugins', 'unity', 'blender', 'admin', 'confidentiality']);
@@ -268,7 +282,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       .map((entry) => [entry.localProject.id, entry]),
   ), [cloudProjects, projects, syncBindings]);
 
-  const template = templateKind === 'nodes' ? getNodeProjectTemplate(selectedTemplateId) : getProjectTemplate(selectedTemplateId);
+  const template = templateCatalog(templateKind).find((item) => item.id === selectedTemplateId) ?? templateCatalog(templateKind)[0];
   const dispatch = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
   const showView = (nextView) => {
     setMobileMenuOpen(false);
@@ -306,7 +320,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
   const openApp = () => projects.length ? open(projects[0]) : setCreateOpen(true);
   const goHome = () => { showView('home'); setSelectedProjectId(projects[0]?.id ?? null); };
   const selectTemplate = (id, editorMode = templateKind) => {
-    const nextKind = editorMode === 'nodes' ? 'nodes' : 'procedural';
+    const nextKind = ['nodes', 'mini'].includes(editorMode) ? editorMode : 'procedural';
     const nextTemplate = nextKind === 'nodes' ? getNodeProjectTemplate(id) : null;
     setTemplateKind(nextKind);
     setSelectedTemplateId(id);
@@ -319,8 +333,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
     if (nextKind === 'nodes') import('../components/nodes/NodeWorkspace.jsx').catch(() => {});
   };
   const openTemplates = (editorMode = templateKind) => {
-    const nextKind = editorMode === 'nodes' ? 'nodes' : 'procedural';
-    const catalog = nextKind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
+    const nextKind = ['nodes', 'mini'].includes(editorMode) ? editorMode : 'procedural';
+    const catalog = templateCatalog(nextKind);
     const currentExists = catalog.some((item) => item.id === selectedTemplateId);
     const nextTemplateId = currentExists ? selectedTemplateId : catalog[0].id;
     setTemplateKind(nextKind);
@@ -331,6 +345,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       setNodeColorPreset(nextTemplate.colorPreset || 'alpine');
     }
     setSelectedProjectId(null);
+    setQuery('');
     showView('templates');
     if (nextKind === 'nodes') import('../components/nodes/NodeWorkspace.jsx').catch(() => {});
   };
@@ -623,32 +638,33 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
           {view === 'templates' && (() => {
             const q = query.trim().toLowerCase();
-            const catalog = templateKind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
+            const catalog = templateCatalog(templateKind);
             const filtered = catalog.filter((item) => matchesTranslatedSearch(q, item.name, item.description));
             return (
             <section className="lp-section lp-view">
               <div className="lp-section-head lp-template-section-head">
-                <div><h2>{translateText("Terrain templates")}</h2><p>{translateText("Choose one authoring workflow. Procedural selections preview live; Nodes opens straight into the editor.")}</p></div>
+                <div><h2>{translateText(templateKind === 'mini' ? 'Mini Terrain templates' : 'Terrain templates')}</h2><p>{translateText(templateKind === 'mini' ? 'Choose a procedural base or a composed scene for your diorama.' : 'Choose one authoring workflow. Procedural selections preview live; Nodes opens straight into the editor.')}</p></div>
                 <div className="lp-template-kind-switch" role="tablist" aria-label={translateText("Template type")}>
                   <button type="button" role="tab" aria-selected={templateKind === 'procedural'} className={templateKind === 'procedural' ? 'active' : ''} onClick={() => openTemplates('procedural')}><SlidersHorizontal size={13} />{translateText(" Procedural")}</button>
                   <button type="button" role="tab" aria-selected={templateKind === 'nodes'} className={templateKind === 'nodes' ? 'active' : ''} onClick={() => openTemplates('nodes')}><Boxes size={13} />{translateText(" Nodes")}</button>
+                  <button type="button" role="tab" aria-selected={templateKind === 'mini'} className={templateKind === 'mini' ? 'active' : ''} onClick={() => openTemplates('mini')}><Box size={13} />{translateText("Mini Terrain")}</button>
                 </div>
               </div>
               <div className="lp-search">
                 <Search size={14} aria-hidden />
-                <input type="search" placeholder={translateText(`Search ${templateKind === 'nodes' ? 'Nodes' : 'procedural'} templates…`)} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={translateText("Search templates")} />
+                <input type="search" placeholder={translateText(templateKind === 'mini' ? 'Search Mini Terrain templates…' : `Search ${templateKind === 'nodes' ? 'Nodes' : 'procedural'} templates…`)} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={translateText("Search templates")} />
               </div>
               {filtered.length === 0 && <p className="lp-no-results">{translateText("No template matches “")}{query.trim()}&rdquo;.</p>}
               <div className="lp-card-grid">
                 {filtered.map((item) => (
                   <article className={`lp-card${item.id === selectedTemplateId ? ' selected' : ''}`} key={item.id}>
                     <button type="button" className="lp-card-main" onClick={() => selectTemplate(item.id, templateKind)} onDoubleClick={() => create(item.id, templateKind)}>
-                      <span className={`lp-card-thumb${templateKind === 'nodes' ? ' nodes' : ''}`}>{templateThumbs[item.id] ? <img src={templateThumbs[item.id]} alt="" /> : (() => { const Icon = NODE_TEMPLATE_ICONS[item.icon] || LayoutTemplate; return <Icon size={22} />; })()}</span>
+                      <span className={`lp-card-thumb ${templateKind}`}>{templateKind !== 'mini' && templateThumbs[item.id] ? <img src={templateThumbs[item.id]} alt="" /> : (() => { const Icon = NODE_TEMPLATE_ICONS[item.icon] || (templateKind === 'mini' ? Box : LayoutTemplate); return <Icon size={22} />; })()}</span>
                       <span className="lp-card-info">
                         <strong>{translateText(item.name)}</strong>
                         <small>{translateText(item.description)}</small>
                       </span>
-                      <span className={`lp-template-kind-badge ${templateKind}`}>{translateText(templateKind === 'nodes' ? 'Nodes' : 'Procedural')}</span>
+                      <span className={`lp-template-kind-badge ${templateKind}`}>{translateText(templateKind === 'mini' ? 'Mini Terrain' : templateKind === 'nodes' ? 'Nodes' : 'Procedural')}</span>
                     </button>
                   </article>
                 ))}
@@ -680,7 +696,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
                   </label>
                 </section>
               ) : null}
-              <p className="lp-template-hint">{translateText(templateKind === 'nodes' ? 'Node templates load instantly; open the 2D preview when you need it.' : 'Selecting a template previews it live in the background.')}</p>
+              <p className="lp-template-hint">{translateText(templateKind === 'mini' ? 'Select a template, then create your Mini Terrain diorama.' : templateKind === 'nodes' ? 'Node templates load instantly; open the 2D preview when you need it.' : 'Selecting a template previews it live in the background.')}</p>
               <button type="button" className="lp-primary lp-template-create" onClick={() => create(template.id, templateKind)} disabled={!menuReady || exiting}><FilePlus2 size={15} />{translateText(" Create ")}{translateText(template.name)}</button>
             </section>
             );
@@ -734,7 +750,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       {createOpen && <div className="landing-credits-backdrop landing-create-backdrop" role="presentation" onMouseDown={() => setCreateOpen(false)}>
         <section className="landing-create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-terrain-title" onMouseDown={(event) => event.stopPropagation()}>
           <header>
-            <div><span>{translateText("New project")}</span><h2 id="create-terrain-title">{translateText("Choose how to build your terrain")}</h2><p>{translateText("Each project uses one authoring workflow. All four can be saved and exported.")}</p></div>
+            <div><span>{translateText("New project")}</span><h2 id="create-terrain-title">{translateText("Choose how to build your terrain")}</h2><p>{translateText("Each project uses one authoring workflow. All modes can be saved and exported.")}</p></div>
             <button type="button" onClick={() => setCreateOpen(false)} aria-label={translateText("Close")}><X size={16} /></button>
           </header>
           <div className="landing-create-options">
@@ -762,35 +778,12 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
               <small>{translateText("Choose any real-world location and work in a focused import workspace with geographic elevation, imagery, and buildings.")}</small>
               <span className="landing-create-action">{translateText("Select a location ")}<ArrowRight size={13} /></span>
             </button>
-          </div>
-          <div className="landing-create-mini">
-            <div className="landing-create-mini-head">
+            <button type="button" onClick={() => chooseTemplateWorkflow('mini')} disabled={!menuReady || exiting}>
               <span className="landing-create-icon mini"><Box size={22} /></span>
-              <div>
-                <strong>{translateText("Mini Terrain")}</strong>
-                <small>{translateText("A composed procedural diorama on a cut-away base, with water that stops at its edges. Opens already composed.")}</small>
-              </div>
-            </div>
-            <div className="landing-create-mini-choices">
-              <span className="landing-create-mini-group">{translateText("Procedural")}</span>
-              <div className="landing-create-mini-recipes">
-                {PROJECT_TEMPLATES.map((template) => (
-                  <button key={template.id} type="button" onClick={() => create(template.id, 'mini')} disabled={!menuReady || exiting}>
-                    <strong>{translateText(template.id === 'blank' ? 'Procedural' : template.name)}</strong>
-                    <ArrowRight size={13} aria-hidden />
-                  </button>
-                ))}
-              </div>
-              <span className="landing-create-mini-group">{translateText("Composed scenes")}</span>
-              <div className="landing-create-mini-recipes">
-                {MINI_COMPOSITION_IDS.map((id) => (
-                  <button key={id} type="button" onClick={() => create(id, 'mini')} disabled={!menuReady || exiting}>
-                    <strong>{translateText(MINI_RECIPES[id].labelEn)}</strong>
-                    <ArrowRight size={13} aria-hidden />
-                  </button>
-                ))}
-              </div>
-            </div>
+              <strong>{translateText("Mini Terrain")}</strong>
+              <small>{translateText("A composed procedural diorama on a cut-away base, with water that stops at its edges. Opens already composed.")}</small>
+              <span className="landing-create-action">{translateText("Choose a Mini Terrain template ")}<ArrowRight size={13} /></span>
+            </button>
           </div>
         </section>
       </div>}

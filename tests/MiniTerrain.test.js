@@ -179,7 +179,19 @@ describe('Mini Terrain params and invalidation scopes', () => {
     expect(recipe.params.chunkCount).toBe(1);
     const relief = ctrl.planChange({ relief: 1.3 });
     expect(relief.composition).toBe(true);
-    expect(Object.keys(relief.params)).toEqual(['cloudAltitude']);
+    expect(Object.keys(relief.params).sort())
+      .toEqual(['cloudAltitude', 'heightScale', 'seaLevel', 'terrainFormationSeaLevel', 'waterEnabled']);
+  });
+
+  it('relief rescales a procedural diorama and its water together', () => {
+    const ctrl = new MiniTerrainController({ worldMode: 'studio' });
+    ctrl.state = createMiniTerrainState({ recipe: 'procedural', seed: 7, preset: 'highlands' });
+    const base = miniParamsPatch(ctrl.state, 'all');
+    const taller = ctrl.planChange({ relief: ctrl.state.relief * 1.5 });
+    expect(taller.params.heightScale).toBeGreaterThan(base.heightScale * 1.4);
+    expect(taller.params.terrainFormationSeaLevel).toBeGreaterThan(base.terrainFormationSeaLevel);
+    expect(taller.params.seaLevel).toBeGreaterThan(base.seaLevel);
+    expect(taller.params.cloudAltitude).toBeGreaterThan(base.cloudAltitude);
   });
 });
 
@@ -337,4 +349,115 @@ describe('Mini Terrain keeps a single footprint', () => {
     expect(fake.tiles).toEqual([{ cx: 0, cz: 0 }]);
     expect(ghost.visible).toBe(false);
   }, 30000);   // importing the full engine module can be slow under a parallel run
+});
+
+describe('Mini clouds', () => {
+  it('centres the cloud slab above the footprint and covers its corners', async () => {
+    const { resolveMiniCloudLayout } = await import('../src/engine/mini/MiniTerrainSettings.js');
+    for (const recipe of MINI_RECIPE_IDS) {
+      const state = createMiniTerrainState({ recipe, seed: 99 });
+      const L = resolveMiniLayout(state);
+      const c = resolveMiniCloudLayout(state);
+      expect(c.center).toEqual({ x: 0, z: 0 });
+      expect(c.extent * 0.62).toBeGreaterThanOrEqual(L.half * Math.SQRT2);
+    }
+  });
+});
+
+describe('Mini light map live height grid', () => {
+  it('maps grid texel centres exactly onto the surface vertices', () => {
+    const state = createMiniTerrainState({ recipe: 'procedural', seed: 5 });
+    const L = resolveMiniLayout(state);
+    // a shared bake rectangle that does not match the footprint
+    const origin = new THREE.Vector2(-L.half * 1.3, -L.half * 0.9);
+    const span = new THREE.Vector2(L.half * 2.7, L.half * 2.2);
+    const ctrl = new MiniTerrainController({
+      worldMode: 'studio',
+      uniforms: { uBakeOrigin: { value: origin }, uBakeSpan: { value: span } },
+    });
+    const t = ctrl._gridTransform(L);
+    const n = L.segments + 1;
+    const step = (2 * L.half) / L.segments;
+    for (const i of [0, 1, L.segments >> 1, L.segments]) {
+      // TerrainHeightBaker: bakeUv = t.xy + vUv * t.zw ; xz = origin + bakeUv * span
+      const vUv = (i + 0.5) / n;
+      const x = origin.x + (t.x + vUv * t.z) * span.x;
+      const z = origin.y + (t.y + vUv * t.w) * span.y;
+      expect(x).toBeCloseTo(-L.half + i * step, 6);
+      expect(z).toBeCloseTo(-L.half + i * step, 6);
+    }
+  });
+});
+
+describe('Mini export', () => {
+  const half = 100;
+  const res = 8;
+  const sea = 10;
+  // land rises along +x: x < 0 is under water, x > 0 is dry
+  const at = (i) => -20 + (i / res) * 60;
+
+  it('exports the water as a block limited to the real water column', async () => {
+    const { buildMiniWaterVolume } = await import('../src/engine/mini/MiniExport.js');
+    const geo = buildMiniWaterVolume({ at: (i) => at(i), res, half, seaLevel: sea, baseY: -30 });
+    const pos = geo.getAttribute('position');
+    const index = geo.getIndex().array;
+    let maxY = -Infinity;
+    let minY = Infinity;
+    for (const v of index) {
+      maxY = Math.max(maxY, pos.getY(v));
+      minY = Math.min(minY, pos.getY(v));
+      // no face beyond the footprint
+      expect(Math.abs(pos.getX(v))).toBeLessThanOrEqual(half + 1e-6);
+      expect(Math.abs(pos.getZ(v))).toBeLessThanOrEqual(half + 1e-6);
+    }
+    expect(maxY).toBeCloseTo(sea, 6);
+    expect(minY).toBeCloseTo(at(0), 6);   // deepest rim, above the base
+    // the dry +x face contributes nothing
+    for (let t = 0; t < index.length; t += 3) {
+      const tri = [index[t], index[t + 1], index[t + 2]];
+      if (tri.every((v) => Math.abs(pos.getX(v) - half) < 1e-6)) throw new Error('water face on the dry side');
+    }
+    // every face points out of the block (or up for the surface)
+    const nrm = geo.getAttribute('normal');
+    for (let t = 0; t < index.length; t += 3) {
+      const [a, b, c] = [index[t], index[t + 1], index[t + 2]].map((v) => new THREE.Vector3().fromBufferAttribute(pos, v));
+      const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a));
+      if (n.lengthSq() < 1e-12) continue;
+      expect(n.dot(new THREE.Vector3().fromBufferAttribute(nrm, index[t]))).toBeGreaterThan(0);
+    }
+  });
+
+  it('bakes the section strata as vertex colours down to the section base', async () => {
+    const { buildMiniSectionWalls, miniCutAlbedoCPU } = await import('../src/engine/mini/MiniExport.js');
+    const cut = {
+      topsoil: [0.1, 0.05, 0.02], bandA: [0.4, 0.3, 0.2], bandB: [0.3, 0.2, 0.1],
+      deep: [0.08, 0.07, 0.06], sediment: [0.6, 0.5, 0.3], bands: 9, topsoilDepth: 6, reliefHeight: 300,
+    };
+    const geo = buildMiniSectionWalls({ at: (i) => at(i), res, half, baseY: -40, seaLevel: sea, cut, rows: 10 });
+    const pos = geo.getAttribute('position');
+    const col = geo.getAttribute('color');
+    expect(col.count).toBe(pos.count);
+    let minY = Infinity;
+    for (let v = 0; v < pos.count; v++) {
+      minY = Math.min(minY, pos.getY(v));
+      for (let c = 0; c < 3; c++) expect(Number.isFinite(col.array[v * 3 + c])).toBe(true);
+    }
+    expect(minY).toBeCloseTo(-40, 6);
+    // topsoil right under a dry rim, sediment right under a submerged one
+    const dry = miniCutAlbedoCPU(0, 39.5, 40, sea, { ...cut, baseY: -40 });
+    const wet = miniCutAlbedoCPU(0, -20.5, -20, sea, { ...cut, baseY: -40 });
+    expect(dry[0]).toBeLessThan(0.15);
+    expect(wet[0]).toBeGreaterThan(0.45);
+  });
+});
+
+describe('Stylized water mode', () => {
+  it('is available on Tile and Infinite World and falls back to Legacy on Planet', async () => {
+    const { WATER_MODES, resolveEffectiveWaterMode } = await import('../src/engine/water/WaterSettings.js');
+    expect(WATER_MODES.some((m) => m.value === 'stylized')).toBe(true);
+    const params = { waterMode: 'stylized', waterEnabled: true, seaLevel: 40, waterAutoDowngradeInfinite: true };
+    expect(resolveEffectiveWaterMode(params, 'studio')).toBe('stylized');
+    expect(resolveEffectiveWaterMode(params, 'infinite')).toBe('stylized');
+    expect(resolveEffectiveWaterMode(params, 'planet')).toBe('legacy');
+  });
 });

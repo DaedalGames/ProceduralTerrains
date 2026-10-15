@@ -12580,7 +12580,10 @@ export class Engine {
         const { TerrainExporter } = await import('./terrain/TerrainExporter.js');
         await TerrainExporter.export(
           this.renderer, this.params, this.uniforms, this.boardSize,
-          { ...exportOptions, extraZipFiles, tileWaterMaskFiles, tiles: this.tiles.map((t) => ({ ...t })), tileAssemblyShape: this.tileAssemblyShape, diskRadiusCells: this.diskRadiusCells, cellSize: this.cellSize }, onMsg, this._activeHeightProgram()
+          {
+            ...exportOptions, extraZipFiles, tileWaterMaskFiles, tiles: this.tiles.map((t) => ({ ...t })), tileAssemblyShape: this.tileAssemblyShape, diskRadiusCells: this.diskRadiusCells, cellSize: this.cellSize,
+            mini: this.mini?.exportSpec() ?? null,
+          }, onMsg, this._activeHeightProgram()
         );
       }
       return true;
@@ -12661,6 +12664,14 @@ export class Engine {
     const dispatch = (target, type, payload = {}) => {
       if (target?.dispatchTerrainEvent) target.dispatchTerrainEvent(type, payload);
     };
+    if (typeof frame.pointerLocked === 'boolean') {
+      const doc = this.canvas.ownerDocument;
+      const lockedElement = frame.pointerLocked ? this.canvas : null;
+      if (doc && doc.pointerLockElement !== lockedElement) {
+        doc.pointerLockElement = lockedElement;
+        dispatch(doc, 'pointerlockchange');
+      }
+    }
     for (const event of frame.pointerEvents || []) dispatch(this.canvas, event.type, event);
     for (const event of frame.dragEvents || []) dispatch(this.canvas, event.type, event);
     if (frame.wheel) dispatch(this.canvas, 'wheel', frame.wheel);
@@ -12679,6 +12690,7 @@ export class Engine {
       worldMode: this.worldMode,
       projectMode: this.projectMode,
       workspacePreset: this.workspacePreset,
+      pointerLockEnabled: !!(this.fpsControls || this.player?.dom),
       miniTerrain: this.mini?.serialize() ?? null,
       realWorldSource: this.realWorldSource,
       timeOfDay: this.timeOfDay,
@@ -13114,7 +13126,8 @@ export class Engine {
     if (u.uCausticStrength) {
       // Mini Terrain draws caustics in its own water shader (seabed seen
       // through the water only), so the terrain pass must not add them twice.
-      u.uCausticStrength.value = causticsOn && !this.mini?.active ? causticUser : 0;
+      // The Stylized mode uses the same surface shader on every world.
+      u.uCausticStrength.value = causticsOn && !this.mini?.active && effectiveMode !== 'stylized' ? causticUser : 0;
       // Caustics live on the submerged sea floor and are visible from any
       // viewpoint (above or below water), so they are NOT tied to the camera
       // being underwater — only to water covering the terrain. Depth fade in

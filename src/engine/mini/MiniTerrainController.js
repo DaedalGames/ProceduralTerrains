@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {
   MINI_CUT_STYLES,
   MINI_RECIPES,
@@ -50,6 +51,7 @@ export class MiniTerrainController {
     this._surfaceEntry = null;
     this._presentationKey = '';
     this._homeKey = '';
+    this._ground = { texture: null, revision: -1 };
   }
 
   get active() {
@@ -123,7 +125,14 @@ export class MiniTerrainController {
         composition = true;
       }
       if (changed.includes('relief')) {
+        // Relief scales the whole height range: the composition heights, and
+        // for a procedural diorama the stack itself (heightScale) with the
+        // formation and water levels that are expressed in the same units.
         const all = miniParamsPatch(next, 'all');
+        const structure = miniParamsPatch(next, 'structure');
+        params.heightScale = structure.heightScale;
+        params.terrainFormationSeaLevel = structure.terrainFormationSeaLevel;
+        Object.assign(params, miniParamsPatch(next, 'water'));
         params.cloudAltitude = all.cloudAltitude;
         composition = true;
       }
@@ -239,21 +248,30 @@ export class MiniTerrainController {
       // Structural identity of the diorama: a different recipe/seed/footprint
       // must never be shown with data derived from the previous terrain.
       const structure = [this.state.recipe, this.state.seed, this.state.preset ?? '', L.half].join(':');
-      const bakeReady = eng._studioBakeCurrent?.() === true;
-      if (bakeReady) {
+      // The light map is baked from the terrain's vertex heights rendered by
+      // the compiled height program (one small grid, same frame as an edit),
+      // so it follows every slider live. It needs the program that draws the
+      // terrain right now: during a structural recompile (or before the first
+      // program is ready) the previous map is never shown over a different
+      // relief (white foam plains, floating dark "mountains").
+      const baker = eng.terrainHeightBaker;
+      const program = eng._activeHeightProgram?.('studio');
+      const programKey = program ? `${Math.round(eng.params.octaves)}:${program.heightSig || program.sig}` : null;
+      const programReady = !!baker?.material && baker.programKey === programKey
+        && eng._terrainSourcePendingToken == null;
+      let lightValid = false;
+      if (programReady) {
+        const u = eng.uniforms;
         const key = [
-          eng._terrainGen, eng.uniforms.uTerrainHeightTex?.value?.uuid ?? 'none',
+          eng._terrainGen, programKey, u.uHeightScale.value,
           sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments,
         ].join(':');
-        if (this.lightMap.update(eng.renderer, key, sun)) {
-          this._lightStructure = structure;
-          eng._needsRender = true;
-        }
+        const renderHeights = (grid) => baker.renderHeightGrid(grid, this._gridTransform(L));
+        if (this.lightMap.update(eng.renderer, key, sun, renderHeights)) eng._needsRender = true;
+        lightValid = this.lightMap.isCurrent(key);
+        if (lightValid) this._lightStructure = structure;
       }
-      // While the bake catches up after a structural change, the previous
-      // light map would describe another terrain: disable it (the water falls
-      // back to the captured scene depth) instead of showing stale shading.
-      const lightValid = this.lightMap.ready && this._lightStructure === structure;
+      lightValid = lightValid && this._lightStructure === structure;
       const lightTex = lightValid ? this.lightMap.texture : null;
       const p = eng.params;
       const anim = p.waterAnim ? (eng.uniforms.uTime?.value ?? 0) * (p.waterAnimSpeed ?? 1) * (p.waterWaveSpeed ?? 1) : 0;
@@ -261,9 +279,18 @@ export class MiniTerrainController {
         applyMiniWaterLook(material, { lightTex, animTime: anim });
       }
       this.lightMap.decal.visible = !!lightTex && this.stage?.group.visible !== false;
-      // vegetation and rocks are regular props: they only receive the
-      // diorama's cliff shadows / AO
-      eng.propsManager?.setMiniLightMap(lightTex, L.half);
+      // Vegetation and rocks are regular props: they receive the diorama's
+      // cliff shadows / AO, and a live ground. Whenever the scatter is complete
+      // for the terrain the map describes, its heights are captured; a later
+      // edit keeps that scatter visible, re-seated on the live relief, while
+      // the props rebuild (no blinking, no floating trees mid-drag).
+      const pm = eng.propsManager;
+      if (pm && lightValid && pm.scatterSettled && pm.scatterRevision === eng._terrainGen
+          && this._ground.revision !== eng._terrainGen) {
+        this._ground.texture = this.lightMap.snapshot(eng.renderer);
+        this._ground.revision = this._ground.texture ? eng._terrainGen : -1;
+      }
+      pm?.setMiniLightMap(lightTex, L.half, this._ground);
     }
     const visible = this.active && !!eng.water?.visible && eng.params.seaLevel > 0.5;
     this.waterCut.mesh.visible = visible;
@@ -276,6 +303,28 @@ export class MiniTerrainController {
         inset: Math.max(0.35, L.width * 0.0005),
       });
     }
+  }
+
+  /**
+   * uv transform for TerrainHeightBaker.renderHeightGrid so texel i of the
+   * (segments + 1)^2 grid lands exactly on surface vertex i
+   * (x = -half + i * width / segments), whatever the shared bake rectangle.
+   */
+  _gridTransform(L) {
+    const u = this.engine.uniforms;
+    const o = u.uBakeOrigin.value;
+    const span = u.uBakeSpan.value;
+    const sx = Math.max(span.x, 1);
+    const sz = Math.max(span.y, 1);
+    const step = (2 * L.half) / L.segments;
+    const n = L.segments + 1;
+    this._gridUv ||= new THREE.Vector4();
+    return this._gridUv.set(
+      (-L.half - o.x - 0.5 * step) / sx,
+      (-L.half - o.y - 0.5 * step) / sz,
+      (step * n) / sx,
+      (step * n) / sz,
+    );
   }
 
   setStageVisible(visible) {
@@ -349,6 +398,36 @@ export class MiniTerrainController {
       lightMapReady: !!this.lightMap?.ready,
       props: this.engine.propsManager?.getDiagnostics?.()?.instances ?? null,
       waterCutVisible: !!this.waterCut?.mesh.visible,
+    };
+  }
+
+  /**
+   * What the exporter needs to rebuild the diorama outside the app: section
+   * depth and strata, water colours (linear) and the socle. Null when off.
+   */
+  exportSpec() {
+    if (!this.active) return null;
+    const L = this.layout;
+    const style = MINI_CUT_STYLES[this.state.cutStyle] ?? MINI_CUT_STYLES.strata;
+    const water = miniWaterColors(this.state.recipe);
+    return {
+      width: L.width,
+      half: L.half,
+      baseDepth: L.baseDepth,
+      cut: {
+        topsoil: miniCutColor(style.topsoil),
+        bandA: miniCutColor(style.bandA),
+        bandB: miniCutColor(style.bandB),
+        deep: miniCutColor(style.deep),
+        sediment: miniCutColor(style.sediment),
+        bands: style.bands,
+        topsoilDepth: Math.max(4, L.width * 0.012),
+        reliefHeight: L.reliefHeight,
+      },
+      water: { ...water, depthRange: L.reliefHeight * 0.32 },
+      socle: this.state.socle
+        ? { height: L.socleHeight, margin: L.socleMargin, color: miniCutColor(style.sediment) }
+        : null,
     };
   }
 

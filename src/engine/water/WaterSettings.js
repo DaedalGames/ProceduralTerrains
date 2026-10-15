@@ -10,6 +10,7 @@ export const WATER_MODES = [
   { value: 'realistic', label: 'Realistic / Medium' },
   { value: 'volumetric', label: 'Volumetric / High' },
   { value: 'cinematic', label: 'Cinematic / Ultra' },
+  { value: 'stylized', label: 'Stylized / Diorama' },
 ];
 
 export const WATER_QUALITY_PRESETS = [
@@ -219,6 +220,11 @@ export function resolveEffectiveWaterMode(params, worldMode) {
   if (worldMode === 'infinite' && params.waterAutoDowngradeInfinite) {
     if (mode === 'cinematic') mode = 'realistic';
     else if (mode === 'volumetric') mode = 'realistic';
+  }
+
+  if (worldMode === 'planet' && mode === 'stylized') {
+    // The stylized surface is a flat water plane; the sphere keeps Legacy.
+    mode = 'legacy';
   }
 
   if (worldMode === 'planet' && isRealisticWaterMode(mode)) {

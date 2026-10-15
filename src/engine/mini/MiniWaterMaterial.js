@@ -20,6 +20,12 @@ import * as THREE from 'three';
 // All per-pixel sums are written out (no loops) for ANGLE/FXC.
 // Without a scene capture (should not happen in Mini, which always runs a
 // capture-capable backend) the material falls back to premultiplied alpha.
+//
+// The same surface also serves the "Stylized" water mode of the classic
+// worlds (Tile / Infinite, see water/StylizedWaterLayer.js): unbounded
+// (uMiniHalf huge), reflecting the procedural sky instead of the studio
+// backdrop, fogged like the terrain, and reading the water depth from the
+// studio height bake when one is current (else from the captured scene).
 // ============================================================================
 
 export const MINI_WATER_COMMON_GLSL = /* glsl */ `
@@ -107,6 +113,23 @@ uniform float uMiniRefraction;
 uniform float uMiniWaveStrength;
 uniform float uMiniFoamWidth;
 uniform float uMiniReflect;
+uniform float uMiniWaveScale;
+// environment: 0 = studio backdrop (Mini), 1 = procedural sky colours
+uniform float uMiniEnvSky;
+uniform vec3 uSkyZenith;
+uniform vec3 uSkyHorizon;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+// depth source when no Mini light map: the studio height bake (if current)
+uniform sampler2D uTerrainHeightTex;
+uniform float uUseTerrainHeightTex;
+uniform float uMiniBakeDepth;
+uniform vec2 uBakeOrigin;
+uniform vec2 uBakeSpan;
+uniform float uHeightScale;
+// Infinite World: the plane ends at the terrain render distance
+uniform float uWaterFadeStart;
+uniform float uWaterFadeEnd;
 varying vec3 vWorldPos;
 
 float miniHash(vec2 p) {
@@ -194,11 +217,19 @@ vec3 miniWaterNormal(vec2 p, float t, float footprint, float calm) {
 // Soft studio environment seen in reflections: warm bright horizon, pale
 // blue zenith, slightly darker below the horizon. No HDR spikes.
 vec3 miniEnvironment(vec3 dir) {
-  vec3 horizon = vec3(0.80, 0.81, 0.79);
-  vec3 zenith = vec3(0.50, 0.66, 0.84);
-  vec3 low = vec3(0.55, 0.58, 0.58);
+  vec3 horizon = mix(vec3(0.80, 0.81, 0.79), uSkyHorizon, uMiniEnvSky);
+  vec3 zenith = mix(vec3(0.50, 0.66, 0.84), uSkyZenith, uMiniEnvSky);
+  vec3 low = mix(vec3(0.55, 0.58, 0.58), uSkyHorizon * 0.7, uMiniEnvSky);
   vec3 c = mix(horizon, zenith, smoothstep(0.02, 0.75, dir.y));
   return mix(low, c, smoothstep(-0.25, 0.02, dir.y));
+}
+
+// Terrain height under a point from the studio bake, or -1e4 when unknown.
+float miniBakedTerrain(vec2 xz) {
+  if (uMiniBakeDepth < 0.5 || uUseTerrainHeightTex < 0.5) return -1e4;
+  vec2 uv = (xz - uBakeOrigin) / max(uBakeSpan, vec2(1.0));
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return -1e4;
+  return texture2D(uTerrainHeightTex, uv).a * uHeightScale;
 }
 
 void main() {
@@ -209,14 +240,20 @@ void main() {
   float fragDist = length(p - cameraPosition);
   float t = uMiniWaterAnim;
   vec3 lightHere = miniLight(p.xz);
-  float columnHere = uMiniLightEnabled > 0.5 ? max(uSeaLevel - lightHere.b, 0.0) : 20.0;
+  float bakedHere = miniBakedTerrain(p.xz);
+  float columnHere = uMiniLightEnabled > 0.5 ? max(uSeaLevel - lightHere.b, 0.0)
+    : (bakedHere > -1e3 ? max(uSeaLevel - bakedHere, 0.0) : 20.0);
   // shallow, sheltered water is calmer; open water carries the full spectrum
   float calm = mix(0.45, 1.0, smoothstep(0.5, 9.0, columnHere));
   float footprint = length(fwidth(p.xz));
-  vec3 n = miniWaterNormal(p.xz, t, footprint, calm);
+  float waveScale = max(uMiniWaveScale, 0.05);
+  vec3 n = miniWaterNormal(p.xz / waveScale, t, footprint / waveScale, calm);
   if (dot(n, viewDir) < 0.0) n = -n;
 
   vec2 uv = gl_FragCoord.xy * uSceneViewportInv;
+  vec2 screenUv = uv;
+  float edgeFade = 1.0 - smoothstep(uWaterFadeStart, uWaterFadeEnd, length(cameraPosition.xz - p.xz));
+  if (edgeFade < 0.002) discard;
   vec3 background = vec3(0.0);
   float sceneDist = fragDist + 60.0;
   float hasScene = step(0.5, uSceneRefractionEnabled);
@@ -240,7 +277,8 @@ void main() {
   // in the light map: smooth, view independent (no capture-resolution steps)
   float seabedDepth = max(uSeaLevel - seabed.y, 0.0);
   // without a current light map, the captured seabed is the depth source
-  float columnDepth = uMiniLightEnabled > 0.5 ? max(uSeaLevel - lightSurface.b, 0.0) : seabedDepth;
+  float columnDepth = uMiniLightEnabled > 0.5 ? max(uSeaLevel - lightSurface.b, 0.0)
+    : (bakedHere > -1e3 ? max(uSeaLevel - bakedHere, 0.0) : seabedDepth);
   // optical path: flat-bottom estimate from the column depth, shortened where
   // the captured scene is nearer (slopes, beaches, cliffs under the surface)
   float flatPath = columnDepth / max(-rayDir.y, 0.12);
@@ -274,6 +312,10 @@ void main() {
   // continuous line with soft variation (a hard threshold on a thin band
   // breaks into dashes along steep shores)
   float foam = shore * (0.4 + 0.6 * smoothstep(0.3, 0.75, breakup + shore * 0.25));
+  // a shore is where the bed rises: wide flat shallows (lagoons, sandbanks)
+  // keep only a faint trace instead of turning white
+  float bedSlope = fwidth(columnDepth) / max(footprint, 1e-3);
+  foam *= mix(0.25, 1.0, smoothstep(0.015, 0.09, bedSlope));
   col = mix(col, vec3(0.97, 0.98, 0.97) * (0.75 + 0.25 * lightSurface.r), foam * 0.8 * hasScene);
 
   // crisp glass edge where the surface meets the cut faces
@@ -281,11 +323,22 @@ void main() {
   float edgePx = edgeDist / max(fwidth(edgeDist), 1e-4);
   col = mix(col, vec3(0.94, 0.98, 0.97), (1.0 - smoothstep(0.0, 1.6, edgePx)) * 0.55);
 
+  // distance fog, the terrain's formula (negligible at diorama scale)
+  float fogF = 1.0 - exp(-uFogDensity * uFogDensity * fragDist * fragDist);
+  col = mix(col, uFogColor, clamp(fogF, 0.0, 1.0));
+
   if (hasScene > 0.5) {
+    // far edge (Infinite World): dissolve into the water-free scene behind
+    col = mix(miniSceneColor(screenUv), col, edgeFade);
     gl_FragColor = vec4(pow(max(col, vec3(0.0)), vec3(1.0 / 2.2)), 1.0);
   } else {
-    float alpha = 0.78;
-    gl_FragColor = vec4(pow(max(col, vec3(0.0)), vec3(1.0 / 2.2)) * alpha, alpha);
+    // no capture: the blended terrain behind is the background, so opacity
+    // follows the same absorption (clear shallows, opaque deep water)
+    // (col already carries the body weighted by 1 - T: un-weight it first)
+    float bodyAlpha = clamp(1.0 - dot(transmittance, vec3(0.2126, 0.7152, 0.0722)), 0.18, 0.97);
+    vec3 straight = col / bodyAlpha;
+    float alpha = max(bodyAlpha, max(foam * 0.8, fresnel * uMiniReflect * 0.85)) * edgeFade;
+    gl_FragColor = vec4(pow(max(straight, vec3(0.0)), vec3(1.0 / 2.2)) * alpha, alpha);
   }
 }
 `;
@@ -390,15 +443,29 @@ function waterUniforms(shared) {
   };
 }
 
-export function createMiniWaterSurfaceMaterial(shared) {
+export function createMiniWaterSurfaceMaterial(shared, { name = 'MiniWaterSurface', sky = null } = {}) {
   return new THREE.ShaderMaterial({
-    name: 'MiniWaterSurface',
+    name,
     uniforms: {
       ...waterUniforms(shared),
       uMiniRefraction: { value: 0.035 },
       uMiniWaveStrength: { value: 1.0 },
       uMiniFoamWidth: { value: 2.4 },
       uMiniReflect: { value: 0.6 },
+      uMiniWaveScale: { value: 1.0 },
+      uMiniEnvSky: { value: sky ? 1 : 0 },
+      uSkyZenith: sky?.uSkyZenith ?? { value: new THREE.Color(0.3, 0.5, 0.85) },
+      uSkyHorizon: sky?.uSkyHorizon ?? { value: new THREE.Color(0.75, 0.8, 0.85) },
+      uFogColor: shared.uFogColor ?? { value: new THREE.Color(0.8, 0.84, 0.86) },
+      uFogDensity: shared.uFogDensity ?? { value: 0 },
+      uTerrainHeightTex: shared.uTerrainHeightTex ?? { value: null },
+      uUseTerrainHeightTex: shared.uUseTerrainHeightTex ?? { value: 0 },
+      uMiniBakeDepth: { value: 0 },
+      uBakeOrigin: shared.uBakeOrigin ?? { value: new THREE.Vector2() },
+      uBakeSpan: shared.uBakeSpan ?? { value: new THREE.Vector2(1, 1) },
+      uHeightScale: shared.uHeightScale ?? { value: 1 },
+      uWaterFadeStart: { value: 99999 },
+      uWaterFadeEnd: { value: 100000 },
     },
     vertexShader: SURFACE_VERTEX,
     fragmentShader: SURFACE_FRAGMENT,

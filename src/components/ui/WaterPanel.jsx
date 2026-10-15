@@ -49,6 +49,7 @@ const MODE_HINTS = {
   realistic: 'RGB absorption, live sky reflection, directional waves, and shoreline foam.',
   volumetric: 'Realistic surface plus half-resolution scene refraction, depth rejection, and higher-tier underwater effects.',
   cinematic: 'Volumetric water plus displaced geometry, sparse crest foam, and planar scene reflections. Best for Tile screenshots.',
+  stylized: 'The Mini Terrain diorama water: clear turquoise shallows, soft sky reflection, seabed caustics and a thin shore foam line. Tile and Infinite World; Planet keeps Legacy.',
 };
 
 const MATERIAL_SLIDERS = [

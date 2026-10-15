@@ -15,6 +15,7 @@ import {
 import { applyWaterDebugToMaterials } from './WaterDebugViews.js';
 import { buildWaterMaskFiles, buildWaterMetadata } from './WaterExport.js';
 import { isSceneRefractionMode, WaterSurfacePass } from './WaterSurfacePass.js';
+import { STYLIZED_WATER_MODE, StylizedWaterLayer } from './StylizedWaterLayer.js';
 import {
   isPlanarReflectionMode,
   WaterPlanarReflectionPass,
@@ -60,6 +61,10 @@ export class WaterSystem {
     this._bindSurfaceTiming(engine.water);
     // Presentation override for the studio water mesh (Mini Terrain water).
     this._studioOverride = null;
+    // "Stylized" water mode: the Mini surface on the studio mesh and the
+    // Infinite plane (the managed material underneath stays Legacy).
+    this._stylized = new StylizedWaterLayer(engine);
+    this._stylizedActive = false;
     this._installStudioOverride(engine.water);
 
     // Owned transition materials. The legacy Infinite fallback is private and
@@ -117,6 +122,7 @@ export class WaterSystem {
     const octaves = Math.round(eng.params.octaves);
     this._effectiveMode = resolveEffectiveWaterMode(params, worldMode);
     this._usingRealistic = isRealisticWaterMode(this._effectiveMode);
+    this._syncStylized(worldMode);
 
     if (this._usingRealistic) {
       if (worldMode === 'infinite') {
@@ -186,10 +192,46 @@ export class WaterSystem {
     return isWaterActive(this._effectiveMode, this.engine.params.seaLevel);
   }
 
+  /**
+   * Mode that decides the water-free scene capture. A studio override (Mini
+   * diorama water) composites over that capture whatever the managed tier, so
+   * Legacy / Realistic still capture while it is installed; without an
+   * override this is exactly the effective mode.
+   */
+  _captureMode() {
+    const mode = this._effectiveMode;
+    const presented = this._stylizedActive
+      || (!!this._studioOverride && this.engine.worldMode === 'studio');
+    if (!presented) return mode;
+    return isSceneRefractionMode(mode) ? mode : 'volumetric';
+  }
+
+  /** Stylized mode on/off for the current world + infinite plane override. */
+  _syncStylized(worldMode = this.engine.worldMode) {
+    const active = this._effectiveMode === STYLIZED_WATER_MODE && worldMode !== 'planet';
+    if (active) {
+      this._stylized.ensure(this);
+      this._stylized.applySettings(this.engine.params);
+      this._stylized.update(worldMode);
+    }
+    if (active !== this._stylizedActive) this.engine._needsRender = true;
+    this._stylizedActive = active;
+    this._installInfiniteOverride(this.engine.infiniteWorld?.waterPlane);
+  }
+
+  /** Material shown on the studio mesh / Infinite plane by the stylized mode. */
+  _stylizedMaterial() {
+    return this._stylizedActive ? this._stylized.material : null;
+  }
+
+  get stylizedMaterial() {
+    return this._stylized.material;
+  }
+
   needsSceneRefraction() {
     return this._surfacePass.shouldCapture(
       this.engine.params,
-      this._effectiveMode,
+      this._captureMode(),
       this.engine.worldMode,
     );
   }
@@ -201,6 +243,7 @@ export class WaterSystem {
     const prevRealistic = this._usingRealistic;
     this._effectiveMode = resolveEffectiveWaterMode(params, worldMode);
     this._usingRealistic = isRealisticWaterMode(this._effectiveMode);
+    this._syncStylized(worldMode);
     this._syncStudioGeometry(params, worldMode);
 
     if (prevMode !== this._effectiveMode || prevRealistic !== this._usingRealistic) {
@@ -244,6 +287,10 @@ export class WaterSystem {
   /** Per-frame update — FPS downgrade + bounds helper. */
   update(fps, now = performance.now()) {
     this._maybeFpsDowngrade(this.engine.perf, fps, now);
+    if (this._stylizedActive) {
+      this._installInfiniteOverride(this.engine.infiniteWorld?.waterPlane);
+      this._stylized.update(this.engine.worldMode);
+    }
   }
 
   /**
@@ -260,7 +307,7 @@ export class WaterSystem {
     ].filter(Boolean);
     return this._surfacePass.capture(renderer, scene, camera, {
       params: eng.params,
-      mode: this._effectiveMode,
+      mode: this._captureMode(),
       worldMode: eng.worldMode,
       sceneSize,
       hiddenObjects: [
@@ -429,7 +476,20 @@ export class WaterSystem {
     Object.defineProperty(mesh, 'material', {
       configurable: true,
       enumerable: true,
-      get() { return system._studioOverride ?? managed; },
+      get() { return system._studioOverride ?? system._stylizedMaterial() ?? managed; },
+      set(value) { managed = value; },
+    });
+  }
+
+  /** Same accessor for the Infinite World water plane (created per session). */
+  _installInfiniteOverride(mesh) {
+    if (!mesh || Object.getOwnPropertyDescriptor(mesh, 'material')?.get) return;
+    let managed = mesh.material;
+    const system = this;
+    Object.defineProperty(mesh, 'material', {
+      configurable: true,
+      enumerable: true,
+      get() { return system._stylizedMaterial() ?? managed; },
       set(value) { managed = value; },
     });
   }
@@ -438,6 +498,7 @@ export class WaterSystem {
   getCompileMaterials() {
     const mats = [];
     if (this._studioOverride) mats.push(this._studioOverride);
+    if (this._stylizedActive) mats.push(...this._stylized.compileMaterials);
     if (this.engine.waterMaterial) mats.push(this.engine.waterMaterial);
     if (this.engine._infiniteWaterMat) mats.push(this.engine._infiniteWaterMat);
     if (this.engine.planetWaterMat) mats.push(this.engine.planetWaterMat);
@@ -528,6 +589,8 @@ export class WaterSystem {
     this._restoreSurfaceTiming();
     this._disposeRealistic();
     this._disposeLegacyInfiniteFallback();
+    this._stylizedActive = false;
+    this._stylized.dispose(this);
     if (this._boundsHelper) {
       this.engine.scene.remove(this._boundsHelper);
       this._boundsHelper.geometry?.dispose();
@@ -873,7 +936,7 @@ export class WaterSystem {
     for (const mat of this._allActiveMaterials()) {
       applyWaterMaterialSettings(mat, params, this._effectiveMode, debug);
     }
-    if (!isSceneRefractionMode(this._effectiveMode)) {
+    if (!isSceneRefractionMode(this._captureMode())) {
       this._surfacePass.deactivate([
         this._realisticStudio,
         this._realisticInfinite,

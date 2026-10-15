@@ -248,6 +248,59 @@ describe('optimized prop performance architecture', () => {
     manager.dispose();
   });
 
+  it('drops props on a terrain edit unless a live ground is installed', () => {
+    const manager = new ProceduralPropsManager(new THREE.Scene());
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    const sampler = makeSampler();
+    const input = {
+      mode: 'studio', camera, params: propParams(), perf: createPerfSettings('balanced'),
+      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 },
+    };
+    do manager.update(input); while (manager.getDiagnostics().queuedSectors > 0);
+    let t = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
+    manager.update({ ...input, terrainRevision: 2 });
+    clock.mockRestore();
+    // historical behaviour (every mode but Mini): nothing kept from revision 1
+    expect(manager._staleSectors.size).toBe(0);
+    expect(manager.meshes.some((mesh) => mesh.name.endsWith('-stale'))).toBe(false);
+    manager.dispose();
+  });
+
+  it('keeps the previous props visible while a terrain edit rebuilds them', () => {
+    const manager = new ProceduralPropsManager(new THREE.Scene());
+    const ground = { texture: new THREE.Texture(), revision: 1 };
+    manager.setMiniLightMap(new THREE.Texture(), 256, ground);
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    camera.position.set(0, 80, 120);
+    const sampler = makeSampler();
+    const input = {
+      mode: 'studio', camera, params: propParams(), perf: createPerfSettings('balanced'),
+      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 },
+    };
+    do manager.update(input); while (manager.getDiagnostics().queuedSectors > 0);
+    const total = (d) => Object.values(d.instances).reduce((a, b) => a + b, 0);
+    const before = total(manager.getDiagnostics());
+    expect(before).toBeGreaterThan(0);
+    // a terrain edit whose frame budget is spent after one sector: most
+    // sectors are not rebuilt yet, yet nothing disappears
+    let t = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
+    manager.update({ ...input, terrainRevision: 2 });
+    clock.mockRestore();
+    expect(manager.getDiagnostics().queuedSectors).toBeGreaterThan(0);
+    expect(total(manager.getDiagnostics())).toBeGreaterThan(before * 0.9);
+    // kept props render in their own batches, re-seated on the live ground
+    const stale = manager.meshes.filter((mesh) => mesh.name.endsWith('-stale') && mesh.count > 0);
+    expect(stale.length).toBeGreaterThan(0);
+    expect(manager._groundShiftActive()).toBe(1);
+    expect(manager.scatterSettled).toBe(false);
+    do manager.update({ ...input, terrainRevision: 2 }); while (manager.getDiagnostics().queuedSectors > 0);
+    expect(manager._staleSectors.size).toBe(0);
+    expect(total(manager.getDiagnostics())).toBe(before);
+    manager.dispose();
+  });
+
   it('invalidates only sectors intersecting dirty paint bounds', () => {
     const manager = new ProceduralPropsManager(new THREE.Scene());
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);

@@ -592,18 +592,16 @@ export function miniParamsPatch(state, scope = 'all') {
 }
 
 /**
- * Cloud slab placement: centred BEHIND the composition (away from the
- * opening / initial camera) so the few formations frame the scene from the
- * back and the sides instead of capping the focal area.
+ * Cloud slab placement: centred on the footprint, its radial fade
+ * (radius = extent × 0.62 in CloudSlabLayer) reaching the corners of the
+ * diorama, so the formations always sit above the board, never beside it.
  */
 export function resolveMiniCloudLayout(state) {
   const s = normalizeMiniTerrainState(state) ?? createMiniTerrainState();
   const L = resolveMiniLayout(s);
-  const c = resolveMiniComposition(s);
-  const [fx, fz] = c.frame;
   return {
     extent: L.width * 1.15,
-    center: { x: -fx * L.width * 0.38, z: -fz * L.width * 0.38 },
+    center: { x: 0, z: 0 },
   };
 }
 

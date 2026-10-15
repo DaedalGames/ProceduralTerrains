@@ -194,7 +194,10 @@ export class WorkerEngineTransport {
       canvas,
       send: (method, args) => this.invoke(method, args),
     });
-    return initialized;
+    return initialized.then((snapshot) => {
+      this.inputBridge?.setPointerLockEnabled(snapshot?.pointerLockEnabled);
+      return snapshot;
+    });
   }
 
   invoke(method, args = [], { transfer = [], signal } = {}) {
@@ -264,11 +267,16 @@ export class WorkerEngineTransport {
   }
 
   _message(data) {
+    if (data?.type === 'exitPointerLock') {
+      this.inputBridge?.exitPointerLock();
+      return;
+    }
     if (data?.type === 'callback') {
       this.remoteCallbacks.get(data.callbackId)?.(...(data.args || []));
       return;
     }
     if (data?.type === 'event') {
+      if (data.snapshot) this.inputBridge?.setPointerLockEnabled(data.snapshot.pointerLockEnabled);
       this.onEvent?.(data.event, data.args || [], data.snapshot || null, data.seq);
       if (data.event === 'onCamera' || data.event === 'onParams' || data.event === 'onTiles') {
         void this.minimapPresenter.refresh();
