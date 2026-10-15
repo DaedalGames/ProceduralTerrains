@@ -24,7 +24,9 @@ describe('Mini water inspector', () => {
         params={{ ...WATER_DEFAULT_PARAMS, seaLevel: 40, waterMode }} perf={{}}
         onParam={() => {}} planetStyleProps={{ onColorChange: () => {} }} />);
       for (const id of ['performance.waterQuality', 'performance.waterReflection', 'performance.waterDetail', 'performance.waterWaves',
-        'water.waterOpacity', 'water.waterAbsorptionStrength', 'water.waterWaveScale', 'water.waterFoamEnabled', 'water.waterUnderwaterCaustics']) {
+        'water.waterOpacity', 'water.waterAbsorptionStrength', 'water.waterWaveScale', 'water.waterFoamEnabled', 'water.waterUnderwaterCaustics',
+        'water.waterDioramaShader', 'water.waterDioramaReflections', 'water.waterDioramaReflectionStrength',
+        'water.waterDioramaTransparency', 'water.waterDioramaShoreClarity']) {
         expect(html).toContain(`data-setting-id="${id}"`);
       }
       for (const id of ['water.waterMode', 'water.waterRoughness', 'water.waterDepthFalloff', 'water.waterSmallWaveStrength',
@@ -32,5 +34,20 @@ describe('Mini water inspector', () => {
         expect(html).not.toContain(`data-setting-id="${id}"`);
       }
     }
+  });
+  it('shows the full wave field only with the Realistic diorama shader', () => {
+    const render = (shader) => renderToStaticMarkup(<WaterPanel miniActive worldMode="studio"
+      params={{ ...WATER_DEFAULT_PARAMS, seaLevel: 40, waterDioramaShader: shader }} perf={{}}
+      onParam={() => {}} planetStyleProps={{ onColorChange: () => {} }} />);
+    expect(render('realistic')).toContain('data-setting-id="water.waterSmallWaveStrength"');
+    expect(render('realistic')).toContain('data-setting-id="water.waterDioramaTint"');
+    expect(render('stylized')).not.toContain('data-setting-id="water.waterDioramaTint"');
+    expect(render('stylized')).not.toContain('data-setting-id="water.waterSmallWaveStrength"');
+  });
+  it('offers the diorama controls for the classic Stylized water mode', () => {
+    const html = renderToStaticMarkup(<WaterPanel worldMode="studio"
+      params={{ ...WATER_DEFAULT_PARAMS, seaLevel: 40, waterMode: 'stylized' }} perf={{}}
+      onParam={() => {}} planetStyleProps={{ onColorChange: () => {} }} />);
+    expect(html).toContain('data-setting-id="water.waterDioramaReflections"');
   });
 });

@@ -4,6 +4,7 @@ import { createProceduralSkyUniforms } from '../src/engine/sky/proceduralSkyGLSL
 import {
   applyRealisticWaterUniforms,
   createRealisticWaterMaterial,
+  waterReflectionTraceSteps,
 } from '../src/engine/water/RealisticWaterMaterial.js';
 import { WATER_PRESETS } from '../src/engine/water/WaterPresets.js';
 import {
@@ -57,7 +58,7 @@ describe('Realistic Water Surface V2', () => {
       'float sceneRefractionWeight = sceneCaptureEnabled * visibleFloor',
     );
     expect(material.fragmentShader).toContain(
-      'vec3 sceneTransmittance = mix',
+      'vec3 sceneTransmittance = transmittance * 0.82',
     );
     expect(material.fragmentShader).toContain(
       'float depth = uSeaLevel - floorH',
@@ -244,5 +245,43 @@ describe('Realistic Water Surface V2', () => {
     expect(WATER_WAVES_GLSL).toContain(
       `float legacyDomainScale = ${WATER_WAVE_SCALE_COMPATIBILITY.domainScale} * scale`,
     );
+  });
+
+  it('lights the water body from the flat surface, not the wave normal', () => {
+    const material = createRealisticWaterMaterial(createTerrainUniforms());
+
+    expect(material.fragmentShader).toContain('vec3 bodyAlbedo = deepColor * 0.45;');
+    expect(material.fragmentShader).toContain(
+      'vec3 inScatter = scatteringColor * (vec3(1.0) - transmittance);',
+    );
+    expect(material.fragmentShader).not.toContain('float diff = max(dot(n, uSunDir), 0.0);');
+    expect(material.fragmentShader).toContain('waterRefractedCosine(');
+    material.dispose();
+  });
+
+  it('traces terrain reflections through the baked height field on every tier', () => {
+    const material = createRealisticWaterMaterial(createTerrainUniforms());
+
+    expect(material.uniforms.uWaterTraceSteps.value).toBe(0);
+    expect(material.fragmentShader).toContain('float waterTraceTerrain(');
+    expect(material.fragmentShader).toContain('for (int i = 0; i < uWaterTraceSteps; i++)');
+    expect(material.fragmentShader).toContain(
+      'reflectedSky = mix(reflectedSky, terrainReflectionColor, terrainReflection);',
+    );
+
+    applyRealisticWaterUniforms(material, { waterReflectionQuality: 1 }, 'realistic');
+    expect(material.uniforms.uWaterTraceSteps.value).toBe(20);
+    applyRealisticWaterUniforms(material, { waterReflectionQuality: 1 }, 'volumetric');
+    expect(material.uniforms.uWaterTraceSteps.value).toBe(32);
+    expect(waterReflectionTraceSteps(3, 1.4)).toBe(50);
+    expect(waterReflectionTraceSteps(2, 0.1)).toBe(0);
+    material.dispose();
+  });
+
+  it('adds aperiodic gust-modulated ripples to the analytic spectrum', () => {
+    expect(WATER_WAVES_GLSL).toContain('float waterGustMask(');
+    expect(WATER_WAVES_GLSL).toContain('vec3 waterNoiseD(vec2 p)');
+    expect(WATER_WAVES_GLSL).toContain('void waterRippleOctave(');
+    expect(WATER_WAVES_GLSL).toContain('float dirWobble');
   });
 });

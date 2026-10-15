@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { createTerrainUniforms } from '../src/engine/terrain/TerrainMaterial.js';
 import { WaterSystem } from '../src/engine/water/WaterSystem.js';
-import { applyMiniWaterLook, createMiniWaterSurfaceMaterial, createMiniWaterCutMaterial } from '../src/engine/mini/MiniWaterMaterial.js';
+import {
+  applyMiniWaterLook, createMiniWaterSurfaceMaterial, createMiniWaterCutMaterial,
+  realisticMiniAbsorption, resolveMiniReflections, miniTransparencyScale,
+} from '../src/engine/mini/MiniWaterMaterial.js';
+import { WATER_DEFAULT_PARAMS } from '../src/engine/water/WaterSettings.js';
 import { MiniTerrainController } from '../src/engine/mini/MiniTerrainController.js';
 import { MiniStudioStage } from '../src/engine/mini/MiniStudioStage.js';
 import { createMiniTerrainState, miniParamsPatch } from '../src/engine/mini/MiniTerrainSettings.js';
@@ -48,6 +52,96 @@ describe('Mini water controls', () => {
       expect(materials[0].uniforms[key].value).toBe(0);
     }
     materials.forEach((m) => m.dispose());
+  });
+});
+
+describe('Diorama water shader and reflections', () => {
+  it('keeps the Stylized program and sky-only reflection by default', () => {
+    const shared = createTerrainUniforms();
+    const surface = createMiniWaterSurfaceMaterial(shared);
+    applyMiniWaterLook(surface, { params: { ...WATER_DEFAULT_PARAMS } });
+    expect(surface.defines?.MINI_WATER_REALISTIC).toBeUndefined();
+    expect(surface.uniforms.uMiniReflectTerrain.value).toBe(0);
+    expect(surface.uniforms.uMiniTraceSteps.value).toBe(0);
+    expect(surface.uniforms.uMiniReflectDistort.value).toBe(1);
+    expect(surface.uniforms.uMiniReflectBlur.value).toBe(0);
+    expect(surface.uniforms.uMiniReflect.value).toBeCloseTo(0.6, 6);
+    surface.dispose();
+  });
+
+  it('switches surface and cut to the Realistic program with physical absorption', () => {
+    const shared = createTerrainUniforms();
+    const surface = createMiniWaterSurfaceMaterial(shared);
+    const cut = createMiniWaterCutMaterial(shared);
+    const params = { ...WATER_DEFAULT_PARAMS, waterDioramaShader: 'realistic', waterWaveDirection: 90 };
+    for (const material of [surface, cut]) {
+      applyMiniWaterLook(material, { params, depthRange: 50 });
+      expect(material.defines.MINI_WATER_REALISTIC).toBe(1);
+      const absorb = material.uniforms.uMiniWaterAbsorb.value;
+      // red is always absorbed first
+      expect(absorb.x).toBeGreaterThan(absorb.y);
+      expect(absorb.x).toBeGreaterThan(absorb.z);
+    }
+    expect(surface.fragmentShader).toContain('#ifdef MINI_WATER_REALISTIC');
+    expect(surface.fragmentShader).toContain('waterDirectionalNormal(p.xz, t, fragDist');
+    expect(surface.uniforms.uWaveDir.value.y).toBeCloseTo(1, 6);
+    // Auto mirrors the terrain with the Realistic shader
+    expect(surface.uniforms.uMiniReflectTerrain.value).toBe(1);
+    expect(surface.uniforms.uMiniTraceSteps.value).toBeGreaterThan(0);
+
+    applyMiniWaterLook(surface, { params: { ...params, waterDioramaShader: 'stylized' } });
+    expect(surface.defines.MINI_WATER_REALISTIC).toBeUndefined();
+    surface.dispose();
+    cut.dispose();
+  });
+
+  it('resolves reflection modes, strength and limits', () => {
+    expect(resolveMiniReflections({ waterDioramaReflections: 'off' }).strength).toBe(0);
+    expect(resolveMiniReflections({ waterDioramaReflections: 'terrain' }, false).terrain).toBe(true);
+    expect(resolveMiniReflections({ waterDioramaReflections: 'sky' }, true).terrain).toBe(false);
+    expect(resolveMiniReflections({ waterDioramaReflections: 'bogus' }, true).terrain).toBe(true);
+    const r = resolveMiniReflections({ waterDioramaReflectionBlur: 4, waterDioramaReflectionDistortion: -1 });
+    expect(r.blur).toBe(1);
+    expect(r.distortion).toBe(0);
+
+    const surface = createMiniWaterSurfaceMaterial(createTerrainUniforms());
+    applyMiniWaterLook(surface, { params: { waterFresnelStrength: 1, waterDioramaReflectionStrength: 0.5 } });
+    expect(surface.uniforms.uMiniReflect.value).toBeCloseTo(0.3, 6);
+    surface.dispose();
+  });
+
+  it('matches the Tile water absorption model', () => {
+    const absorb = realisticMiniAbsorption([0.02, 0.4, 0.38], 46, 1, 0.6);
+    expect(absorb[1]).toBeCloseTo(2.3 / 46 * 1.15, 6);
+    expect(realisticMiniAbsorption([0.1, 0.5, 0.5], 40, 0, 0.5)).toEqual([0, 0, 0]);
+  });
+});
+
+describe('Diorama water transparency', () => {
+  it('keeps the authored absorption at the default transparency', () => {
+    expect(miniTransparencyScale({})).toBe(1);
+    expect(miniTransparencyScale({ waterDioramaTransparency: 0.75 })).toBe(0.5);
+    expect(miniTransparencyScale({ waterDioramaTransparency: 0 })).toBe(4);
+  });
+
+  it('scales absorption in both shaders and clears the waterline', () => {
+    const shared = createTerrainUniforms();
+    for (const shader of ['stylized', 'realistic']) {
+      const surface = createMiniWaterSurfaceMaterial(shared);
+      const base = { ...WATER_DEFAULT_PARAMS, waterDioramaShader: shader };
+      applyMiniWaterLook(surface, { params: base, depthRange: 50 });
+      const before = surface.uniforms.uMiniWaterAbsorb.value.clone();
+      applyMiniWaterLook(surface, { params: { ...base, waterDioramaTransparency: 0.75, waterDioramaShoreClarity: 2 } });
+      expect(surface.uniforms.uMiniWaterAbsorb.value.x).toBeCloseTo(before.x * 0.5, 6);
+      expect(surface.uniforms.uMiniShoreClear.value).toBe(2);
+      surface.dispose();
+    }
+  });
+
+  it('turns spectral tint off with zero Colour Absorption', () => {
+    const neutral = realisticMiniAbsorption([0.02, 0.4, 0.38], 46, 1, 0.6, 0);
+    expect(neutral[0]).toBeCloseTo(neutral[1], 6);
+    expect(neutral[1]).toBeCloseTo(neutral[2], 6);
   });
 });
 

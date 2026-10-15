@@ -99,6 +99,14 @@ const SETTINGS_INDEX = [
   { panelId: 'water', settingId: 'water.waterAnim', label: 'Water Animation', keywords: 'water waves ocean motion' },
   { panelId: 'water', sectionLabel: 'Shoreline', settingId: 'water.waterFoamWidth', label: 'Shore Distance', keywords: 'water shore shoreline coast distance width foam band' },
   { panelId: 'water', settingId: 'water.waterDebugView', label: 'Water Debug View', keywords: 'water debug depth foam shoreline mask' },
+  { panelId: 'water', sectionLabel: 'Water Shader', settingId: 'water.waterDioramaShader', label: 'Diorama Water Shader', keywords: 'water shader stylized realistic diorama mini terrain' },
+  { panelId: 'water', sectionLabel: 'Reflections', settingId: 'water.waterDioramaReflections', label: 'Reflections', keywords: 'water reflection mirror terrain sky diorama mini stylized' },
+  { panelId: 'water', sectionLabel: 'Reflections', settingId: 'water.waterDioramaReflectionStrength', label: 'Reflection Strength', keywords: 'water reflection strength mirror diorama mini' },
+  { panelId: 'water', sectionLabel: 'Reflections', settingId: 'water.waterDioramaReflectionBlur', label: 'Reflection Blur', keywords: 'water reflection blur rough soft diorama mini' },
+  { panelId: 'water', sectionLabel: 'Transparency', settingId: 'water.waterDioramaTransparency', label: 'Transparency', keywords: 'water transparency clear clarity see through visibility opacity diorama mini' },
+  { panelId: 'water', sectionLabel: 'Transparency', settingId: 'water.waterDioramaTint', label: 'Colour Absorption', keywords: 'water color colour absorption tint turquoise depth diorama mini' },
+  { panelId: 'water', sectionLabel: 'Transparency', settingId: 'water.waterDioramaShoreClarity', label: 'Shore Clarity', keywords: 'water shore clear transparent edge waterline clarity diorama mini' },
+  { panelId: 'water', sectionLabel: 'Reflections', settingId: 'water.waterDioramaReflectionDistortion', label: 'Wave Distortion', keywords: 'water reflection distortion waves ripple mirror diorama mini' },
 
   // Planet style / colors
   { panelId: 'planet', sectionLabel: 'Palette', settingId: 'planet.palettePreset', label: 'Color Palette Preset', keywords: 'palette preset colors theme earth desert ice toxic neon volcanic cartoon pastel moon rust monolith gray grey', aliases: 'cartoon toon colors palette' },

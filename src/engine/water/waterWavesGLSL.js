@@ -177,6 +177,76 @@ vec2 waterRotateDirection(vec2 direction, float radians) {
   );
 }
 
+// Sine-free hash: stable at large world coordinates.
+float waterWaveHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// Quintic value noise with its analytic gradient: x = value, yz = d/dp.
+// Non-periodic, so ripples built from it never line up into a visible grid.
+vec3 waterNoiseD(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+  float a = waterWaveHash(i);
+  float b = waterWaveHash(i + vec2(1.0, 0.0));
+  float c = waterWaveHash(i + vec2(0.0, 1.0));
+  float d = waterWaveHash(i + vec2(1.0, 1.0));
+  float k1 = b - a;
+  float k2 = c - a;
+  float k4 = a - b - c + d;
+  return vec3(
+    a + k1 * u.x + k2 * u.y + k4 * u.x * u.y,
+    du * vec2(k1 + k4 * u.y, k2 + k4 * u.x)
+  );
+}
+
+// Wind gusts ("cat's paws"): drifting patches where the wind roughens the
+// surface, separated by glassy slicks. Stretched along the wind so slicks form
+// streaks. 0 = calm slick, 1 = full gust.
+float waterGustMask(vec2 xz, vec2 primary, float t, float speed, float scale) {
+  vec2 across = vec2(-primary.y, primary.x);
+  vec2 windFrame = vec2(dot(xz, primary), dot(xz, across));
+  vec2 gp = windFrame * vec2(0.0042, 0.0105) * mix(1.0, scale, 0.5)
+    - vec2(t * max(speed, 0.0) * 0.045, 0.0);
+  float broad = vnoise(gp);
+  float fine = vnoise(gp * 2.7 + vec2(13.7, -7.3));
+  return smoothstep(0.30, 0.78, broad * 0.68 + fine * 0.32);
+}
+
+// Short-crested ripple chop from rotated gradient-noise octaves. Each octave
+// lives in its own wind-aligned, anisotropic frame (crests run across the
+// wind) and drifts downwind, filling the gaps between the analytic trains.
+void waterRippleOctave(
+  inout vec2 slope,
+  inout float lost,
+  vec2 xz,
+  vec2 primary,
+  float angle,
+  float frequency,
+  float amp,
+  float drift,
+  float t,
+  float footprint,
+  vec2 seed
+) {
+  vec2 along = waterRotateDirection(primary, angle);
+  vec2 across = vec2(-along.y, along.x);
+  vec2 stretch = vec2(1.0, 0.42) * frequency;
+  vec2 q = vec2(dot(xz, along), dot(xz, across)) * stretch
+    - vec2(t * drift * frequency, 0.0) + seed;
+  vec3 noise = waterNoiseD(q);
+  // Chain rule back to world XZ: grad_xz = M^T * grad_q.
+  vec2 gradQ = noise.yz * stretch;
+  vec2 gradXZ = along * gradQ.x + across * gradQ.y;
+  float f = waterBandFilter(6.2831853 * frequency, footprint);
+  slope += gradXZ / max(frequency, 0.0001) * amp * f;
+  lost += amp * amp * 0.35 * (1.0 - f * f);
+}
+
 // One wave train of the iterative ocean spectrum. Sharp exp(sin) crests,
 // deep-water dispersion (short waves travel slower), a wind-aligned spread
 // that widens for small waves, and a drag on the sample point so finer
@@ -201,12 +271,16 @@ void waterSpectrumBand(
   float mediumPatchA,
   float mediumPatchB,
   float smallPatch,
-  float regionalShift
+  float regionalShift,
+  float dirWobble
 ) {
   float odd = step(0.5, fract(index * 0.5));
-  // Golden-ratio direction sequence around the wind, never repeating.
+  // Golden-ratio direction sequence around the wind, never repeating. The
+  // regional wobble swings each train a little differently across the water,
+  // so crest lines curve instead of tiling as parallel rulings.
   float spread = mix(0.45, 1.55, band);
-  float angle = (fract(index * 0.6180340 + 0.137) * 2.0 - 1.0) * spread;
+  float angle = (fract(index * 0.6180340 + 0.137) * 2.0 - 1.0) * spread
+    + dirWobble * (fract(index * 0.7548777) - 0.5) * mix(0.35, 0.9, band);
   vec2 dir = waterRotateDirection(primary, angle);
 
   float energy = mix(uLargeWaveStr, mediumWeight, smoothstep(0.0, 0.45, band));
@@ -313,6 +387,16 @@ vec3 waterDirectionalNormal(vec2 xz, float t, float cameraDistance, float roughn
     )
   );
 
+  // Gusts modulate the chop far more than the swell: slicks stay glassy while
+  // the long waves keep rolling through them.
+  float gust = waterGustMask(xz, primary, t, speed, scale);
+  largePatchA *= mix(0.78, 1.0, gust);
+  largePatchB *= mix(0.78, 1.0, gust);
+  mediumPatchA *= mix(0.42, 1.08, gust);
+  mediumPatchB *= mix(0.42, 1.08, gust);
+  smallPatch *= mix(0.22, 1.12, gust);
+  float dirWobble = (regionalA - regionalB) * 2.0 + macroC * 0.6;
+
   // Ocean spectrum: 12 wave trains from the legacy ~18-unit swell down to
   // ~1-unit capillary chop (x1.3 wavenumber per band).
   // Each train has a sharp exp(sin) crest profile, deep-water dispersion
@@ -333,18 +417,25 @@ vec3 waterDirectionalNormal(vec2 xz, float t, float cameraDistance, float roughn
   float lost = 0.0;
   // Straight-line band calls, no loop: ANGLE/FXC on Windows stalls for
   // minutes unrolling loops with loop-carried transcendental state.
-  waterSpectrumBand(p, slope, lost, primary, kBase * 1.00000, kBase, 0.0000, 0.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 1.30000, kBase, 0.0909, 1.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 1.69000, kBase, 0.1818, 2.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 2.19700, kBase, 0.2727, 3.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 2.85610, kBase, 0.3636, 4.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 3.71293, kBase, 0.4545, 5.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 4.82681, kBase, 0.5455, 6.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 6.27485, kBase, 0.6364, 7.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 8.15731, kBase, 0.7273, 8.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 10.60450, kBase, 0.8182, 9.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 13.78585, kBase, 0.9091, 10.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
-  waterSpectrumBand(p, slope, lost, primary, kBase * 17.92160, kBase, 1.0000, 11.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 1.00000, kBase, 0.0000, 0.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 1.30000, kBase, 0.0909, 1.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 1.69000, kBase, 0.1818, 2.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 2.19700, kBase, 0.2727, 3.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 2.85610, kBase, 0.3636, 4.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 3.71293, kBase, 0.4545, 5.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 4.82681, kBase, 0.5455, 6.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 6.27485, kBase, 0.6364, 7.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 8.15731, kBase, 0.7273, 8.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 10.60450, kBase, 0.8182, 9.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 13.78585, kBase, 0.9091, 10.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+  waterSpectrumBand(p, slope, lost, primary, kBase * 17.92160, kBase, 1.0000, 11.0, t, speed, footprint, detail * microFade, mediumWeight, largePatchA, largePatchB, mediumPatchA, mediumPatchB, smallPatch, regionalA - regionalB, dirWobble);
+
+  // Gradient-noise chop between the analytic trains: aperiodic, short-crested
+  // and wind-aligned. Wavelengths ~6, ~2.6 and ~1.1 units at Wave Scale 1.
+  float rippleEnergy = uSmallWaveStr * smallPatch * detail * microFade;
+  waterRippleOctave(slope, lost, waveXZ, primary, 0.31, 0.16 * scale, 0.050 * mix(mediumWeight, uSmallWaveStr, 0.5) * mix(0.45, 1.0, gust), 1.25 * speed, t, footprint, vec2(17.31, -4.77));
+  waterRippleOctave(slope, lost, waveXZ, primary, -0.47, 0.38 * scale, 0.042 * rippleEnergy, 0.85 * speed, t, footprint, vec2(-31.9, 11.4));
+  waterRippleOctave(slope, lost, waveXZ, primary, 0.83, 0.88 * scale, 0.034 * rippleEnergy, 0.55 * speed, t, footprint, vec2(5.2, 47.6));
   waterNormalLostVariance = lost;
 
   float strength = uNormalIntensity * uWaveStrength * uWaveComplexity;

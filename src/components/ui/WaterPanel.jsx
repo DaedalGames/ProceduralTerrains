@@ -134,6 +134,61 @@ const CAUSTIC_SLIDERS = [
   },
 ];
 
+const DIORAMA_SHADER_OPTIONS = [
+  { value: 'stylized', label: 'Stylized' },
+  { value: 'realistic', label: 'Realistic' },
+];
+
+const DIORAMA_REFLECTION_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'sky', label: 'Sky only' },
+  { value: 'terrain', label: 'Sky + terrain' },
+  { value: 'off', label: 'Off' },
+];
+
+const DIORAMA_REFLECTION_SLIDERS = [
+  { key: 'waterDioramaReflectionStrength', label: 'Reflection Strength', min: 0, max: 2, step: 0.05, digits: 2 },
+  { key: 'waterDioramaReflectionBlur', label: 'Reflection Blur', min: 0, max: 1, step: 0.05, digits: 2, info: 'Softens mirrored terrain and broadens the reflected sky, like a rougher surface.' },
+  { key: 'waterDioramaReflectionDistortion', label: 'Wave Distortion', min: 0, max: 2, step: 0.05, digits: 2, info: 'How strongly the waves bend what the water reflects. 0 = still mirror.' },
+];
+
+const DIORAMA_TRANSPARENCY_SLIDERS = [
+  { key: 'waterDioramaTransparency', label: 'Transparency', min: 0, max: 1, step: 0.01, digits: 2, info: 'How far you see into the water. 0.5 keeps the authored look; higher shows the floor deeper down.' },
+  { key: 'waterDioramaTint', label: 'Colour Absorption', min: 0, max: 2, step: 0.05, digits: 2, realisticOnly: true, info: 'How strongly depth tints the floor (red fades first). 0 = the floor only dims, 2 = vivid turquoise shallows.' },
+  { key: 'waterDioramaShoreClarity', label: 'Shore Clarity', min: 0, max: 8, step: 0.1, digits: 1, unit: ' u', info: 'Depth over which the waterline turns glass clear. 0 = off.' },
+];
+
+// Diorama water shader + reflection controls (Mini Terrain and Stylized mode).
+function DioramaWaterControls({ params, onParam, id }) {
+  useLanguage();
+  const shader = val(params, 'waterDioramaShader');
+  const reflections = val(params, 'waterDioramaReflections');
+  return (
+    <>
+      <ControlSection id={`${id}-diorama-shader`} title={translateText('Water Shader')} defaultOpen settingId="water.section.dioramaShader">
+        <SelectRow label={translateText('Shader')} value={shader} options={DIORAMA_SHADER_OPTIONS}
+          onChange={(v) => onParam('waterDioramaShader', v)} settingId="water.waterDioramaShader"
+          info={translateText('Stylized: the diorama look (bright turquoise ramp). Realistic: the Tile water waves, physical absorption, Fresnel and sun highlights.')} />
+      </ControlSection>
+      <ControlSection id={`${id}-diorama-transparency`} title={translateText('Transparency')} defaultOpen settingId="water.section.dioramaTransparency">
+        {DIORAMA_TRANSPARENCY_SLIDERS.filter((def) => !def.realisticOnly || shader === 'realistic').map((def) => (
+          <SliderCtl key={def.key} def={def} value={val(params, def.key)}
+            onChange={(v) => onParam(def.key, v)} settingId={`water.${def.key}`} />
+        ))}
+      </ControlSection>
+      <ControlSection id={`${id}-diorama-reflections`} title={translateText('Reflections')} defaultOpen settingId="water.section.dioramaReflections">
+        <SelectRow label={translateText('Reflections')} value={reflections} options={DIORAMA_REFLECTION_OPTIONS}
+          onChange={(v) => onParam('waterDioramaReflections', v)} settingId="water.waterDioramaReflections"
+          info={translateText('Auto mirrors the terrain with the Realistic shader and keeps a sky-only reflection with Stylized.')} />
+        {reflections !== 'off' && DIORAMA_REFLECTION_SLIDERS.map((def) => (
+          <SliderCtl key={def.key} def={def} value={val(params, def.key)}
+            onChange={(v) => onParam(def.key, v)} settingId={`water.${def.key}`} />
+        ))}
+      </ControlSection>
+    </>
+  );
+}
+
 const REALISTIC_PERF_SLIDERS = [
   { key: 'waterReflectionQuality', label: 'Reflection Quality', min: 0, max: 1.5, step: 0.05, digits: 2, expensive: true, info: 'Up to 1× controls analytical sky clarity. Above 1× enables planar scene reflection in Cinematic Tile mode.' },
   { key: 'waterFoamQuality', label: 'Foam Quality', min: 0, max: 1.5, step: 0.05, digits: 2 },
@@ -273,6 +328,7 @@ export default function WaterPanelInner({
           enabled={waterActive} onEnabledChange={setEnabled} settingId="water.section.mode">
           <SliderCtl def={SEA_LEVEL_DEF} value={params.seaLevel} onChange={setSeaLevel} settingId="water.seaLevel" />
         </ControlSection>
+        <DioramaWaterControls params={params} onParam={onParam} id={id} />
         <ControlSection id={`${id}-shader`} title={translateText('Shader Quality')} defaultOpen settingId="water.section.shader">
           <SelectRow label={translateText('Water Quality')} value={String(p.waterQuality ?? 2)}
             options={WATER_QUALITY_OPTIONS} onChange={(v) => onPerfSetting?.('waterQuality', Number(v))}
@@ -293,7 +349,13 @@ export default function WaterPanelInner({
           {sliders(DEPTH_SLIDERS.filter((d) => d.key === 'waterAbsorptionStrength'))}
         </ControlSection>
         <ControlSection id={`${id}-waves`} title={translateText('Waves')} defaultOpen settingId="water.section.waves">
-          {sliders(WAVE_SLIDERS.filter((d) => ['waterWaveSpeed', 'waterWaveScale', 'waterWaveStrength', 'waterAnimSpeed'].includes(d.key)))}
+          {sliders(WAVE_SLIDERS.filter((d) => [
+            'waterWaveSpeed', 'waterWaveScale', 'waterWaveStrength', 'waterAnimSpeed',
+            // the Realistic shader runs the full Tile wave field
+            ...(val(params, 'waterDioramaShader') === 'realistic'
+              ? ['waterSmallWaveStrength', 'waterLargeWaveStrength', 'waterWaveDirection']
+              : []),
+          ].includes(d.key)))}
         </ControlSection>
         <ControlSection id={`${id}-foam`} title={translateText('Foam')} defaultOpen settingId="water.section.foam">
           <ToggleRow label={translateText('Shoreline Foam')} value={val(params, 'waterFoamEnabled')}
@@ -371,6 +433,10 @@ export default function WaterPanelInner({
           />
         </div>
       </ControlSection>
+
+      {enabled && mode === 'stylized' && (
+        <DioramaWaterControls params={params} onParam={onParam} id={id} />
+      )}
 
       {enabled && mode !== 'off' && (
         <ControlSection

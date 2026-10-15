@@ -210,6 +210,8 @@ uniform float uDebugMode;          // see WaterDebugViews / setWaterDebugMode
 uniform float uVisualFoamBreakup;
 uniform float uVisualWetSandRange;
 uniform float uVisualShallowWaterSoftness;
+uniform int uWaterTraceSteps;      // reflection height-field march, 0 = off
+uniform mat4 projectionMatrix;
 
 varying vec3 vWorldPos;
 
@@ -287,19 +289,21 @@ void waterNaturalColors(
   out vec3 natShallow,
   out vec3 natDeep
 ) {
-  natShallow = vec3(0.018, 0.360, 0.430);
-  natDeep = vec3(0.004, 0.050, 0.170);
+  // Lake/coastal water: green penetrates about as far as blue, so sand
+  // reads turquoise; open water is a deep teal rather than electric blue.
+  natShallow = vec3(0.020, 0.400, 0.380);
+  natDeep = vec3(0.006, 0.070, 0.100);
   float amount = clamp(strength * uBiomeColorStrength / 0.55, 0.0, 1.0);
   vec4 w = weights * amount;
   float c = canyon * amount;
   natShallow = mix(natShallow, vec3(0.010, 0.520, 0.500), w.y);
-  natDeep = mix(natDeep, vec3(0.002, 0.105, 0.215), w.y);
+  natDeep = mix(natDeep, vec3(0.004, 0.100, 0.150), w.y);
   natShallow = mix(natShallow, vec3(0.030, 0.430, 0.540), w.x);
-  natDeep = mix(natDeep, vec3(0.003, 0.060, 0.230), w.x);
+  natDeep = mix(natDeep, vec3(0.006, 0.072, 0.135), w.x);
   natShallow = mix(natShallow, vec3(0.085, 0.150, 0.055), w.z);
   natDeep = mix(natDeep, vec3(0.018, 0.042, 0.022), w.z);
   natShallow = mix(natShallow, vec3(0.110, 0.330, 0.380), w.w);
-  natDeep = mix(natDeep, vec3(0.022, 0.095, 0.140), w.w);
+  natDeep = mix(natDeep, vec3(0.040, 0.150, 0.180), w.w);
   natShallow = mix(natShallow, vec3(0.120, 0.210, 0.150), c);
   natDeep = mix(natDeep, vec3(0.026, 0.062, 0.058), c);
 }
@@ -344,6 +348,90 @@ float waterLinearSceneDepth(float rawDepth) {
     / max(uSceneFar + uSceneNear - z * (uSceneFar - uSceneNear), 0.0001);
 }
 
+
+float waterReflectionTraceAvailable() {
+#ifdef INFINITE_MODE
+  return 0.0;
+#else
+  // Only the published bake makes the march cheap enough to run per pixel.
+  return uUseWaterTerrainBiomeTex;
+#endif
+}
+
+// March a mirrored ray through the baked terrain height field. Each step
+// advances by a fraction of the ray's height above the terrain, so it races
+// across open air and slows near banks and ridges instead of skipping thin
+// features; a short bisection then pins the hit. Returns 1 on a hit.
+float waterTraceTerrain(
+  vec3 origin,
+  vec3 dir,
+  float jitter,
+  out vec3 hitPos,
+  out float traveled
+) {
+  hitPos = origin;
+  traveled = 0.0;
+  float rise = max(dir.y, 0.002);
+  float tEnd = (uHeightScale * 1.05 - origin.y) / rise;
+  // Leave the march where the ray exits the baked area.
+  vec2 bakeMin = uBakeOrigin;
+  vec2 bakeMax = uBakeOrigin + uBakeSpan;
+  vec2 safeDir = vec2(
+    abs(dir.x) < 1e-5 ? 1e-5 : dir.x,
+    abs(dir.z) < 1e-5 ? 1e-5 : dir.z
+  );
+  vec2 exitT = max(
+    (bakeMin - origin.xz) / safeDir,
+    (bakeMax - origin.xz) / safeDir
+  );
+  tEnd = min(tEnd, min(exitT.x, exitT.y));
+  if (tEnd <= 0.0) return 0.0;
+  float prevT = 0.0;
+  float tCur = 0.4 + jitter * 0.6;
+  for (int i = 0; i < uWaterTraceSteps; i++) {
+    vec3 pos = origin + dir * tCur;
+    float gap = pos.y - waterBakedHeightAt(pos.xz);
+    if (gap < 0.0) {
+      float lo = prevT;
+      float hi = tCur;
+      for (int r = 0; r < 5; r++) {
+        float mid = 0.5 * (lo + hi);
+        vec3 midPos = origin + dir * mid;
+        if (midPos.y < waterBakedHeightAt(midPos.xz)) hi = mid;
+        else lo = mid;
+      }
+      traveled = hi;
+      hitPos = origin + dir * hi;
+      return 1.0;
+    }
+    prevT = tCur;
+    tCur += max(gap * 0.55, 0.5 + tCur * 0.012);
+    if (tCur > tEnd) return 0.0;
+  }
+  return 0.0;
+}
+
+// Lit palette estimate for reflected terrain the scene capture cannot see
+// (off screen, or Realistic tier without a capture). Height bands follow the
+// terrain shader loosely; distance hazes it into the fog like the real thing.
+vec3 waterReflectedTerrainEstimate(vec3 hitPos, float pathLength) {
+  float h01 = clamp(hitPos.y / max(uHeightScale, 1.0), 0.0, 1.0);
+  vec3 albedo = mix(uColGrass, uColForest, 0.55);
+  albedo = mix(albedo, uColDryGrass, smoothstep(0.22, 0.45, h01) * 0.6);
+  albedo = mix(albedo, uColRock, smoothstep(0.35, 0.70, h01));
+  albedo = mix(
+    albedo,
+    uColSnow,
+    smoothstep(uSnowLine - 0.04, uSnowLine + 0.10, h01)
+  );
+  albedo *= uPaletteTint;
+  vec3 light = uTerrainSunCol * uTerrainSunIntensity * 0.45
+    + uTerrainSkyAmb * 0.5
+    + uTerrainBounce * 0.2;
+  float fogF = 1.0 - exp(-uFogDensity * uFogDensity * pathLength * pathLength);
+  return mix(albedo * light, uFogColor, clamp(fogF, 0.0, 1.0));
+}
+
 void main() {
   vec2 xz = vWorldPos.xz;
 
@@ -382,13 +470,12 @@ void main() {
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   if (dot(n, viewDir) < 0.0) n = -n;
 
-  // depth grading — smoothed bathymetry only (not raw relief)
+  // Water colours. Deep is the colour of the water itself — what an
+  // infinitely deep column scatters back. Shallow is the hue light keeps
+  // after travelling through it, which sets the spectral absorption. Shallow
+  // is never painted onto the surface: shallow water shows the floor through
+  // a tinted column, deep water converges to the body colour.
   float shoreSoft = clamp(uVisualShallowWaterSoftness, 0.0, 1.0);
-  float shallowT = smoothstep(0.0, uShallowDist * (1.0 + shoreSoft * 0.85), visualDepth);
-  float deepT = smoothstep(uShallowDist, uDeepDist * (1.0 + shoreSoft * 0.45), visualDepth);
-  float dGrade = pow(clamp(visualDepth / max(uMaxVisibleDepth, 1.0), 0.0, 1.0), max(uDepthFalloff, 0.1));
-  dGrade = mix(shallowT * 0.35, deepT, dGrade) * uDepthColorStr;
-
   vec3 shallowColor = mix(
     vec3(dot(uColShallow, vec3(0.299, 0.587, 0.114))),
     uColShallow,
@@ -421,23 +508,28 @@ void main() {
   float naturalColor = clamp(uWaterNaturalColor, 0.0, 1.0);
   shallowColor = mix(shallowColor, naturalShallow, naturalColor);
   deepColor = mix(deepColor, naturalDeep, naturalColor);
-  vec3 scatteringColor = mix(shallowColor, deepColor, clamp(dGrade, 0.0, 1.0));
+  // Water-leaving reflectance of real water is a few percent; the palette
+  // deep colour is authored brighter so it reads as a swatch.
+  vec3 bodyAlbedo = deepColor * 0.45;
 
-  // Beer–Lambert absorption. Looking across the surface increases the path
-  // length, so shallow grazing views naturally become denser than top-down ones.
-  float opticalDepth = visualDepth / max(abs(viewDir.y), 0.15);
+  // Light path through the column: down along the refracted sun ray, back
+  // up along the refracted view ray. Snell's law caps both slants, so
+  // grazing views get denser without the old 1/cos blow-up.
+  vec3 skySunDir = normalize(uSkySunDir);
+  float viewMu = waterRefractedCosine(clamp(abs(viewDir.y), 0.0, 1.0));
+  float sunMu = waterRefractedCosine(clamp(skySunDir.y, 0.08, 1.0));
+  float opticalDepth = visualDepth
+    * (1.0 / max(viewMu, 0.2) + 1.0 / max(sunMu, 0.2))
+    * max(uDepthColorStr, 0.1);
   vec3 absorptionRGB = waterAbsorptionCoefficients(
-    deepColor,
+    shallowColor,
+    uDeepDist * (1.0 + shoreSoft * 0.3),
     uAbsorptionStr,
     uWaterOpacity,
     uDepthOpacityStr
   );
-  // Real water removes red within a few metres, then green; this is what
-  // turns sand turquoise. Murky biome water already absorbs via deepColor.
-  absorptionRGB += vec3(0.16, 0.03, 0.0)
-    * naturalColor
-    * max(uAbsorptionStr, 0.0);
   vec3 transmittance = waterBeerLambert(absorptionRGB, opticalDepth);
+  // Water Clarity keeps its meaning: higher values let more floor through.
   float transmissionExponent = pow(
     0.45 / max(uRefractionStrength, 0.05),
     0.18
@@ -446,31 +538,20 @@ void main() {
     transmittance,
     vec3(clamp(transmissionExponent, 0.72, 1.45))
   );
-  float volumeAlpha = waterVolumeOpacity(transmittance);
-  // Single-pass blending can only dim the floor behind the water uniformly.
-  // Let the least-transmitted channel through the blend and rebuild the
-  // chromatic remainder from the palette sand, so shallow floors pick up the
-  // water hue instead of showing through untinted.
-  float neutralPass = min(min(transmittance.r, transmittance.g), transmittance.b);
-  float chromaSplit = naturalColor * (1.0 - step(1.5, uWaterTier));
-  volumeAlpha = mix(volumeAlpha, 1.0 - neutralPass, chromaSplit);
-  vec3 chromaTransmission = max(transmittance - vec3(neutralPass), vec3(0.0))
-    * chromaSplit;
 
-  // Schlick Fresnel now follows the animated wave normal.
+  // Schlick Fresnel follows the animated wave normal.
   float fres = waterSchlickFresnel(n, viewDir, uFresnelStrength);
 
   // Screen-space refraction for Volumetric/Cinematic modes. The water-free
   // capture is decoded back to linear space before optical composition.
   float sceneCaptureEnabled = uSceneRefractionEnabled
     * step(1.5, uWaterTier);
-  // Once the floor is no longer visible, refraction should not replace the
-  // palette-defined water body. This keeps Medium and High optically matched
-  // while retaining true refraction in shallow and medium-depth water.
-  float visibleFloor = 1.0 - smoothstep(
-    max(uShallowDist * 1.15, 2.0),
-    max(uDeepDist * 0.82, uShallowDist * 1.5),
-    visualDepth
+  // Once no channel reaches the floor, the explicit composite and the plain
+  // blend agree; skip the capture there.
+  float visibleFloor = smoothstep(
+    0.0005,
+    0.004,
+    max(max(transmittance.r, transmittance.g), transmittance.b)
   );
   float sceneRefractionWeight = sceneCaptureEnabled * visibleFloor;
   // Derive capture UVs from the rasterized pixel. Interpolating clip
@@ -481,9 +562,11 @@ void main() {
   vec3 refractedSceneLinear = vec3(0.0);
   if (sceneCaptureEnabled > 0.5) {
     float refractionDetail = clamp(uRefractionQual, 0.0, 1.5) / 1.5;
+    // Deeper water bends the floor further; the contact line stays put.
     float distortionScale = mix(0.018, 0.065, refractionDetail)
       * uRefractionStrength
-      * (1.0 - fres);
+      * (1.0 - fres)
+      * smoothstep(0.0, 3.0, visualDepth);
     vec2 uvMargin = uSceneTexelSize * 1.5;
     vec2 distortedUv = clamp(
       screenUv + n.xz * distortionScale,
@@ -572,12 +655,75 @@ void main() {
     * mix(0.35, 1.0, reflectionDetail);
   reflectedSky = mix(fallbackReflection, reflectedSky, liveSkyAmount);
 
+  // Planar reflection quality gate for Cinematic (terrain, props, clouds).
+  float planarReflectionWeight = uPlanarReflectionEnabled
+    * step(2.5, uWaterTier);
+  float planarQuality = clamp(
+    (uReflectionQuality - 1.0) * 2.0,
+    0.0,
+    1.0
+  );
+
+  // Terrain reflections: march the mirrored ray through the baked height
+  // field. Hits take their colour from the water-free scene capture where it
+  // is on screen (Volumetric/Cinematic) and from a lit palette estimate
+  // elsewhere, so mountains and shore banks mirror into the water on every
+  // tier instead of the lake reflecting only sky.
+  float terrainReflection = 0.0;
+  vec3 terrainReflectionColor = vec3(0.0);
+  if (
+    uWaterTraceSteps > 0
+    && planarReflectionWeight * planarQuality < 0.99
+    && waterReflectionTraceAvailable() > 0.5
+  ) {
+    float traceJitter = fract(52.9829189 * fract(dot(
+      gl_FragCoord.xy,
+      vec2(0.06711056, 0.00583715)
+    )));
+    vec3 traceHit;
+    float traveled;
+    terrainReflection = waterTraceTerrain(
+      vec3(vWorldPos.x, max(vWorldPos.y, uSeaLevel), vWorldPos.z),
+      reflectedDirection,
+      traceJitter,
+      traceHit,
+      traveled
+    );
+    if (terrainReflection > 0.0) {
+      terrainReflectionColor = waterReflectedTerrainEstimate(
+        traceHit,
+        camDist + traveled
+      );
+      if (sceneCaptureEnabled > 0.5) {
+        vec4 hitClip = projectionMatrix * (viewMatrix * vec4(traceHit, 1.0));
+        if (hitClip.w > 0.0) {
+          vec2 hitUv = hitClip.xy / hitClip.w * 0.5 + 0.5;
+          vec2 edge = min(hitUv, vec2(1.0) - hitUv);
+          float onScreen = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+          if (onScreen > 0.0) {
+            vec2 blurStep = uSceneTexelSize
+              * mix(0.75, 5.0, reflectionBlur);
+            vec3 hitScene = textureLod(uSceneColor, hitUv, 0.0).rgb * 0.36;
+            hitScene += textureLod(uSceneColor, hitUv + vec2(blurStep.x, 0.0), 0.0).rgb * 0.16;
+            hitScene += textureLod(uSceneColor, hitUv - vec2(blurStep.x, 0.0), 0.0).rgb * 0.16;
+            hitScene += textureLod(uSceneColor, hitUv + vec2(0.0, blurStep.y), 0.0).rgb * 0.16;
+            hitScene += textureLod(uSceneColor, hitUv - vec2(0.0, blurStep.y), 0.0).rgb * 0.16;
+            terrainReflectionColor = mix(
+              terrainReflectionColor,
+              pow(max(hitScene, vec3(0.0)), vec3(2.2)),
+              onScreen
+            );
+          }
+        }
+      }
+    }
+  }
+  reflectedSky = mix(reflectedSky, terrainReflectionColor, terrainReflection);
+
   // Cinematic planar reflection captures terrain, props, clouds, and the live
   // sky from a sea-level mirrored camera. Roughness broadens the four-tap
   // sample, while invalid projected coordinates retain analytical sky.
   vec3 reflectedSurface = reflectedSky;
-  float planarReflectionWeight = uPlanarReflectionEnabled
-    * step(2.5, uWaterTier);
   if (planarReflectionWeight > 0.5) {
     vec4 planarProjected = uPlanarReflectionMatrix * vec4(vWorldPos, 1.0);
     vec2 planarUv = planarProjected.xy
@@ -620,11 +766,6 @@ void main() {
       0.0
     ).rgb * 0.15;
     vec3 planarLinear = pow(max(planarEncoded, vec3(0.0)), vec3(2.2));
-    float planarQuality = clamp(
-      (uReflectionQuality - 1.0) * 2.0,
-      0.0,
-      1.0
-    );
     float planarBlend = planarReflectionWeight
       * planarValid
       * planarQuality
@@ -636,7 +777,6 @@ void main() {
   vec3 reflectionTerm = reflectedSurface * fres * reflectionScale;
 
   // Roughness-aware GGX sunlight uses the current sky sun color/intensity.
-  vec3 skySunDir = normalize(uSkySunDir);
   float sunSpecular = waterGgxSunSpecular(n, viewDir, skySunDir, roughness);
   // Sun glitter: on real water individual micro-facets flash the sun, so the
   // highlight is a scatter of sharp glints rather than one smooth blob. A
@@ -677,7 +817,8 @@ void main() {
       glitterVisible * clamp(uSpecularStrength, 0.0, 1.0)
     );
   }
-  sunSpecular = min(sunSpecular, 24.0);
+  // Mirrored terrain blocks the sun's reflection too.
+  sunSpecular = min(sunSpecular, 24.0) * (1.0 - terrainReflection);
   vec3 sunSpecularTerm = waterResolveSunLight(
     uSkySunColor * uSkyLightIntensity
   )
@@ -685,12 +826,12 @@ void main() {
     * uSpecularStrength
     * reflectionScale;
 
-  // Realistic mode keeps the transparent single-pass approximation. Higher
-  // tiers overwrite the water pixel with a complete refracted volume composite,
-  // because the same opaque scene is already behind the transparent surface.
-  float diff = max(dot(n, uSunDir), 0.0);
+  // The water body is lit by the light falling on the flat surface, not by
+  // the wave normal: Lambert shading of ripples is what made the old surface
+  // read as painted plastic. Waves show through reflection and glints.
+  float diff = max(uSunDir.y, 0.0);
   vec3 waterLight = waterResolveLighting(
-    n,
+    vec3(0.0, 1.0, 0.0),
     vec3(0.0, 1.0, 0.0),
     diff,
     vec3(0.62 + 0.38 * diff)
@@ -708,33 +849,34 @@ void main() {
     * smoothstep(-0.05, 0.25, skySunDir.y);
   float scatterPeak = max(max(shallowColor.r, shallowColor.g), shallowColor.b);
   vec3 scatterHue = shallowColor / max(scatterPeak, 0.0001);
-  vec3 subsurface = scatterHue * scatteringColor * sunLightColor
-    * sssAmount * 0.55;
+  vec3 subsurface = scatterHue * max(bodyAlbedo, shallowColor * 0.1)
+    * sunLightColor * sssAmount * 0.6;
+  vec3 scatteringColor = bodyAlbedo * waterLight + subsurface;
+  vec3 inScatter = scatteringColor * (vec3(1.0) - transmittance);
+
+  // Realistic mode keeps the transparent single-pass approximation: the
+  // blend can only dim the floor uniformly, so the least-transmitted channel
+  // goes through the blend and the chromatic remainder is rebuilt from the
+  // palette sand. Shallow floors then pick up the water hue.
+  float volumeAlpha = waterVolumeOpacity(transmittance);
+  float neutralPass = min(min(transmittance.r, transmittance.g), transmittance.b);
+  float chromaSplit = 1.0 - sceneCaptureEnabled;
+  volumeAlpha = mix(volumeAlpha, 1.0 - neutralPass, chromaSplit);
+  vec3 chromaTransmission = max(transmittance - vec3(neutralPass), vec3(0.0))
+    * chromaSplit;
 
   vec3 bodyPremultiplied = (
-      (scatteringColor * waterLight + subsurface)
-        * (vec3(1.0) - transmittance)
-      + uColSand * waterLight * chromaTransmission
+      inScatter
+      + uColSand * 0.8 * waterLight * chromaTransmission
     )
     * (1.0 - fres);
   vec3 premultipliedColor = bodyPremultiplied + reflectionTerm + sunSpecularTerm;
   float reflectionAlpha = clamp(fres * reflectionScale, 0.0, 0.98);
   float alpha = 1.0 - (1.0 - volumeAlpha) * (1.0 - reflectionAlpha);
-  // Preserve only a restrained amount of wavelength separation in the scene
-  // sample. Full RGB transmission made the High tier turn electric blue while
-  // the otherwise identical Medium tier remained teal.
-  float neutralTransmission = dot(
-    transmittance,
-    vec3(0.2126, 0.7152, 0.0722)
-  );
-  vec3 sceneTransmittance = mix(
-    vec3(neutralTransmission),
-    transmittance,
-    0.30
-  );
+  // Submerged ground is wet, so it is darker than the dry capture.
+  vec3 sceneTransmittance = transmittance * 0.82;
   vec3 refractedVolume = refractedSceneLinear * sceneTransmittance
-    + (scatteringColor * waterLight + subsurface)
-      * (vec3(1.0) - transmittance);
+    + inScatter;
   vec3 sceneComposite = refractedVolume * (1.0 - fres)
     + reflectionTerm
     + sunSpecularTerm;
@@ -755,6 +897,21 @@ void main() {
   float foamEdgeNoise = foamNoise * mix(1.4, 4.2, breakup);
   float foamPatch = mix(1.0, smoothstep(0.18, 0.82, vnoise(xz * 0.055 + vec2(t * 0.35, t * -0.28))), breakup);
   float shoreFoam = smoothstep(uFoamWidth + uFoamSoftness + uVisualWetSandRange * 0.05, uFoamSoftness, shoreDist + foamEdgeNoise);
+  // Lace: solid at the waterline, breaking into drifting cells farther out.
+  // Fades to its mean before the finer octave can alias.
+  if (uFoamEnabled > 0.5 && uFoamQual > 0.1) {
+    vec2 foamFlow = vec2(t * uFoamAnimSpeed * 0.35, -t * uFoamAnimSpeed * 0.27);
+    float lace = vnoise(xz * 0.85 + foamFlow) * 0.6
+      + vnoise(xz * 2.1 - foamFlow * 1.7) * 0.4;
+    float laceVisible = waterBandFilter(13.2, glintFootprint);
+    lace = mix(0.62, smoothstep(0.36, 0.70, lace), laceVisible);
+    float edgeSolid = 1.0 - smoothstep(
+      uFoamSoftness,
+      uFoamSoftness + 0.9,
+      shoreDist
+    );
+    shoreFoam *= mix(lace, 1.0, edgeSolid);
+  }
   float nearShore = smoothstep(10.0 + uVisualWetSandRange * 0.35, 0.0, shoreDist);
   float slopeFoam = 0.0;
   float cliffFoam = 0.0;
@@ -846,6 +1003,12 @@ void main() {
       * caust * uCausticsStr * uCausticsQual * 0.28 * alpha;
   }
 
+  // Soft contact line: the last few decimetres fade into the real floor
+  // instead of ending in a hard reflective rim.
+  float contactFade = smoothstep(0.02, 0.7, depth);
+  premultipliedColor *= contactFade;
+  alpha *= contactFade;
+
   float edgeFade = 1.0 - smoothstep(uWaterFadeStart, uWaterFadeEnd, camDist);
   premultipliedColor *= edgeFade;
   alpha *= edgeFade;
@@ -922,6 +1085,7 @@ function realisticUniforms(sharedUniforms, environmentUniforms) {
     ...sharedUniforms,
     ...skyUniforms,
     uWaterHeightTaps: { value: 4 },
+    uWaterTraceSteps: { value: 0 },
     uWaterQuality: { value: 2.0 },
     uWaterDetail: { value: 1.0 },
     uWaterReflection: { value: 1.0 },
@@ -1087,6 +1251,15 @@ export function applyRealisticWaterUniforms(mat, params, mode) {
   u.uFoamQual.value = params.waterFoamQuality ?? 1;
   u.uCausticsQual.value = (params.waterCausticsQuality ?? 0.5) * (tier >= 2 ? 1 : 0.25);
   u.uGeometryDisplacementEnabled.value = tier >= 3 ? 1 : 0;
+  u.uWaterTraceSteps.value = waterReflectionTraceSteps(tier, params.waterReflectionQuality ?? 1);
+}
+
+/** Height-field reflection march length per tier; scales with Reflection Quality. */
+export function waterReflectionTraceSteps(tier, reflectionQuality = 1) {
+  const base = tier >= 3 ? 40 : tier >= 2 ? 32 : 20;
+  const quality = Math.min(Math.max(Number(reflectionQuality) || 0, 0), 1.5);
+  if (quality < 0.15) return 0;
+  return Math.round(base * Math.min(Math.max(quality, 0.5), 1.25));
 }
 
 export function setWaterDebugMode(mat, debugView) {

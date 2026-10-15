@@ -114,6 +114,19 @@ export const WATER_DEFAULT_PARAMS = {
   // water (turquoise shallows, ocean-blue depths) with per-biome variants.
   waterNaturalColor: 0.7,
 
+  // Mini Terrain diorama / Stylized water. Defaults reproduce the original
+  // stylized look; 'realistic' swaps in the classic worlds' waves and optics.
+  waterDioramaShader: 'stylized',
+  // auto = sky + terrain with Realistic, sky only with Stylized
+  waterDioramaReflections: 'auto',
+  waterDioramaReflectionStrength: 1.0,
+  waterDioramaReflectionBlur: 0.0,
+  waterDioramaReflectionDistortion: 1.0,
+  // transparency: 0.5 keeps the authored absorption; tint only in Realistic
+  waterDioramaTransparency: 0.5,
+  waterDioramaTint: 1.0,
+  waterDioramaShoreClarity: 0.0,
+
   // lighting — shared by Legacy, Realistic, Volumetric, Cinematic, and Planet.
   // Atmosphere Influence = 0 restores each shader's previous independent light.
   waterAtmosphereInfluence: 1.0,

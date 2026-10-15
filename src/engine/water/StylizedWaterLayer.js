@@ -1,4 +1,4 @@
-import { applyMiniWaterLook, createMiniWaterSurfaceMaterial } from '../mini/MiniWaterMaterial.js';
+import { applyMiniWaterLook, createMiniWaterSurfaceMaterial, resolveMiniReflections } from '../mini/MiniWaterMaterial.js';
 import { miniWaterColors } from '../mini/MiniLook.js';
 
 // ============================================================================
@@ -50,7 +50,8 @@ export class StylizedWaterLayer {
     });
     const u = this.material.uniforms;
     u.uMiniWaveScale.value = Math.max(0.1, params.waterWaveScale ?? 1);
-    u.uMiniReflect.value = 0.6 * Math.max(0, params.waterFresnelStrength ?? 1);
+    u.uMiniReflect.value = 0.6 * Math.max(0, params.waterFresnelStrength ?? 1)
+      * resolveMiniReflections(params).strength;
   }
 
   /** Per frame: animation clock and depth source. */
