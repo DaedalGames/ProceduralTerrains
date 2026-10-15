@@ -283,6 +283,9 @@ uniform sampler2D uMiniLightTex;
 uniform sampler2D uMiniGroundRef;
 uniform float uMiniHalf;
 uniform float uMiniGroundShift;
+uniform float uMiniTerrainBevel;
+uniform float uMiniBevelRounded;
+uniform float uBoardHalf;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
 varying vec3 vAlbedo;
@@ -319,6 +322,15 @@ ${WIND_VERT_BODY}
   vAlbedo = base * mix(vec3(1.0), tint, aTintMix);
   vTinted = aTintMix;
   gl_Position = projectionMatrix * viewMatrix * wp;
+  #ifdef USE_INSTANCING
+    vec3 miniRoot = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec2 corner = max(abs(miniRoot.xz) - (uBoardHalf - uMiniTerrainBevel), 0.0);
+    bool outsideMini = uMiniBevelRounded > 0.5 ? length(corner) > uMiniTerrainBevel
+      : abs(miniRoot.x) + abs(miniRoot.z) > 2.0 * uBoardHalf - uMiniTerrainBevel;
+    if (uMiniTerrainBevel > 0.0 && outsideMini) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    }
+  #endif
 }
 `;
 
@@ -424,6 +436,9 @@ export function createPropLitMaterial({ shared = null, wind = null, windStrength
       uMiniHalf: miniLight?.half ?? { value: 512 },
       uMiniGroundRef: miniLight?.groundRef ?? { value: null },
       uMiniGroundShift: fade.groundShift,
+      uMiniTerrainBevel: shared?.uMiniTerrainBevel ?? { value: 0 },
+      uMiniBevelRounded: shared?.uMiniBevelRounded ?? { value: 0 },
+      uBoardHalf: shared?.uBoardHalf ?? { value: 512 },
       uPropFadeCenter: fade.center,
       uPropFadeRanges: fade.ranges,
       uTime: wind?.uTime ?? { value: 0 },

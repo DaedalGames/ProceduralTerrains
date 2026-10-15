@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { MINI_BEVEL_GLSL } from './MiniBevel.js';
+import { MINI_LIGHTING_GLSL, miniLightingUniforms } from './MiniLighting.js';
 
 // ============================================================================
 // Mini Terrain water — a dedicated stylised water for the diorama.
@@ -29,6 +31,8 @@ import * as THREE from 'three';
 // ============================================================================
 
 export const MINI_WATER_COMMON_GLSL = /* glsl */ `
+${MINI_LIGHTING_GLSL}
+${MINI_BEVEL_GLSL}
 uniform vec3 uSunDir;
 uniform float uSeaLevel;
 uniform float uTime;
@@ -41,6 +45,9 @@ uniform vec3 uMiniWaterAbsorb;    // per-channel absorption per world unit
 uniform float uMiniWaterDepthRange;
 uniform float uMiniWaterAnim;     // animated time (seconds * speed, 0 when paused)
 uniform float uMiniHalf;
+uniform float uMiniWaterEdges;
+uniform float uMiniWaterBevel;
+uniform float uMiniBevelRounded;
 uniform float uMiniCaustics;
 
 uniform sampler2D uMiniLightTex;  // R = sun visibility, G = AO, B = terrain height
@@ -114,6 +121,13 @@ uniform float uMiniWaveStrength;
 uniform float uMiniFoamWidth;
 uniform float uMiniReflect;
 uniform float uMiniWaveScale;
+uniform float uWaterQuality;
+uniform float uWaterDetail;
+uniform float uWaterReflection;
+uniform float uWaveComplexity;
+uniform float uMiniSpecular;
+uniform float uMiniFoamStrength;
+uniform vec3 uMiniFoamColor;
 // environment: 0 = studio backdrop (Mini), 1 = procedural sky colours
 uniform float uMiniEnvSky;
 uniform vec3 uSkyZenith;
@@ -183,20 +197,28 @@ vec2 miniWaveBand(vec2 p, float angle, float len, float slope, float t, float fo
 }
 
 vec3 miniWaterNormal(vec2 p, float t, float footprint, float calm) {
-  // slow domain warp bends every crest line: no straight, repeating rows
-  vec3 w0 = miniGradNoise(p * 0.011 + vec2(t * 0.013, -t * 0.009));
-  vec3 w1 = miniGradNoise(p * 0.011 + vec2(17.3, -4.1) - vec2(t * 0.011, t * 0.007));
-  vec2 q = p + vec2(w0.x, w1.x) * 14.0;
+  if (uWaveComplexity <= 0.0) return vec3(0.0, 1.0, 0.0);
+  vec2 q = p;
+  if (uWaterQuality > 0.5) {
+    // slow domain warp bends every crest line: no straight, repeating rows
+    vec3 w0 = miniGradNoise(p * 0.011 + vec2(t * 0.013, -t * 0.009));
+    vec3 w1 = miniGradNoise(p * 0.011 + vec2(17.3, -4.1) - vec2(t * 0.011, t * 0.007));
+    q += vec2(w0.x, w1.x) * 14.0;
+  }
 
   float wind = 0.62;
   vec2 s = vec2(0.0);
   s += miniWaveBand(q, wind - 0.92, 41.0, 0.050, t, footprint);
   s += miniWaveBand(q, wind + 0.58, 27.8, 0.055, t, footprint);
   s += miniWaveBand(q, wind - 0.27, 19.4, 0.060, t, footprint);
-  s += miniWaveBand(q, wind + 1.13, 13.6, 0.055, t, footprint);
-  s += miniWaveBand(q, wind + 0.09, 9.8, 0.060, t, footprint);
-  s += miniWaveBand(q, wind - 1.41, 6.9, 0.050, t, footprint);
-  s += miniWaveBand(q, wind + 0.37, 4.7, 0.045, t, footprint);
+  if (uWaterQuality > 0.5) {
+    s += miniWaveBand(q, wind + 1.13, 13.6, 0.055, t, footprint) * uWaveComplexity;
+    s += miniWaveBand(q, wind + 0.09, 9.8, 0.060, t, footprint);
+  }
+  if (uWaterQuality > 1.5) {
+    s += miniWaveBand(q, wind - 1.41, 6.9, 0.050, t, footprint);
+    s += miniWaveBand(q, wind + 0.37, 4.7, 0.045, t, footprint);
+  }
 
   // capillary ripples: two rotated, drifting gradient-noise octaves
   const mat2 ROT_A = mat2(0.80, -0.60, 0.60, 0.80);
@@ -204,13 +226,17 @@ vec3 miniWaterNormal(vec2 p, float t, float footprint, float calm) {
   vec2 r1p = ROT_A * (p * 0.21) + vec2(t * 0.21, t * 0.07);
   vec2 r2p = ROT_B * (p * 0.53) - vec2(t * 0.09, t * 0.33);
   // d/dp n(R p f) = f * transpose(R) * grad (row-vector product)
-  vec2 r1 = (miniGradNoise(r1p).yz * ROT_A) * 0.21 * 0.20;
-  vec2 r2 = (miniGradNoise(r2p).yz * ROT_B) * 0.53 * 0.07;
+  vec2 r1 = vec2(0.0);
+  vec2 r2 = vec2(0.0);
+  if (uWaterDetail > 0.0) {
+    r1 = (miniGradNoise(r1p).yz * ROT_A) * 0.21 * 0.20;
+    if (uWaterQuality > 1.5) r2 = (miniGradNoise(r2p).yz * ROT_B) * 0.53 * 0.07;
+  }
   r1 *= 1.0 - smoothstep(1.2, 3.2, footprint);
   r2 *= 1.0 - smoothstep(0.5, 1.4, footprint);
-  s += (r1 + r2) * 1.2;
+  s += (r1 + r2) * 1.2 * uWaterDetail;
 
-  s *= uMiniWaveStrength * calm * 1.7;
+  s *= uMiniWaveStrength * calm * 1.7 * uWaveComplexity;
   return normalize(vec3(-s.x, 1.0, -s.y));
 }
 
@@ -234,7 +260,7 @@ float miniBakedTerrain(vec2 xz) {
 
 void main() {
   vec3 p = vWorldPos;
-  if (abs(p.x) > uMiniHalf || abs(p.z) > uMiniHalf) discard;
+  if (miniBevelDistance(p.xz, uMiniHalf, uMiniWaterBevel, uMiniBevelRounded) < 0.0) discard;
   vec3 rayDir = normalize(p - cameraPosition);
   vec3 viewDir = -rayDir;
   float fragDist = length(p - cameraPosition);
@@ -293,20 +319,20 @@ void main() {
 
   vec3 transmittance = exp(-uMiniWaterAbsorb * path);
   vec3 body = miniWaterBody(columnDepth);
-  float bodyLight = (0.62 + 0.5 * sunUp * mix(0.78, 1.0, lightSurface.r)) * mix(0.88, 1.0, lightSurface.g);
+  vec3 bodyLight = miniLighting(sunUp, mix(0.78, 1.0, lightSurface.r), lightSurface.g);
   vec3 col = background * transmittance + body * bodyLight * (vec3(1.0) - transmittance);
 
   // soft studio reflection + restrained sun glint
   float ndv = clamp(dot(n, viewDir), 0.0, 1.0);
   float fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-  col = mix(col, miniEnvironment(reflect(rayDir, n)), clamp(fresnel * uMiniReflect, 0.0, 0.85));
+  col = mix(col, miniEnvironment(reflect(rayDir, n)), clamp(fresnel * uMiniReflect * uWaterReflection, 0.0, 0.85));
   vec3 halfDir = normalize(normalize(uSunDir) + viewDir);
   float nh = max(dot(n, halfDir), 0.0);
   float glint = pow(nh, 900.0) * 0.8 + pow(nh, 120.0) * 0.05;
-  col += vec3(1.0, 0.96, 0.88) * glint * sunUp * lightSurface.r;
+  col += uTerrainSunCol * uTerrainSunIntensity * glint * sunUp * lightSurface.r * uMiniSpecular * uWaterReflection;
 
   // thin animated shore foam where the water column is very shallow
-  float shore = 1.0 - smoothstep(0.0, uMiniFoamWidth, columnDepth);
+  float shore = uMiniFoamWidth > 0.0 ? 1.0 - smoothstep(0.0, max(uMiniFoamWidth, 0.001), columnDepth) : 0.0;
   float breakup = miniNoise(p.xz * 0.31 + vec2(t * 0.5, t * 0.3)) * 0.6
                 + miniNoise(mat2(0.8, -0.6, 0.6, 0.8) * p.xz * 0.97 - t * 0.4) * 0.4;
   // continuous line with soft variation (a hard threshold on a thin band
@@ -316,12 +342,12 @@ void main() {
   // keep only a faint trace instead of turning white
   float bedSlope = fwidth(columnDepth) / max(footprint, 1e-3);
   foam *= mix(0.25, 1.0, smoothstep(0.015, 0.09, bedSlope));
-  col = mix(col, vec3(0.97, 0.98, 0.97) * (0.75 + 0.25 * lightSurface.r), foam * 0.8 * hasScene);
+  col = mix(col, uMiniFoamColor * bodyLight, clamp(foam * uMiniFoamStrength * hasScene, 0.0, 1.0));
 
   // crisp glass edge where the surface meets the cut faces
-  float edgeDist = uMiniHalf - max(abs(p.x), abs(p.z));
+  float edgeDist = miniBevelDistance(p.xz, uMiniHalf, uMiniWaterBevel, uMiniBevelRounded);
   float edgePx = edgeDist / max(fwidth(edgeDist), 1e-4);
-  col = mix(col, vec3(0.94, 0.98, 0.97), (1.0 - smoothstep(0.0, 1.6, edgePx)) * 0.55);
+  col = mix(col, vec3(0.94, 0.98, 0.97) * bodyLight, clamp((1.0 - smoothstep(0.0, 1.6, edgePx)) * 0.55 * uMiniWaterEdges, 0.0, 1.0));
 
   // distance fog, the terrain's formula (negligible at diorama scale)
   float fogF = 1.0 - exp(-uFogDensity * uFogDensity * fragDist * fragDist);
@@ -337,7 +363,7 @@ void main() {
     // (col already carries the body weighted by 1 - T: un-weight it first)
     float bodyAlpha = clamp(1.0 - dot(transmittance, vec3(0.2126, 0.7152, 0.0722)), 0.18, 0.97);
     vec3 straight = col / bodyAlpha;
-    float alpha = max(bodyAlpha, max(foam * 0.8, fresnel * uMiniReflect * 0.85)) * edgeFade;
+    float alpha = max(bodyAlpha, max(foam * uMiniFoamStrength, fresnel * uMiniReflect * uWaterReflection * 0.85)) * edgeFade;
     gl_FragColor = vec4(pow(max(straight, vec3(0.0)), vec3(1.0 / 2.2)) * alpha, alpha);
   }
 }
@@ -359,6 +385,18 @@ uniform float uCutHalf;
 uniform float uCutBottom;
 varying vec3 vWorldPos;
 
+float cutRoundedExit(vec2 p, vec2 dir, vec2 quadrant) {
+  vec2 center = quadrant * (uCutHalf - uMiniWaterBevel);
+  vec2 offset = p - center;
+  float a = dot(dir, dir);
+  float b = dot(offset, dir);
+  float discriminant = b * b - a * (dot(offset, offset) - uMiniWaterBevel * uMiniWaterBevel);
+  if (a < 1e-10 || discriminant < 0.0) return 1e20;
+  float t = (-b + sqrt(discriminant)) / a;
+  vec2 hit = (p + dir * t - center) * quadrant;
+  return t > 0.0 && min(hit.x, hit.y) >= -0.001 ? t : 1e20;
+}
+
 float cutBoxExit(vec3 p, vec3 dir) {
   vec3 d = vec3(
     abs(dir.x) < 1e-5 ? 1e-5 : dir.x,
@@ -368,7 +406,21 @@ float cutBoxExit(vec3 p, vec3 dir) {
   float tx = ((d.x > 0.0 ? uCutHalf : -uCutHalf) - p.x) / d.x;
   float tz = ((d.z > 0.0 ? uCutHalf : -uCutHalf) - p.z) / d.z;
   float ty = ((d.y > 0.0 ? uSeaLevel : uCutBottom) - p.y) / d.y;
-  return max(min(min(tx, tz), ty), 0.0);
+  float distance = min(min(tx, tz), ty);
+  // Four diagonal planes close the chamfered footprint for optical absorption.
+  if (uMiniWaterBevel > 0.0 && uMiniBevelRounded > 0.5) {
+    distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(1.0, 1.0)));
+    distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(1.0, -1.0)));
+    distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(-1.0, 1.0)));
+    distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(-1.0, -1.0)));
+  } else if (uMiniWaterBevel > 0.0) {
+    float limit = 2.0 * uCutHalf - uMiniWaterBevel;
+    if (d.x + d.z > 1e-5) distance = min(distance, (limit - p.x - p.z) / (d.x + d.z));
+    if (d.x - d.z > 1e-5) distance = min(distance, (limit - p.x + p.z) / (d.x - d.z));
+    if (-d.x + d.z > 1e-5) distance = min(distance, (limit + p.x - p.z) / (-d.x + d.z));
+    if (-d.x - d.z > 1e-5) distance = min(distance, (limit + p.x + p.z) / (-d.x - d.z));
+  }
+  return max(distance, 0.0);
 }
 
 void main() {
@@ -393,7 +445,7 @@ void main() {
   float depthBelow = max(uSeaLevel - p.y, 0.0);
   float column = uMiniLightEnabled > 0.5 ? max(uSeaLevel - light.b, depthBelow) : max(depthBelow * 1.2, 1.0);
   vec3 body = miniWaterBody(column);
-  float bodyLight = (0.62 + 0.5 * sunUp * mix(0.78, 1.0, light.r)) * mix(0.88, 1.0, light.g);
+  vec3 bodyLight = miniLighting(sunUp, mix(0.78, 1.0, light.r), light.g);
   // light fades slightly with depth inside the slice
   float inside = clamp(depthBelow / max(column, 1.0), 0.0, 1.0);
   body *= bodyLight * mix(1.0, 0.74, inside);
@@ -403,10 +455,12 @@ void main() {
   // crisp glass edges: the waterline and the vertical corners
   float topDist = uSeaLevel - p.y;
   float topPx = topDist / max(fwidth(topDist), 1e-4);
-  float cornerDist = uCutHalf - min(abs(p.x), abs(p.z));
+  vec2 corner = vec2(uCutHalf, uCutHalf - uMiniWaterBevel);
+  float cornerDist = min(length(abs(p.xz) - corner), length(abs(p.xz) - corner.yx));
   float cornerPx = cornerDist / max(fwidth(cornerDist), 1e-4);
-  float edge = max(1.0 - smoothstep(0.0, 1.6, topPx), (1.0 - smoothstep(0.0, 1.4, cornerPx)) * 0.5);
-  col = mix(col, vec3(0.93, 0.98, 0.97), edge * 0.5);
+  float roundedCorner = uMiniWaterBevel > 0.0 ? uMiniBevelRounded : 0.0;
+  float edge = clamp(max(1.0 - smoothstep(0.0, 1.6, topPx), (1.0 - smoothstep(0.0, 1.4, cornerPx)) * 0.5 * (1.0 - roundedCorner)) * uMiniWaterEdges, 0.0, 1.0);
+  col = mix(col, vec3(0.93, 0.98, 0.97) * bodyLight, edge * 0.5);
 
   if (hasScene > 0.5) {
     gl_FragColor = vec4(pow(max(col, vec3(0.0)), vec3(1.0 / 2.2)), 1.0);
@@ -419,6 +473,7 @@ void main() {
 
 function waterUniforms(shared) {
   return {
+    ...miniLightingUniforms(shared),
     uSunDir: shared.uSunDir,
     uSeaLevel: shared.uSeaLevel,
     uTime: shared.uTime,
@@ -430,6 +485,9 @@ function waterUniforms(shared) {
     uMiniWaterDepthRange: { value: 70 },
     uMiniWaterAnim: { value: 0 },
     uMiniHalf: { value: 512 },
+    uMiniWaterEdges: { value: 1 },
+    uMiniWaterBevel: { value: 0 },
+    uMiniBevelRounded: shared.uMiniBevelRounded ?? { value: 0 },
     uMiniCaustics: { value: 0.9 },
     uMiniLightTex: { value: null },
     uMiniLightEnabled: { value: 0 },
@@ -453,6 +511,13 @@ export function createMiniWaterSurfaceMaterial(shared, { name = 'MiniWaterSurfac
       uMiniFoamWidth: { value: 2.4 },
       uMiniReflect: { value: 0.6 },
       uMiniWaveScale: { value: 1.0 },
+      uWaterQuality: { value: 2 },
+      uWaterDetail: { value: 1 },
+      uWaterReflection: { value: 1 },
+      uWaveComplexity: { value: 1 },
+      uMiniSpecular: { value: 1 },
+      uMiniFoamStrength: { value: 0.8 },
+      uMiniFoamColor: { value: new THREE.Vector3(0.97, 0.98, 0.97) },
       uMiniEnvSky: { value: sky ? 1 : 0 },
       uSkyZenith: sky?.uSkyZenith ?? { value: new THREE.Color(0.3, 0.5, 0.85) },
       uSkyHorizon: sky?.uSkyHorizon ?? { value: new THREE.Color(0.75, 0.8, 0.85) },
@@ -500,7 +565,7 @@ export function createMiniWaterCutMaterial(shared) {
  * linear RGB triplets (MiniLook.miniWaterColors); params supply live water
  * settings so the Water panel still steers clarity, waves and foam.
  */
-export function applyMiniWaterLook(material, { colors, params, half, depthRange, lightTex, animTime }) {
+export function applyMiniWaterLook(material, { colors, params, half, depthRange, lightTex, animTime, edges, bevel }) {
   const u = material?.uniforms;
   if (!u) return;
   if (colors) {
@@ -510,6 +575,13 @@ export function applyMiniWaterLook(material, { colors, params, half, depthRange,
     u.uMiniWaterSide.value.set(...colors.side);
   }
   if (params) {
+    const palette = params.planetStyle?.palette;
+    if (palette?.shallow && palette?.deep) {
+      u.uMiniWaterShallow.value.set(...palette.shallow);
+      u.uMiniWaterDeep.value.set(...palette.deep);
+      u.uMiniWaterMid.value.lerpVectors(u.uMiniWaterShallow.value, u.uMiniWaterDeep.value, 0.5);
+      u.uMiniWaterSide.value.copy(u.uMiniWaterShallow.value);
+    }
     // waterOpacity (0..1) is the optical density: lower = clearer water
     const density = 0.45 + (params.waterOpacity ?? 0.5) * 1.1;
     const absorb = (params.waterAbsorptionStrength ?? 0.7) * density;
@@ -519,8 +591,15 @@ export function applyMiniWaterLook(material, { colors, params, half, depthRange,
     if (u.uMiniWaveStrength) u.uMiniWaveStrength.value = (params.waterWaveStrength ?? 0.55) * 1.5;
     if (u.uMiniFoamWidth) u.uMiniFoamWidth.value = params.waterFoamEnabled === false ? 0 : (params.waterFoamWidth ?? 2.2) * 0.6;
     if (u.uMiniRefraction) u.uMiniRefraction.value = 0.06 * (params.waterRefractionStrength ?? 0.5);
+    if (u.uMiniWaveScale) u.uMiniWaveScale.value = params.waterWaveScale ?? 1;
+    if (u.uMiniReflect) u.uMiniReflect.value = 0.6 * (params.waterFresnelStrength ?? 1);
+    if (u.uMiniSpecular) u.uMiniSpecular.value = params.waterSpecularStrength ?? 1;
+    if (u.uMiniFoamStrength) u.uMiniFoamStrength.value = params.waterFoamStrength ?? 0.8;
+    if (u.uMiniFoamColor && palette?.foam) u.uMiniFoamColor.value.set(...palette.foam);
   }
   if (Number.isFinite(half)) u.uMiniHalf.value = half;
+  if (Number.isFinite(edges)) u.uMiniWaterEdges.value = edges;
+  if (Number.isFinite(bevel)) u.uMiniWaterBevel.value = bevel;
   if (Number.isFinite(depthRange)) u.uMiniWaterDepthRange.value = depthRange;
   if (lightTex !== undefined) {
     u.uMiniLightTex.value = lightTex;

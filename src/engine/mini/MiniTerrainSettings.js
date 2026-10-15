@@ -270,6 +270,11 @@ export function normalizeMiniTerrainState(input) {
     vegetation: clamp(finite(input.vegetation, r.vegetation), 0, 1),
     clouds: clamp(finite(input.clouds, r.clouds), 0, 1),
     cutStyle,
+    waterEdges: clamp(finite(input.waterEdges, 1), 0, 2),
+    waterBevel: clamp(finite(input.waterBevel, 0), 0, 10),
+    terrainBevel: clamp(finite(input.bevelSync === true ? input.waterBevel : input.terrainBevel, 0), 0, 10),
+    bevelSync: input.bevelSync === true,
+    bevelStyle: input.bevelStyle === 'rounded' ? 'rounded' : 'chamfer',
     socle: input.socle !== false,
     backdrop,
     camera,
@@ -347,6 +352,8 @@ export function resolveMiniLayout(state) {
     seaLevel,
     segments,
     baseDepth,
+    waterBevel: W * s.waterBevel / 100,
+    terrainBevel: W * s.terrainBevel / 100,
     socleHeight: Math.round(W * 0.045),
     socleMargin: Math.round(W * 0.018),
     quadSize: W / segments,
@@ -511,7 +518,6 @@ export function miniParamsPatch(state, scope = 'all') {
     heightScale: L.heightScale,
     terrainFormationSeaLevel: L.formationSea,
     ...quality,
-    skyboxEnabled: false,
   };
   if (scope === 'water') return water;
   if (scope === 'clouds') return clouds;
@@ -562,9 +568,10 @@ export function miniParamsPatch(state, scope = 'all') {
     ...(MINI_WATER_LOOKS[r.water] ?? MINI_WATER_LOOKS.tropical),
     waterAnim: true,
     ...shape,
-    // studio presentation: neutral backdrop with a fixed key light
+    // Studio presentation; sky and time of day remain editable after creation.
     ...MINI_VISUAL_PARAMS,
-    skyboxEnabled: false,
+    skyboxEnabled: true,
+    skyboxDayNightCycle: true,
     sunAzimuth: 128,
     sunElevation: 46,
     fogDensity: 0.02,

@@ -77,6 +77,7 @@ import {
 import { setApiBackend } from './auth/authApi.js';
 import { getProjectTemplate, PROJECT_TEMPLATES } from './project/ProjectTemplates.js';
 import { MINI_COMPOSITION_IDS, MINI_RECIPES } from './engine/mini/MiniTerrainSettings.js';
+import { MINI_WATER_SETTING_IDS } from './engine/mini/MiniWaterSettings.js';
 import {
   NODE_PROJECT_TEMPLATES, createNodeTemplateGraph, getNodeProjectTemplate,
 } from './project/NodeProjectTemplates.js';
@@ -87,7 +88,7 @@ const MODE_LABEL = { studio: 'Tile', infinite: 'Infinite World', planet: 'Planet
 const NODE_PANEL_IDS = ['explode', 'planet', 'water', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'debug'];
 // Mini Terrain keeps capture/save/undo and the useful advanced panels, but no
 // tile/world layout, streaming or exploration tools.
-const MINI_PANEL_IDS = ['mini', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
+const MINI_PANEL_IDS = ['mini', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'skybox', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
 const REAL_TERRAIN_PANEL_IDS = ['terrain', 'markers', 'explode', 'water', 'props', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'history', 'debug'];
 const PerformanceOverlay = lazy(() => import('./components/perf/PerformanceOverlay.jsx'));
 // Start loading the drawer chunk with the app so the first tool click does
@@ -1965,6 +1966,11 @@ export default function App() {
     const palette = paramsStyle.palette ?? {};
 
     switch (id) {
+      case 'mini.waterEdges': return num(miniTerrain?.waterEdges ?? 1, 2);
+      case 'mini.bevelSync': return yesNo(miniTerrain?.bevelSync ?? false);
+      case 'mini.bevelStyle': return miniTerrain?.bevelStyle === 'rounded' ? 'Rounded' : 'Chamfer';
+      case 'mini.waterBevel': return num(miniTerrain?.waterBevel ?? 0, 2, '%');
+      case 'mini.terrainBevel': return num(miniTerrain?.terrainBevel ?? 0, 2, '%');
       case 'terrain.heightScale': return num(params.heightScale, 0, ' m');
       case 'terrain.seaLevel': return num(params.seaLevel, 0, ' m');
       case 'terrain.noiseScale': return num(params.noiseScale, 1);
@@ -2126,7 +2132,7 @@ export default function App() {
         if (item?.isSection) return 'Section';
         return 'Set';
     }
-  }, [params, perf, timeOfDay, debugFlags]);
+  }, [params, perf, timeOfDay, debugFlags, miniTerrain]);
 
   const settingsSearchResults = useMemo(() => {
     if (!settingsSearchOpen || !searchEnabled) return [];
@@ -2135,6 +2141,9 @@ export default function App() {
       && (miniTerrain ? MINI_PANEL_IDS.includes(panelId) : panelId !== 'mini')
       && (!realTerrainMode || REAL_TERRAIN_PANEL_IDS.includes(panelId))
     ))
+      .filter((item) => !miniTerrain || item.panelId !== 'water' || MINI_WATER_SETTING_IDS.has(item.settingId))
+      .filter((item) => !miniTerrain || item.settingId !== 'performance.waterDistance')
+      .filter((item) => !miniTerrain || !item.settingId.startsWith('lighting.water'))
       .filter((item) => !realTerrainMode || item.panelId !== 'terrain' || item.tabId === 'import' || ['terrain.heightScale', 'terrain.noiseScale'].includes(item.settingId))
       .map((item) => ({ ...item, valueText: formatSearchValue(item) }));
   }, [settingsSearchOpen, settingsSearchQuery, searchEnabled, worldMode, realTerrainMode, miniTerrain, formatSearchValue, language]);

@@ -124,7 +124,7 @@ describe('Mini Terrain seeds and composition', () => {
     expect(L.seaLevel).toBeGreaterThan(0.5);
     expect(miniParamsPatch(s, 'structure')).toEqual({
       chunkCount: 1, chunkSize: 1024, heightScale: p.heightScale, terrainFormationSeaLevel: p.terrainFormationSeaLevel,
-      waterMode: 'volumetric', waterQualityPreset: 'custom', skyboxEnabled: false,
+      waterMode: 'volumetric', waterQualityPreset: 'custom',
     });
   });
 });

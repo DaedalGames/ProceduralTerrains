@@ -27,6 +27,8 @@ uniform float uFalloff;        // edge falloff width (0..1)
 uniform float uEdgeFalloffMode; // 0 island, 1 mountains
 uniform float uInfiniteMode;   // 0 = bounded Tile terrain, 1 = streamed Infinite terrain
 uniform float uBoardHalf;      // half board size in world units
+uniform float uMiniTerrainBevel; // Mini corner chamfer in world units (0 elsewhere)
+uniform float uMiniBevelRounded;
 uniform float uChunkSize;      // internal chunk size in world units
 ${MINI_COMPOSITION_UNIFORMS_GLSL}
 uniform vec3  uSunDir;         // normalized, pointing FROM surface TO sun

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { miniFootprint, sampleMiniHeight } from './MiniBevel.js';
 
 // ============================================================================
 // Mini Terrain export geometry — what a diorama looks like outside the app.
@@ -71,7 +72,21 @@ export function miniCutAlbedoCPU(along, y, rimH, seaLevel, cut) {
 
 // The four footprint edges as (vertex index -> grid i, j), the world position
 // of a sample, the outward normal and the coordinate that runs along the face.
-function footprintEdges(res, half) {
+function footprintEdges(res, half, bevel = 0, rounded = false) {
+  if (bevel > 0) {
+    const ring = miniFootprint(half, bevel, rounded);
+    return ring.map(([x, z], index) => {
+      const [nx, nz] = ring[(index + 1) % ring.length];
+      const normal = new THREE.Vector3(z - nz, 0, nx - x).normalize().toArray();
+      const steps = Math.max(1, Math.ceil(Math.hypot(nx - x, nz - z) / (2 * half) * res));
+      return { normal, steps, sample: (k) => {
+        const px = x + (nx - x) * k / steps;
+        const pz = z + (nz - z) * k / steps;
+        return { i: (px / (2 * half) + 0.5) * res, j: (pz / (2 * half) + 0.5) * res,
+          x: px, z: pz, along: Math.abs(normal[0]) > Math.abs(normal[2]) ? pz : px };
+      } };
+    });
+  }
   const step = (2 * half) / res;
   const pos = (k) => -half + k * step;
   return [
@@ -98,14 +113,15 @@ function pushQuad(indices, positions, a, b, c, d, normal) {
  * Section walls + bottom with baked strata vertex colours.
  * @returns {THREE.BufferGeometry}
  */
-export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, rows = 40 }) {
+export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, rows = 40, bevel = 0, rounded = false }) {
   const positions = []; const normals = []; const colors = []; const indices = [];
   const cutSpec = { ...cut, baseY };
-  for (const edge of footprintEdges(res, half)) {
+  for (const edge of footprintEdges(res, half, bevel, rounded)) {
+    const steps = edge.steps ?? res;
     const first = positions.length / 3;
-    for (let k = 0; k <= res; k++) {
+    for (let k = 0; k <= steps; k++) {
       const s = edge.sample(k);
-      const rim = at(s.i, s.j);
+      const rim = sampleMiniHeight(at, res, half, s.x, s.z);
       const top = Math.max(rim, baseY + 0.01);
       for (let r = 0; r <= rows; r++) {
         // denser rows under the rim, where the topsoil band and fine strata sit
@@ -116,7 +132,7 @@ export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, row
         colors.push(...miniCutAlbedoCPU(s.along, y, rim, seaLevel, cutSpec));
       }
     }
-    for (let k = 0; k < res; k++) {
+    for (let k = 0; k < steps; k++) {
       for (let r = 0; r < rows; r++) {
         const a = first + k * (rows + 1) + r;
         const b = first + (k + 1) * (rows + 1) + r;
@@ -126,12 +142,14 @@ export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, row
   }
   // bottom face (deep colour), facing down
   const b0 = positions.length / 3;
-  for (const [x, z] of [[-half, -half], [half, -half], [half, half], [-half, half]]) {
+  const bottom = miniFootprint(half, bevel, rounded);
+  for (const [x, z] of bottom) {
     positions.push(x, baseY, z);
     normals.push(0, -1, 0);
     colors.push(...cut.deep);
   }
-  pushQuad(indices, positions, b0, b0 + 1, b0 + 2, b0 + 3, [0, -1, 0]);
+  // The clockwise XZ ring faces up; reverse the bottom fan to face down.
+  for (let i = 1; i < bottom.length - 1; i++) indices.push(b0, b0 + i + 1, b0 + i);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -151,29 +169,31 @@ export function createMiniWallMaterial() {
  * The water block: surface + the four cut faces over the real water column.
  * @returns {THREE.BufferGeometry}
  */
-export function buildMiniWaterVolume({ at, res, half, seaLevel, baseY }) {
+export function buildMiniWaterVolume({ at, res, half, seaLevel, baseY, bevel = 0, rounded = false }) {
   const positions = []; const normals = []; const indices = [];
   // surface: one quad over the whole footprint (the opaque terrain hides it
   // wherever the land rises above the water)
   const s0 = 0;
-  for (const [x, z] of [[-half, -half], [half, -half], [half, half], [-half, half]]) {
+  const ring = miniFootprint(half, bevel, rounded);
+  for (const [x, z] of ring) {
     positions.push(x, seaLevel, z);
     normals.push(0, 1, 0);
   }
-  pushQuad(indices, positions, s0, s0 + 1, s0 + 2, s0 + 3, [0, 1, 0]);
+  for (let i = 1; i < ring.length - 1; i++) indices.push(s0, s0 + i, s0 + i + 1);
   // cut faces: from the rim (or the base) up to the water level, clamped so
   // dry stretches collapse to nothing and are dropped
-  for (const edge of footprintEdges(res, half)) {
+  for (const edge of footprintEdges(res, half, bevel, rounded)) {
+    const steps = edge.steps ?? res;
     const first = positions.length / 3;
     const bottoms = [];
-    for (let k = 0; k <= res; k++) {
+    for (let k = 0; k <= steps; k++) {
       const s = edge.sample(k);
-      const bottom = Math.min(seaLevel, Math.max(at(s.i, s.j), baseY));
+      const bottom = Math.min(seaLevel, Math.max(sampleMiniHeight(at, res, half, s.x, s.z), baseY));
       bottoms.push(bottom);
       positions.push(s.x, seaLevel, s.z, s.x, bottom, s.z);
       normals.push(...edge.normal, ...edge.normal);
     }
-    for (let k = 0; k < res; k++) {
+    for (let k = 0; k < steps; k++) {
       if (bottoms[k] >= seaLevel - 1e-4 && bottoms[k + 1] >= seaLevel - 1e-4) continue;
       const top0 = first + k * 2; const bot0 = top0 + 1;
       const top1 = first + (k + 1) * 2; const bot1 = top1 + 1;

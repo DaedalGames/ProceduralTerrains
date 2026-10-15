@@ -307,7 +307,7 @@ export function SurfacePropertiesSettings({ perf, onPerfSetting }) {
   );
 }
 
-export default function PerfSettings({ perf, rendererInfo, onPerfPreset, onPerfSetting, onPerfReset, settingsTarget, onSettingsTargetHandled }) {
+export default function PerfSettings({ perf, rendererInfo, onPerfPreset, onPerfSetting, onPerfReset, settingsTarget, onSettingsTargetHandled, miniActive = false }) {
   useLanguage();
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
@@ -550,9 +550,9 @@ function renderSettings({
         <ToggleRow label={translateText("Underwater Effect")} value={perf.underwaterEffect !== false} onChange={(v) => onPerfSetting('underwaterEffect', v)} settingId="performance.underwaterEffect" />
       </SettingGroup>
 
-      <SettingGroup tab="water" label={translateText("Water Distance")} keywords="extent range fade" {...groupProps}>
+      {!miniActive && <SettingGroup tab="water" label={translateText("Water Distance")} keywords="extent range fade" {...groupProps}>
         <PerfSlider perf={perf} id="waterDistance" onPerfSetting={onPerfSetting} settingId="performance.waterDistance" />
-      </SettingGroup>
+      </SettingGroup>}
 
       <SettingGroup tab="fog" label={translateText("Fog Distance")} keywords="horizon haze atmosphere visibility" {...groupProps}>
         <PerfSlider perf={perf} id="fogDistance" onPerfSetting={onPerfSetting} settingId="performance.fogDistance" />

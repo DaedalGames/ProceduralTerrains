@@ -108,13 +108,23 @@ export class UnderwaterController {
         if (volume && submerge > -1e8) {
           // Signed distance to the footprint walls / floor (positive inside):
           // fades the activation across the cut faces instead of popping.
-          const inside = Math.min(
+          let inside = Math.min(
             cameraPos.x - volume.minX,
             volume.maxX - cameraPos.x,
             cameraPos.z - volume.minZ,
             volume.maxZ - cameraPos.z,
             cameraPos.y - (volume.floorY ?? -Infinity),
           );
+          if (volume.bevel > 0) {
+            const cx = (volume.minX + volume.maxX) * 0.5;
+            const cz = (volume.minZ + volume.maxZ) * 0.5;
+            const span = (volume.maxX - volume.minX + volume.maxZ - volume.minZ) * 0.5;
+            const cornerX = Math.max(Math.abs(cameraPos.x - cx) - (volume.maxX - volume.minX) * 0.5 + volume.bevel, 0);
+            const cornerZ = Math.max(Math.abs(cameraPos.z - cz) - (volume.maxZ - volume.minZ) * 0.5 + volume.bevel, 0);
+            const cornerDistance = volume.rounded ? volume.bevel - Math.hypot(cornerX, cornerZ)
+              : (span - volume.bevel - Math.abs(cameraPos.x - cx) - Math.abs(cameraPos.z - cz)) * Math.SQRT1_2;
+            inside = Math.min(inside, cornerDistance);
+          }
           submerge = Math.min(submerge, inside);
         }
       }

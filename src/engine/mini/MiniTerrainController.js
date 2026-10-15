@@ -101,6 +101,10 @@ export class MiniTerrainController {
   planChange(patch = {}) {
     if (!this.state) return null;
     const prev = this.state;
+    if ((patch.bevelSync ?? prev.bevelSync) && (patch.waterBevel !== undefined || patch.terrainBevel !== undefined)) {
+      const bevel = patch.waterBevel ?? patch.terrainBevel;
+      patch = { ...patch, waterBevel: bevel, terrainBevel: bevel };
+    }
     const next = normalizeMiniTerrainState({ ...prev, ...patch });
     const changed = Object.keys(next).filter((key) => JSON.stringify(next[key]) !== JSON.stringify(prev[key]));
     let params = {};
@@ -160,6 +164,8 @@ export class MiniTerrainController {
     u.uMiniWobble?.value.set(...c.wobble);
     u.uMiniDetail?.value.set(...c.detail);
     if (u.uMiniCut) u.uMiniCut.value = active ? 1 : 0;
+    if (u.uMiniTerrainBevel) u.uMiniTerrainBevel.value = active ? this.layout.terrainBevel : 0;
+    if (u.uMiniBevelRounded) u.uMiniBevelRounded.value = active && this.state.bevelStyle === 'rounded' ? 1 : 0;
     if (!active) return;
     const style = MINI_CUT_STYLES[this.state.cutStyle] ?? MINI_CUT_STYLES.strata;
     const L = this.layout;
@@ -214,9 +220,12 @@ export class MiniTerrainController {
       bottom: -L.baseDepth,
       top: p.seaLevel,
       inset: Math.max(0.35, L.width * 0.0005),
+      bevel: L.waterBevel,
+      rounded: this.state.bevelStyle === 'rounded',
     });
     this.lightMap.setLayout({ half: L.half, segments: L.segments });
     this._applyWaterLook();
+    this.syncLighting();
     eng.waterSystem?.setStudioOverride(this.waterSurface);
     this._syncHome();
     return true;
@@ -230,9 +239,27 @@ export class MiniTerrainController {
       params: this.engine.params,
       half: L.half,
       depthRange: L.reliefHeight * 0.32,
+      edges: this.state.waterEdges,
+      bevel: L.waterBevel,
     };
     applyMiniWaterLook(this.waterSurface, look);
     applyMiniWaterLook(this.waterCut?.material, look);
+  }
+
+  syncLighting(state = null) {
+    if (!this.active) return;
+    const eng = this.engine;
+    const skyActive = eng._skyActive?.() ?? false;
+    this.stage?.setLighting(state ?? eng._resolveCloudLighting?.(), skyActive);
+    const u = this.waterSurface?.uniforms;
+    if (u) {
+      const sky = eng.proceduralSky?.uniforms;
+      u.uMiniEnvSky.value = skyActive && sky ? 1 : 0;
+      if (sky) {
+        u.uSkyZenith.value.copy(sky.uSkyZenith.value);
+        u.uSkyHorizon.value.copy(sky.uSkyHorizon.value);
+      }
+    }
   }
 
   /**
@@ -264,7 +291,7 @@ export class MiniTerrainController {
         const u = eng.uniforms;
         const key = [
           eng._terrainGen, programKey, u.uHeightScale.value,
-          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments,
+          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments, L.terrainBevel, this.state.bevelStyle,
         ].join(':');
         const renderHeights = (grid) => baker.renderHeightGrid(grid, this._gridTransform(L));
         if (this.lightMap.update(eng.renderer, key, sun, renderHeights)) eng._needsRender = true;
@@ -301,6 +328,8 @@ export class MiniTerrainController {
         bottom: -L.baseDepth,
         top: eng.params.seaLevel,
         inset: Math.max(0.35, L.width * 0.0005),
+        bevel: L.waterBevel,
+        rounded: this.state.bevelStyle === 'rounded',
       });
     }
   }
@@ -336,7 +365,7 @@ export class MiniTerrainController {
   underwaterVolume() {
     if (!this.active) return null;
     const L = this.layout;
-    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth };
+    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth, bevel: L.waterBevel, rounded: this.state.bevelStyle === 'rounded' };
   }
 
   /** Walkable rectangle: the footprint, a step inside the cut faces. */
@@ -414,6 +443,9 @@ export class MiniTerrainController {
       width: L.width,
       half: L.half,
       baseDepth: L.baseDepth,
+      terrainBevel: L.terrainBevel,
+      waterBevel: L.waterBevel,
+      rounded: this.state.bevelStyle === 'rounded',
       cut: {
         topsoil: miniCutColor(style.topsoil),
         bandA: miniCutColor(style.bandA),

@@ -270,7 +270,7 @@ export class WaterSystem {
   }
 
   applyPerf(perf) {
-    const mats = this._allActiveMaterials();
+    const mats = new Set([...this._allActiveMaterials(), ...this._auxiliaryWaterMaterials()]);
     for (const mat of mats) {
       if (!mat?.uniforms) continue;
       if (mat.uniforms.uWaterQuality) mat.uniforms.uWaterQuality.value = perf.waterQuality;

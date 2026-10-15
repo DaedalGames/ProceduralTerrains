@@ -2,6 +2,11 @@ import { translateText } from '../../i18n/language.js';
 
 const SETTINGS_INDEX = [
   // Mini Terrain (only offered while a Mini project is open)
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelSync', label: 'Sync Bevels', keywords: 'mini water terrain bevel sync link synchronized corners coins lier synchroniser' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelStyle', label: 'Bevel Style', keywords: 'mini water terrain bevel rounded round chamfer arrondi biseau coins' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.waterEdges', label: 'Water Edges', keywords: 'mini water edges outline highlight border corners aretes bords' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.waterBevel', label: 'Water Bevel', keywords: 'mini water bevel chamfer corners coins biseau' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.terrainBevel', label: 'Terrain Bevel', keywords: 'mini terrain bevel chamfer corners coins biseau' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.recipe', label: 'Mini Preset', keywords: 'mini diorama preset recipe cove cliff islet island lake mountain composition', aliases: 'crique ilot lac' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.regenerate', label: 'Regenerate Diorama', keywords: 'mini diorama regenerate seed random new composition' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.relief', label: 'Mini Relief', keywords: 'mini diorama relief height cliffs mountains' },

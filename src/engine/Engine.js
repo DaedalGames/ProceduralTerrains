@@ -11327,6 +11327,7 @@ export class Engine {
     this.planetCloudLayer?.setLighting(state);
     this.planetCloudChunks?.setLighting(state);
     this._syncTerrainLighting(state, tod);
+    this.mini?.syncLighting(state);
     this._syncTerrainCloudShadows();
     this._needsRender = true;
   }

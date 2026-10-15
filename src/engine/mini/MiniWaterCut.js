@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createMiniWaterCutMaterial } from './MiniWaterMaterial.js';
+import { miniFootprint } from './MiniBevel.js';
 
 // ============================================================================
 // MiniWaterCut — the four vertical faces that make the diorama's water read as
@@ -34,17 +35,17 @@ import { createMiniWaterCutMaterial } from './MiniWaterMaterial.js';
 //   off; the opaque section wall depth-occludes the faces below the terrain.
 // ============================================================================
 
-export function buildMiniWaterCutGeometry(half, bottom, top, inset = 0.5) {
+export function buildMiniWaterCutGeometry(half, bottom, top, inset = 0.5, bevel = 0, rounded = false) {
   const h = Math.max(1, half - inset);
   const y0 = bottom;
   const y1 = Math.max(top, bottom + 0.01);
   // Each face: 4 vertices, CCW when seen from outside (outward normal).
-  const faces = [
-    { n: [0, 0, 1], v: [[-h, y0, h], [h, y0, h], [h, y1, h], [-h, y1, h]] },
-    { n: [1, 0, 0], v: [[h, y0, h], [h, y0, -h], [h, y1, -h], [h, y1, h]] },
-    { n: [0, 0, -1], v: [[h, y0, -h], [-h, y0, -h], [-h, y1, -h], [h, y1, -h]] },
-    { n: [-1, 0, 0], v: [[-h, y0, -h], [-h, y0, h], [-h, y1, h], [-h, y1, -h]] },
-  ];
+  const ring = miniFootprint(h, bevel, rounded);
+  const faces = ring.map(([x, z], i) => {
+    const [nx, nz] = ring[(i + 1) % ring.length];
+    const normal = new THREE.Vector3(z - nz, 0, nx - x).normalize().toArray();
+    return { n: normal, v: [[x, y0, z], [nx, y0, nz], [nx, y1, nz], [x, y1, z]] };
+  });
   const positions = [];
   const normals = [];
   const indices = [];
@@ -76,14 +77,15 @@ export class MiniWaterCut {
   }
 
   /** Update the box (half-width, section base, water level). */
-  setBounds({ half, bottom, top, inset }) {
-    const key = `${half}:${bottom}:${top}:${inset}`;
+  setBounds({ half, bottom, top, inset, bevel = 0, rounded = false }) {
+    const key = `${half}:${bottom}:${top}:${inset}:${bevel}:${rounded}`;
     this.material.uniforms.uCutHalf.value = half - inset;
     this.material.uniforms.uCutBottom.value = bottom;
+    this.material.uniforms.uMiniWaterBevel.value = bevel;
     if (key === this._key) return;
     this._key = key;
     this.mesh.geometry.dispose();
-    this.mesh.geometry = buildMiniWaterCutGeometry(half, bottom, top, inset);
+    this.mesh.geometry = buildMiniWaterCutGeometry(half, bottom, top, inset, bevel, rounded);
   }
 
   dispose() {

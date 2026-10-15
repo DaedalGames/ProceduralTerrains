@@ -1,6 +1,7 @@
 import { SURFACE_TEXTURE_UNIFORMS_GLSL, SURFACE_TEXTURE_FUNCTIONS_GLSL } from './surface/terrainSurfaceTextureGLSL.js';
 import { installSurfaceMaterialBackend } from './surface/SurfaceArrayGLSL.js';
 import * as THREE from 'three';
+import { miniBevelPoint, miniFootprint, sampleMiniHeight } from '../mini/MiniBevel.js';
 import { readRenderTargetPixelsAsync, withExportRenderTarget } from '../render/RendererReadback.js';
 import { serializeGlb, canvasPngBytes } from '../../export/ExportEncoding.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
@@ -417,8 +418,10 @@ export class TerrainExporter {
         for (let j = 0; j <= meshRes; j++) {
           const z = ctr.z + (j / meshRes - 0.5) * cellSize;
           for (let i = 0; i <= meshRes; i++) {
-            positions.push(ctr.x + (i / meshRes - 0.5) * cellSize, at(i, j), z);
-            uvs.push(i / meshRes, j / meshRes);
+            const x = ctr.x + (i / meshRes - 0.5) * cellSize;
+            const [px, pz] = mini ? miniBevelPoint(x, z, cellSize / 2, mini.terrainBevel, mini.rounded) : [x, z];
+            positions.push(px, mini ? sampleMiniHeight(at, meshRes, cellSize / 2, px, pz) : at(i, j), pz);
+            uvs.push((px - ctr.x) / cellSize + 0.5, (pz - ctr.z) / cellSize + 0.5);
           }
         }
         for (let j = 0; j < meshRes; j++) {
@@ -446,12 +449,13 @@ export class TerrainExporter {
         // base slab option), then the socle under it.
         if (mini && includeSkirts) {
           const wallGeo = buildMiniSectionWalls({
-            at, res: meshRes, half: cellSize / 2, baseY: baseHeight, seaLevel, cut: mini.cut,
+            at, res: meshRes, half: cellSize / 2, baseY: baseHeight, seaLevel, cut: mini.cut, bevel: mini.terrainBevel, rounded: mini.rounded,
           });
           if (!includeBase) {
-            // drop the bottom quad (last 6 indices)
+            // Drop the bottom fan, including its additional chamfer vertices.
             const index = wallGeo.getIndex();
-            wallGeo.setIndex(Array.from(index.array).slice(0, index.count - 6));
+            const bottomIndices = (miniFootprint(cellSize / 2, mini.terrainBevel, mini.rounded).length - 2) * 3;
+            wallGeo.setIndex(Array.from(index.array).slice(0, index.count - bottomIndices));
           }
           const wallMesh = new THREE.Mesh(wallGeo, createMiniWallMaterial());
           wallMesh.name = 'Terrain_Base_Slab';
@@ -657,7 +661,7 @@ export class TerrainExporter {
       onToast('Building water volume...');
       const { at } = await bakeHeightGrid(0, 0, cellSize, cellSize, meshRes, meshRes);
       const waterMesh = new THREE.Mesh(
-        buildMiniWaterVolume({ at, res: meshRes, half: cellSize / 2, seaLevel, baseY: baseHeight }),
+        buildMiniWaterVolume({ at, res: meshRes, half: cellSize / 2, seaLevel, baseY: baseHeight, bevel: mini.waterBevel, rounded: mini.rounded }),
         createMiniWaterMaterial(mini.water),
       );
       waterMesh.name = 'Water_Volume';
@@ -687,7 +691,8 @@ export class TerrainExporter {
         const z = oz + (j / collisionRes - 0.5) * sz;
         for (let i = 0; i <= collisionRes; i++) {
           const x = ox + (i / collisionRes - 0.5) * sx;
-          positions.push(x, at(i, j), z);
+          const [px, pz] = mini ? miniBevelPoint(x, z, mini.half, mini.terrainBevel, mini.rounded) : [x, z];
+          positions.push(px, mini ? sampleMiniHeight(at, collisionRes, mini.half, px, pz) : at(i, j), pz);
         }
       }
       for (let j = 0; j < collisionRes; j++) {

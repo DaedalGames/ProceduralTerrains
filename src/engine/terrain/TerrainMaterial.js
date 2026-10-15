@@ -17,6 +17,7 @@ import {
 import { BIOME_GLSL } from './biomeGLSL.js';
 import { generateStackGLSL } from './noise/noiseStackCodegen.js';
 import { MINI_CUT_GLSL } from '../mini/miniCutGLSL.js';
+import { MINI_BEVEL_GLSL } from '../mini/MiniBevel.js';
 import { defaultLegacyStack, MAX_LAYERS } from './noise/NoiseStack.js';
 import {
   PALETTE_UNIFORMS_GLSL,
@@ -372,6 +373,7 @@ ${BIOME_GLSL}
 ${heightGLSL}
 ${terrainCacheGLSL}
 
+${MINI_BEVEL_GLSL}
 uniform float uSkirtDepth;
 uniform float uPlinthBaseY;
 uniform float uWallThickness;
@@ -434,6 +436,10 @@ void main() {
     localPosition = instanceMatrix * localPosition;
   #endif
   vec4 wp = modelMatrix * localPosition;
+  vec2 squareXZ = wp.xz;
+  if (uMiniTerrainBevel > 0.0 && uInfiniteMode < 0.5) {
+    wp.xz = miniBevelPoint(wp.xz, uBoardHalf, uMiniTerrainBevel, uMiniBevelRounded);
+  }
   float h = terrainCachedHeightAt(wp.xz);
 ${preview ? /* glsl */ `
   // Smooth lighting for the lightweight Node preview. Two extra height
@@ -468,7 +474,7 @@ ${preview ? /* glsl */ `
       } else {
         // multi-cell square assembly: only skirts on a cell edge facing empty
         // space become the plinth wall; shared seams stay continuous terrain.
-        vec3 tw = tileWall(wp.xz);
+        vec3 tw = tileWall(squareXZ);
         float onOuter = step(0.5, tw.x);
         skirt = aSkirt;
         wall = aSkirt * onOuter;
@@ -476,8 +482,8 @@ ${preview ? /* glsl */ `
         wp.xz += tw.yz * (wall * uWallThickness);
       }
     } else {
-      float bx = abs(wp.x);
-      float bz = abs(wp.z);
+      float bx = abs(squareXZ.x);
+      float bz = abs(squareXZ.y);
       float onOuter = step(uBoardHalf - 1.0, bx) + step(uBoardHalf - 1.0, bz);
       // outer-edge skirt verts become the plinth wall; interior skirts unchanged
       wall = skirt * step(0.5, onOuter);
@@ -1356,6 +1362,8 @@ export function createTerrainUniforms() {
     uPlinthColor:    { value: new THREE.Color(0x14110d) },
     // Mini Terrain section strata (uMiniCut 0 = legacy flat plinth colour).
     uMiniCut:        { value: 0.0 },
+    uMiniTerrainBevel: { value: 0.0 },
+    uMiniBevelRounded: { value: 0.0 },
     uMiniCutTopsoil: { value: new THREE.Vector3(0.05, 0.03, 0.02) },
     uMiniCutBandA:   { value: new THREE.Vector3(0.31, 0.23, 0.15) },
     uMiniCutBandB:   { value: new THREE.Vector3(0.20, 0.14, 0.09) },

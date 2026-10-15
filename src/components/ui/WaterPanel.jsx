@@ -190,6 +190,7 @@ export default function WaterPanelInner({
   params,
   onParam,
   worldMode,
+  miniActive = false,
   perf,
   perfStats,
   gpu,
@@ -258,6 +259,57 @@ export default function WaterPanelInner({
       onParam('waterEnabled', true);
     }
   };
+
+  // Mini always presents its dedicated surface and cut volume. Only expose
+  // controls consumed by that renderer, irrespective of the stored water mode.
+  if (miniActive && isStudio) {
+    const sliders = (defs) => defs.map((def) => (
+      <SliderCtl key={def.key} def={def} value={val(params, def.key)}
+        onChange={(v) => onParam(def.key, v)} settingId={`water.${def.key}`} />
+    ));
+    const miniContent = (
+      <>
+        <ControlSection id={`${id}-mode`} title={translateText('Water')} defaultOpen
+          enabled={waterActive} onEnabledChange={setEnabled} settingId="water.section.mode">
+          <SliderCtl def={SEA_LEVEL_DEF} value={params.seaLevel} onChange={setSeaLevel} settingId="water.seaLevel" />
+        </ControlSection>
+        <ControlSection id={`${id}-shader`} title={translateText('Shader Quality')} defaultOpen settingId="water.section.shader">
+          <SelectRow label={translateText('Water Quality')} value={String(p.waterQuality ?? 2)}
+            options={WATER_QUALITY_OPTIONS} onChange={(v) => onPerfSetting?.('waterQuality', Number(v))}
+            settingId="performance.waterQuality" />
+          {LEGACY_SHADER_SLIDERS.map((def) => (
+            <PerfSlider key={def.key} perf={p} id={def.key} def={def} onPerfSetting={onPerfSetting} settingId={`performance.${def.key}`} />
+          ))}
+        </ControlSection>
+        <ControlSection id={`${id}-material`} title={translateText('Material')} defaultOpen settingId="water.section.material">
+          <ToggleRow label={translateText('Water Animation')} value={!!params.waterAnim}
+            onChange={(v) => onParam('waterAnim', v)} settingId="water.waterAnim" />
+          {WATER_COLORS.map(({ key, label, icon, info }) => (
+            <ColorField key={key} label={translateText(label)} icon={icon} info={translateText(info)}
+              value={colorToHex(palette[key] ?? [0.05, 0.2, 0.35])}
+              onChange={(e) => planetStyleProps.onColorChange(key, parseColor(e.target.value))} />
+          ))}
+          {sliders(MATERIAL_SLIDERS.filter((d) => d.key !== 'waterRoughness'))}
+          {sliders(DEPTH_SLIDERS.filter((d) => d.key === 'waterAbsorptionStrength'))}
+        </ControlSection>
+        <ControlSection id={`${id}-waves`} title={translateText('Waves')} defaultOpen settingId="water.section.waves">
+          {sliders(WAVE_SLIDERS.filter((d) => ['waterWaveSpeed', 'waterWaveScale', 'waterWaveStrength', 'waterAnimSpeed'].includes(d.key)))}
+        </ControlSection>
+        <ControlSection id={`${id}-foam`} title={translateText('Foam')} defaultOpen settingId="water.section.foam">
+          <ToggleRow label={translateText('Shoreline Foam')} value={val(params, 'waterFoamEnabled')}
+            onChange={(v) => onParam('waterFoamEnabled', v)} settingId="water.waterFoamEnabled" />
+          {sliders([SHORE_DISTANCE_SLIDER, FOAM_SLIDERS[0]])}
+        </ControlSection>
+        <ControlSection id={`${id}-caustics`} title={translateText('Caustics')} defaultOpen settingId="water.section.caustics">
+          <ToggleRow label={translateText('Caustics')} value={val(params, 'waterUnderwaterCausticsEnabled')}
+            onChange={(v) => onParam('waterUnderwaterCausticsEnabled', v)} settingId="water.waterUnderwaterCausticsEnabled" />
+          {sliders([CAUSTIC_SLIDERS[0]])}
+        </ControlSection>
+        <PanelResetButton label={translateText('Reset Water Settings')} onClick={onResetWaterSettings} settingId="water.reset" />
+      </>
+    );
+    return flat ? miniContent : <div className="water-panel-inner">{miniContent}</div>;
+  }
 
   const content = (
     <>

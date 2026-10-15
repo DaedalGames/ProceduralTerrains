@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MINI_LIGHTING_GLSL, miniLightingUniforms } from './MiniLighting.js';
 
 // ============================================================================
 // MiniStudioStage — presentation objects around a Mini Terrain diorama:
@@ -84,6 +85,7 @@ void main() {
 `;
 
 const SOCLE_FRAGMENT = /* glsl */ `
+${MINI_LIGHTING_GLSL}
 uniform vec3 uSunDir;
 uniform vec3 uColor;       // linear albedo
 uniform float uTopY;
@@ -97,7 +99,7 @@ void main() {
   vec3 albedo = uColor * mix(0.78, 1.0, smoothstep(0.0, 0.35, t));
   // thin darker groove just under the section base
   albedo *= 1.0 - 0.18 * smoothstep(0.86, 1.0, t);
-  vec3 lit = albedo * (0.48 + 0.7 * ndl + 0.12 * max(n.y, 0.0));
+  vec3 lit = albedo * miniLighting(ndl, 1.0, 1.0);
   gl_FragColor = vec4(pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2)), 1.0);
 }
 `;
@@ -185,6 +187,7 @@ export class MiniStudioStage {
     this.socleMaterial = new THREE.ShaderMaterial({
       name: 'MiniSocle',
       uniforms: {
+        ...miniLightingUniforms(sharedUniforms),
         uSunDir: sharedUniforms.uSunDir,
         uColor: { value: new THREE.Vector3(0.6, 0.52, 0.4) },
         uTopY: { value: -70 },
@@ -241,6 +244,14 @@ export class MiniStudioStage {
   setSocleColor(rgb) {
     const lin = rgb.map(srgbToLinear);
     this.socleMaterial.uniforms.uColor.value.set(lin[0], lin[1], lin[2]);
+  }
+
+  setLighting(state, skyActive) {
+    this.backdrop.visible = !skyActive;
+    if (!state) return;
+    this.fill.color.setRGB(...state.ambientTopColor);
+    this.fill.groundColor.setRGB(...state.groundBounceColor);
+    this.shadowMaterial.uniforms.uStrength.value = Math.min(0.6, Math.max(...state.directLightColor, 0) * 0.6);
   }
 
   setVisible(visible) {

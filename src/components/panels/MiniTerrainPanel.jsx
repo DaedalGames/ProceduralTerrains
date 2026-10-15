@@ -21,6 +21,9 @@ const RELIEF = { label: 'Relief', min: 0.4, max: 1.6, step: 0.01, digits: 2, inf
 const WATER = { label: 'Water level', min: 0, max: 1, step: 0.01, digits: 2, info: 'Moves the water, never the terrain.' };
 const VEGETATION = { label: 'Vegetation', min: 0, max: 1, step: 0.01, digits: 2, info: 'Tree and plant density. Never changes the relief.' };
 const CLOUDS = { label: 'Clouds', min: 0, max: 1, step: 0.01, digits: 2, info: 'A few small formations sized to the diorama. 0 disables them.' };
+const WATER_EDGES = { label: 'Water Edges', min: 0, max: 2, step: 0.05, digits: 2, info: 'Brightness of the water block outline. 0 hides the edge highlight.' };
+const WATER_BEVEL = { label: 'Water Bevel', min: 0, max: 10, step: 0.25, digits: 2, unit: '%', info: 'Size of the water corner chamfer or rounding. Percentage of the footprint width; 0 keeps square corners.' };
+const TERRAIN_BEVEL = { ...WATER_BEVEL, label: 'Terrain Bevel', info: 'Size of the terrain corner chamfer or rounding. Percentage of the footprint width; 0 keeps square corners.' };
 
 const RECIPE_OPTIONS = Object.values(MINI_RECIPES).map((r) => ({ value: r.id, label: r.labelEn }));
 const QUALITY_OPTIONS = Object.values(MINI_QUALITY_PROFILES).map((q) => ({
@@ -104,6 +107,13 @@ export default function MiniTerrainPanel({ ctx }) {
 
       <CollapsibleGroup title="Base & presentation" defaultOpen settingId="mini.base">
         <SelectRow label="Cut style" value={mini.cutStyle} options={CUT_OPTIONS} onChange={(cutStyle) => set({ cutStyle })} settingId="mini.cutStyle" />
+        <SliderCtl def={WATER_EDGES} value={mini.waterEdges} onChange={(waterEdges) => set({ waterEdges })} settingId="mini.waterEdges" />
+        <ToggleRow label="Sync Bevels" value={mini.bevelSync} onChange={(bevelSync) => set({ bevelSync })} settingId="mini.bevelSync"
+          info="Link the water and terrain corner sizes. Enabling sync uses the current Water Bevel value." />
+        <SelectRow label="Bevel Style" value={mini.bevelStyle} options={[{ value: 'chamfer', label: 'Chamfer' }, { value: 'rounded', label: 'Rounded' }]}
+          onChange={(bevelStyle) => set({ bevelStyle })} settingId="mini.bevelStyle" />
+        <SliderCtl def={WATER_BEVEL} value={mini.waterBevel} onChange={(waterBevel) => set({ waterBevel })} settingId="mini.waterBevel" />
+        <SliderCtl def={TERRAIN_BEVEL} value={mini.terrainBevel} onChange={(terrainBevel) => set({ terrainBevel })} settingId="mini.terrainBevel" />
         <ToggleRow label="Socle" value={mini.socle} onChange={(socle) => set({ socle })} settingId="mini.socle" />
       </CollapsibleGroup>
 

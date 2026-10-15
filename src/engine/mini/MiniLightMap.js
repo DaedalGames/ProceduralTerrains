@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MINI_BEVEL_GLSL } from './MiniBevel.js';
 
 // ============================================================================
 // MiniLightMap — soft sun shadows and ambient occlusion for the diorama.
@@ -41,6 +42,8 @@ const HEIGHT_FETCH = /* glsl */ `
 uniform sampler2D uMiniHeightGrid;
 uniform float uMiniGridSegments;
 uniform float uHalf;
+uniform float uMiniTerrainBevel;
+uniform float uMiniBevelRounded;
 uniform float uHeightScale;
 float miniBakedHeight(vec2 xz) {
   vec2 g = (xz + uHalf) / max(uHalf * 2.0, 1.0) * uMiniGridSegments;
@@ -52,6 +55,7 @@ float miniBakedHeight(vec2 xz) {
 const BAKE_FRAGMENT = /* glsl */ `
 precision highp float;
 ${HEIGHT_FETCH}
+${MINI_BEVEL_GLSL}
 uniform vec3 uSunDir;
 uniform float uSoftness;
 varying vec2 vUv;
@@ -69,7 +73,7 @@ void main() {
   for (int i = 1; i <= 72; i++) {
     float t = float(i) * stepLen * (1.0 + float(i) * 0.02);
     vec2 q = xz + dir * t;
-    float inside = step(abs(q.x), uHalf) * step(abs(q.y), uHalf);
+    float inside = step(0.0, miniBevelDistance(q, uHalf, uMiniTerrainBevel, uMiniBevelRounded));
     float above = miniBakedHeight(q) - (h + t * rise);
     // penumbra widens with distance to the occluder
     occluded = max(occluded, inside * smoothstep(0.0, uSoftness + t * 0.12, above));
@@ -90,9 +94,11 @@ void main() {
 
 const DECAL_VERTEX = /* glsl */ `
 ${HEIGHT_FETCH}
+${MINI_BEVEL_GLSL}
 varying vec2 vXZ;
 void main() {
   vec2 xz = position.xz * uHalf;
+  xz = miniBevelPoint(xz, uHalf, uMiniTerrainBevel, uMiniBevelRounded);
   vXZ = xz;
   vec4 wp = vec4(xz.x, miniBakedHeight(xz) + 0.25, xz.y, 1.0);
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -152,6 +158,8 @@ export class MiniLightMap {
       uMiniHeightGrid: { value: null },
       uMiniGridSegments: { value: 256 },
       uHalf: { value: 512 },
+      uMiniTerrainBevel: sharedUniforms.uMiniTerrainBevel ?? { value: 0 },
+      uMiniBevelRounded: sharedUniforms.uMiniBevelRounded ?? { value: 0 },
       uHeightScale: sharedUniforms.uHeightScale,
     };
     this._heightUniforms = heightUniforms;

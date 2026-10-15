@@ -71,10 +71,18 @@ vec3 miniCutAlbedo(vec3 wp, float rimH, float seaLevel) {
 vec3 miniCutShade(vec3 wp, float rimH, float seaLevel, vec3 sunDir) {
   vec3 albedo = miniCutAlbedo(wp, rimH, seaLevel);
   vec3 n = abs(wp.x) > abs(wp.z) ? vec3(sign(wp.x), 0.0, 0.0) : vec3(0.0, 0.0, sign(wp.z));
+  if (uMiniTerrainBevel > 0.0 && min(abs(wp.x), abs(wp.z)) > uBoardHalf - uMiniTerrainBevel + 0.01) {
+    n = normalize(vec3(sign(wp.x), 0.0, sign(wp.z)));
+    if (uMiniBevelRounded > 0.5) {
+      vec2 radial = sign(wp.xz) * max(abs(wp.xz) - (uBoardHalf - uMiniTerrainBevel), 0.0);
+      n = normalize(vec3(radial.x, 0.0, radial.y));
+    }
+  }
   float ndl = max(dot(n, normalize(sunDir)), 0.0);
   // soft ambient with a slight sky/ground split + key light
   float ambient = 0.46 + 0.08 * clamp((wp.y - uMiniCutParams.y) / max(uMiniCutParams.w, 1.0), 0.0, 1.0);
-  vec3 lit = albedo * (ambient + 0.72 * ndl);
+  vec3 lit = albedo * (uTerrainSkyAmb * ambient + uTerrainBounce * 0.25
+    + uTerrainSunCol * uTerrainSunIntensity * 0.72 * ndl);
   return pow(max(lit, vec3(0.0)), vec3(1.0 / 2.2));
 }
 `;

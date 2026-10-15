@@ -401,6 +401,7 @@ function WaterPanel({ ctx }) {
         onParam={ctx.onParam}
         worldMode={ctx.worldMode}
         perf={ctx.perf}
+        miniActive={!!ctx.miniTerrain}
         perfStats={stats}
         gpu={ctx.gpu}
         onPerfSetting={ctx.onPerfSetting}
@@ -551,7 +552,7 @@ function SkyboxPanel({ ctx }) {
     <SidePanel title={translateText("Skybox")} description={translateText("Sky environment, time of day and atmosphere.")} onClose={ctx.onClose}>
       <ToggleRow label={translateText("Procedural Sky")} value={enabled} onChange={(v) => onParam('skyboxEnabled', v)}
         settingId="skybox.skyboxEnabled"
-        info={translateText("Surround the scene with the procedural sky dome (Tile + Infinite World). When off, a flat backdrop and the manual Lighting sun angles are used.")} />
+        info={translateText("Surround the scene with the procedural sky dome (Tile, Mini + Infinite World). When off, a flat backdrop and the manual Lighting sun angles are used.")} />
 
       <ControlSection id="skybox-time" title={translateText("Time of Day")} defaultOpen settingId="skybox.section.time">
         <TimeOfDayControl timeOfDay={ctx.timeOfDay} onTimeOfDay={ctx.onTimeOfDay} settingId="skybox.timeOfDay" />
@@ -561,7 +562,7 @@ function SkyboxPanel({ ctx }) {
           info={translateText("Animate the time of day while the procedural sky is active.")} />
         <SliderCtl def={SKYBOX_SLIDERS.skyboxCycleSpeed} value={params.skyboxCycleSpeed ?? 1}
           onChange={(v) => onParam('skyboxCycleSpeed', v)} settingId="skybox.skyboxCycleSpeed" />
-        <p className="section-hint">{translateText("Drives the sky colours, sun position and atmosphere. Shared across the Tile view and the Infinite World.")}</p>
+        <p className="section-hint">{translateText("Drives the sky colours, sun position and atmosphere. Shared across Tile, Mini and Infinite World.")}</p>
       </ControlSection>
 
       {enabled && (
@@ -591,6 +592,7 @@ function LightingPanel({ ctx }) {
         <p className="section-hint">{translateText("Time of day and the sky environment are configured in the ")}<strong>{translateText("Skybox")}</strong>{translateText(" tab. While the procedural sky is on, it drives the sun direction and atmosphere. Turn it off to use the manual lighting palette below.")}</p>
       )}
       <EnvironmentPanelInner params={params} planetStyle={params.planetStyle}
+        miniActive={!!ctx.miniTerrain}
         onParam={ctx.onParam} onTuning={ctx.onStyleTuning} settingsTarget={ctx.settingsTarget} />
       <PanelResetButton label={translateText("Reset Lighting Settings")} onClick={() => ctx.onResetPanel?.('lighting')} settingId="lighting.reset" />
     </SidePanel>
@@ -613,6 +615,7 @@ function PerformancePanel({ ctx }) {
     <SidePanel title={translateText("Performance")} description={translateText("GPU, water, fog and cloud budgets.")} onClose={ctx.onClose}>
       <PerformanceStats stats={stats} gpu={ctx.gpu} />
       <PerfSettings perf={ctx.perf} rendererInfo={ctx.rendererInfo} onPerfPreset={ctx.onPerfPreset}
+        miniActive={!!ctx.miniTerrain}
         onPerfSetting={ctx.onPerfSetting} onPerfReset={ctx.onPerfReset}
         settingsTarget={ctx.settingsTarget}
         onSettingsTargetHandled={ctx.onSettingsTargetHandled} />
