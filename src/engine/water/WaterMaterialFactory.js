@@ -54,7 +54,9 @@ export function applyWaterMaterialSettings(mat, params, mode, debugView = 'off')
   if (mat.uniforms.uFoamWidth) {
     mat.uniforms.uFoamWidth.value = params.waterFoamWidth ?? 3.2;
   }
-  if (isRealisticWaterMode(mode)) {
+  // While a realistic program links, the legacy plane stays visible and is
+  // still listed as the active material: it has no realistic uniforms.
+  if (isRealisticWaterMode(mode) && mat.uniforms.uWaterTier) {
     applyRealisticWaterUniforms(mat, params, mode);
     setWaterDebugMode(mat, debugView);
   }

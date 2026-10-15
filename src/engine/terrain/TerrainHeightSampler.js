@@ -71,6 +71,7 @@ function vnoise(px, py) {
 
 import { evalStack2D } from './noise/noiseStackCodegen.js';
 import { isLegacyStack } from './noise/NoiseStack.js';
+import { miniComposeCPU } from '../mini/miniCompositionGLSL.js';
 
 export class TerrainHeightSampler {
   /**
@@ -279,7 +280,9 @@ export class TerrainHeightSampler {
     }
     // World-unit height, then the erosion delta on top (matches GLSL heightAt:
     // the offset is added after the clamp/scale, in world units).
-    return f(f(f(finalizeStackHeight(h, u) * f(u.uHeightScale.value)) + this._erosionOffset(x, z)) + this._destructionOffset(x, z));
+    let h01 = finalizeStackHeight(h, u);
+    if (!env.infinite) h01 = miniComposeCPU(u, x, z, h01);
+    return f(f(f(h01 * f(u.uHeightScale.value)) + this._erosionOffset(x, z)) + this._destructionOffset(x, z));
   }
 
   _erosionOffset(x, z) {

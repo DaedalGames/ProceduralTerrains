@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronUp, Compass } from 'lucide-react';
 
-export default function BottomToolbar({ camMode, onTopDown, onAngled, onResetCamera, exploreMode, onExploreMode }) {
+export default function BottomToolbar({ camMode, onTopDown, onAngled, onResetCamera, exploreMode, onExploreMode, exploreAvailable = true }) {
   useLanguage();
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState(null);
@@ -86,7 +86,7 @@ export default function BottomToolbar({ camMode, onTopDown, onAngled, onResetCam
         <span className="camera-bar-label">{translateText("Reset Camera")}</span>
       </button>
 
-      <div className="explore-menu-wrap" ref={wrapRef}>
+      {exploreAvailable && <div className="explore-menu-wrap" ref={wrapRef}>
         <button
           ref={triggerRef}
           type="button"
@@ -124,7 +124,7 @@ export default function BottomToolbar({ camMode, onTopDown, onAngled, onResetCam
           </div>,
           document.body
         )}
-      </div>
+      </div>}
     </div>
   );
 }

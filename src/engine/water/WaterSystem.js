@@ -58,6 +58,9 @@ export class WaterSystem {
     this._surfaceSubmitAvgMs = 0;
     this._timedMeshes = new Map();
     this._bindSurfaceTiming(engine.water);
+    // Presentation override for the studio water mesh (Mini Terrain water).
+    this._studioOverride = null;
+    this._installStudioOverride(engine.water);
 
     // Owned transition materials. The legacy Infinite fallback is private and
     // exists only while a realistic replacement is compiling.
@@ -67,6 +70,35 @@ export class WaterSystem {
     this._realisticInfiniteHeightProgram = null;
     this._legacyInfiniteFallback = null;
     this._realisticAttached = false;
+
+    // Auxiliary water meshes (e.g. the Mini Terrain cut faces). They are part
+    // of the water layer: hidden from every water-free capture, bound to the
+    // same scene colour/depth, and refreshed with the water settings.
+    this._auxiliary = new Set();
+  }
+
+  /**
+   * @param {{ mesh: THREE.Object3D, material?: THREE.Material,
+   *           applySettings?: (params, mode) => void }} entry
+   */
+  addAuxiliaryWater(entry) {
+    if (!entry?.mesh && !entry?.material) return;
+    this._auxiliary.add(entry);
+    entry.applySettings?.(this.engine.params, this._effectiveMode);
+  }
+
+  removeAuxiliaryWater(entry) {
+    if (!entry) return;
+    this._auxiliary.delete(entry);
+    if (entry.material) this._surfacePass.disable([entry.material]);
+  }
+
+  auxiliaryWaterMeshes() {
+    return [...this._auxiliary].map((entry) => entry.mesh).filter(Boolean);
+  }
+
+  _auxiliaryWaterMaterials() {
+    return [...this._auxiliary].map((entry) => entry.material).filter(Boolean);
   }
 
   /** Call once after engine scene + water meshes exist. */
@@ -224,6 +256,7 @@ export class WaterSystem {
     const materials = [
       this._realisticStudio,
       this._realisticInfinite,
+      ...this._auxiliaryWaterMaterials(),
     ].filter(Boolean);
     return this._surfacePass.capture(renderer, scene, camera, {
       params: eng.params,
@@ -235,6 +268,7 @@ export class WaterSystem {
         eng.infiniteWorld?.waterPlane,
         eng.planetWater,
         this._boundsHelper,
+        ...this.auxiliaryWaterMeshes(),
       ],
       materials,
       sourceTarget,
@@ -265,6 +299,7 @@ export class WaterSystem {
         eng.infiniteWorld?.waterPlane,
         eng.planetWater,
         this._boundsHelper,
+        ...this.auxiliaryWaterMeshes(),
       ],
       materials,
       enabled: !this._fpsDowngraded,
@@ -373,9 +408,36 @@ export class WaterSystem {
     });
   }
 
+  /**
+   * Render the studio water mesh with `material` instead of the material this
+   * system manages (null restores it). Every internal assignment keeps
+   * targeting the managed material, so leaving the override is exact.
+   */
+  setStudioOverride(material) {
+    this._studioOverride = material || null;
+    this.engine._needsRender = true;
+  }
+
+  get studioOverride() {
+    return this._studioOverride;
+  }
+
+  _installStudioOverride(mesh) {
+    if (!mesh || Object.getOwnPropertyDescriptor(mesh, 'material')?.get) return;
+    let managed = mesh.material;
+    const system = this;
+    Object.defineProperty(mesh, 'material', {
+      configurable: true,
+      enumerable: true,
+      get() { return system._studioOverride ?? managed; },
+      set(value) { managed = value; },
+    });
+  }
+
   /** Materials for shader warmup / compile lists. */
   getCompileMaterials() {
     const mats = [];
+    if (this._studioOverride) mats.push(this._studioOverride);
     if (this.engine.waterMaterial) mats.push(this.engine.waterMaterial);
     if (this.engine._infiniteWaterMat) mats.push(this.engine._infiniteWaterMat);
     if (this.engine.planetWaterMat) mats.push(this.engine.planetWaterMat);
@@ -815,8 +877,10 @@ export class WaterSystem {
       this._surfacePass.deactivate([
         this._realisticStudio,
         this._realisticInfinite,
+        ...this._auxiliaryWaterMaterials(),
       ].filter(Boolean));
     }
+    for (const entry of this._auxiliary) entry.applySettings?.(params, this._effectiveMode);
     if (!isPlanarReflectionMode(this._effectiveMode)) {
       this._planarReflectionPass.deactivate([
         this._realisticStudio,

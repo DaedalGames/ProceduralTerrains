@@ -35,7 +35,7 @@ export const BIOME_RESET_KEYS = [
 
 export const PROPS_RESET_KEYS = [
   'propsEnabled', 'propsDensity', 'propsGrassDensity', 'propsFlowers', 'propsGrass',
-  'propsRocks', 'propsRockScale', 'propsTreeDensity', 'propsTreeScale',
+  'propsRocks', 'propsRockScale', 'propsTreeDensity', 'propsForest', 'propsTreeScale',
   'propsWind', 'propsWindSpeed', 'propsGust', 'propsCullDistance', 'propsLodDistance',
   'propsAssets',
 ];

@@ -1,0 +1,340 @@
+import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import {
+  MINI_FORMATION_SEA01,
+  MINI_RECIPE_IDS,
+  MINI_TERRAIN_VERSION,
+  createMiniTerrainState,
+  deriveMiniSeeds,
+  miniCompositionUniformValues,
+  miniLodSegments,
+  miniParamsPatch,
+  normalizeMiniTerrainState,
+  resolveMiniComposition,
+  resolveMiniFraming,
+  resolveMiniLayout,
+} from '../src/engine/mini/MiniTerrainSettings.js';
+import { miniComposeCPU, MINI_COMPOSITION_GLSL } from '../src/engine/mini/miniCompositionGLSL.js';
+import { MiniTerrainController } from '../src/engine/mini/MiniTerrainController.js';
+import { buildMiniWaterCutGeometry } from '../src/engine/mini/MiniWaterCut.js';
+import { UnderwaterController } from '../src/engine/render/UnderwaterController.js';
+import { buildHeightGLSL, COMMON_UNIFORMS_GLSL } from '../src/engine/terrain/terrainGLSL.js';
+import { createTerrainUniforms } from '../src/engine/terrain/TerrainMaterial.js';
+
+function uniformsFor(state, { stack = 0.25 } = {}) {
+  const L = resolveMiniLayout(state);
+  const c = miniCompositionUniformValues(state);
+  return {
+    stack,
+    L,
+    u: {
+      uMiniShape: { value: c.shape },
+      uMiniFrame: { value: new THREE.Vector4(...c.frame) },
+      uMiniGeometry: { value: new THREE.Vector4(...c.geometry) },
+      uMiniHeights: { value: new THREE.Vector4(...c.heights) },
+      uMiniWobble: { value: new THREE.Vector4(...c.wobble) },
+      uMiniDetail: { value: new THREE.Vector4(...c.detail) },
+      uBoardHalf: { value: L.half },
+      uHeightScale: { value: L.heightScale },
+      uTerrainFormationSeaLevel: { value: L.formationSea },
+      uInfiniteMode: { value: 0 },
+    },
+  };
+}
+
+// World position at normalized local coordinates (lateral, front) of the
+// composition frame, so recipe assertions do not depend on the seed's swing.
+function worldAt(state, lateral, front) {
+  const c = resolveMiniComposition(state);
+  const [fx, fz, cx, cz] = c.frame;
+  const half = resolveMiniLayout(state).half;
+  const px = cx + lateral * fz + front * fx;
+  const pz = cz - lateral * fx + front * fz;
+  return [px * half, pz * half];
+}
+
+describe('Mini Terrain document', () => {
+  it('returns null for projects without a Mini section (old projects unchanged)', () => {
+    expect(normalizeMiniTerrainState(undefined)).toBeNull();
+    expect(normalizeMiniTerrainState(null)).toBeNull();
+    expect(normalizeMiniTerrainState('cove')).toBeNull();
+  });
+
+  it('normalizes, clamps and versions a stored section', () => {
+    const s = normalizeMiniTerrainState({
+      recipe: 'nope', seed: -1, width: 99999, quality: 'ultra', relief: 9,
+      waterLevel: -3, vegetation: 2, clouds: 'x', backdrop: [2, -1, 0.5],
+      camera: { views: [{ name: 'A', theta: 1, phi: 1, radius: 900 }, { theta: 'bad' }] },
+    });
+    expect(s.version).toBe(MINI_TERRAIN_VERSION);
+    expect(s.recipe).toBe('procedural');
+    expect(s.preset).toBe('archipelago');
+    expect(s.seed).toBe(4294967295);
+    expect(s.width).toBe(2048);
+    expect(s.quality).toBe('high');
+    expect(s.relief).toBe(1.6);
+    expect(s.waterLevel).toBe(0);
+    expect(s.vegetation).toBe(1);
+    expect(s.backdrop).toEqual([1, 0, 0.5]);
+    expect(s.camera.views).toHaveLength(1);
+    expect(s.camera.views[0].target).toEqual([0, 0, 0]);
+  });
+
+  it('round-trips through JSON exactly', () => {
+    const s = createMiniTerrainState({ recipe: 'islet', seed: 42 });
+    expect(normalizeMiniTerrainState(JSON.parse(JSON.stringify(s)))).toEqual(s);
+  });
+});
+
+describe('Mini Terrain seeds and composition', () => {
+  it('derives independent, deterministic sub-seeds', () => {
+    const a = deriveMiniSeeds(1234);
+    expect(deriveMiniSeeds(1234)).toEqual(a);
+    expect(new Set(Object.values(a)).size).toBe(4);
+    expect(deriveMiniSeeds(1235).relief).not.toBe(a.relief);
+  });
+
+  it('keeps the composition stable across quality, vegetation, clouds and water level', () => {
+    const base = createMiniTerrainState({ recipe: 'cove', seed: 777 });
+    const ref = resolveMiniComposition(base);
+    for (const patch of [{ quality: 'balanced' }, { quality: 'capture' }, { vegetation: 0 }, { clouds: 1 }, { waterLevel: 0.9 }, { cutStyle: 'dark' }]) {
+      expect(resolveMiniComposition({ ...base, ...patch })).toEqual(ref);
+    }
+    expect(resolveMiniComposition({ ...base, seed: 778 })).not.toEqual(ref);
+  });
+
+  it('only exposes a composition when a Mini document is present', () => {
+    expect(miniCompositionUniformValues(null).shape).toBe(0);
+    for (const id of MINI_RECIPE_IDS.filter((r) => r !== 'procedural')) {
+      expect(miniCompositionUniformValues(createMiniTerrainState({ recipe: id })).shape).toBeGreaterThan(0);
+    }
+    // a fully procedural diorama imposes no silhouette
+    expect(miniCompositionUniformValues(createMiniTerrainState({ recipe: 'procedural' })).shape).toBe(0);
+  });
+
+  it('scales a procedural preset to the footprint and keeps its shape params', () => {
+    const s = createMiniTerrainState({ recipe: 'procedural', preset: 'alpine', seed: 4 });
+    const p = miniParamsPatch(s, 'all');
+    const L = resolveMiniLayout(s);
+    expect(p.preset).toBe('alpine');
+    expect(p.ridge).toBe(0.92);                       // preset shape kept
+    expect(p.heightScale).toBe(Math.round(640 * 0.5 * 1.5));   // 2048 → 1024 footprint, x1.5 relief
+    expect(p.terrainFormationSeaLevel).toBeCloseTo(24 * 0.75, 1);
+    expect(p.chunkCount).toBe(1);
+    expect(L.seaLevel).toBeGreaterThan(0.5);
+    expect(miniParamsPatch(s, 'structure')).toEqual({
+      chunkCount: 1, chunkSize: 1024, heightScale: p.heightScale, terrainFormationSeaLevel: p.terrainFormationSeaLevel,
+      waterMode: 'volumetric', waterQualityPreset: 'custom', skyboxEnabled: false,
+    });
+  });
+});
+
+describe('Mini Terrain params and invalidation scopes', () => {
+  const state = createMiniTerrainState({ recipe: 'cove', seed: 9 });
+
+  it('builds one chunk of W with no edge falloff and a frozen formation level', () => {
+    const p = miniParamsPatch(state, 'all');
+    const L = resolveMiniLayout(state);
+    expect(p.chunkCount).toBe(1);
+    expect(p.chunkSize).toBe(L.width);
+    expect(p.falloff).toBe(0);
+    expect(p.terrainFormationSeaLevel).toBeCloseTo(MINI_FORMATION_SEA01 * L.reliefHeight, 1);
+    expect(p.propsSeed).toBe(deriveMiniSeeds(9).props);
+    expect(p.waterMode).toBe('volumetric');
+  });
+
+  it('water level moves the water only', () => {
+    const lo = miniParamsPatch({ ...state, waterLevel: 0 }, 'water');
+    const hi = miniParamsPatch({ ...state, waterLevel: 1 }, 'water');
+    expect(Object.keys(lo)).toEqual(['seaLevel', 'waterEnabled']);
+    expect(hi.seaLevel).toBeGreaterThan(lo.seaLevel);
+    expect(lo.seaLevel).toBeGreaterThan(0.5);
+    expect(miniParamsPatch({ ...state, waterLevel: 0 }, 'all').terrainFormationSeaLevel)
+      .toBe(miniParamsPatch({ ...state, waterLevel: 1 }, 'all').terrainFormationSeaLevel);
+  });
+
+  it('separates vegetation, clouds and quality from relief', () => {
+    expect(Object.keys(miniParamsPatch(state, 'props')).every((k) => k.startsWith('props'))).toBe(true);
+    expect(Object.keys(miniParamsPatch(state, 'clouds')).every((k) => k.startsWith('cloud'))).toBe(true);
+    expect(Object.keys(miniParamsPatch(state, 'quality'))).toEqual(['waterMode', 'waterQualityPreset']);
+    expect(miniLodSegments({ ...state, quality: 'balanced' })).toEqual([128, 128, 128, 128]);
+    expect(miniLodSegments({ ...state, quality: 'high' })).toEqual([256, 256, 256, 256]);
+  });
+
+  it('plans controller changes per category', () => {
+    const ctrl = new MiniTerrainController({ worldMode: 'studio' });
+    ctrl.state = state;
+    const water = ctrl.planChange({ waterLevel: 0.8 });
+    expect(water.composition).toBe(false);
+    expect(Object.keys(water.params)).toEqual(['seaLevel', 'waterEnabled']);
+    const veg = ctrl.planChange({ vegetation: 0.1 });
+    expect(veg.composition).toBe(false);
+    expect(Object.keys(veg.params).every((k) => k.startsWith('props'))).toBe(true);
+    const seed = ctrl.planChange({ seed: 12345 });
+    expect(seed.composition).toBe(true);
+    expect(Object.keys(seed.params).sort()).toEqual(['propsSeed', 'seed']);
+    expect(seed.state.vegetation).toBe(state.vegetation);
+    const recipe = ctrl.planChange({ recipe: 'lake' });
+    expect(recipe.palette.palettePreset).toBe('custom');
+    expect(recipe.params.chunkCount).toBe(1);
+    const relief = ctrl.planChange({ relief: 1.3 });
+    expect(relief.composition).toBe(true);
+    expect(Object.keys(relief.params)).toEqual(['cloudAltitude']);
+  });
+});
+
+describe('Mini composition height field (CPU twin)', () => {
+  it('passes the stack through untouched when Mini is off', () => {
+    const u = createTerrainUniforms();
+    expect(miniComposeCPU(u, 10, 20, 0.37)).toBe(0.37);
+  });
+
+  it('cove: sheltered water in the bowl and at the front, cliffs behind', () => {
+    const state = createMiniTerrainState({ recipe: 'cove', seed: 1 });
+    const { u, L } = uniformsFor(state);
+    const sea01 = L.formationSea / L.heightScale;
+    const h = (lat, front) => miniComposeCPU(u, ...worldAt(state, lat, front), 0.25);
+    expect(h(0, 0)).toBeLessThan(sea01);          // bowl
+    expect(h(0, 0.85)).toBeLessThan(sea01);       // open sea toward the camera
+    expect(h(0, -0.75)).toBeGreaterThan(sea01 + 0.25); // cliffs behind
+    expect(h(-0.7, -0.1)).toBeGreaterThan(sea01 + 0.2); // horseshoe arm
+  });
+
+  it('islet: land in the middle, water at the corners', () => {
+    const state = createMiniTerrainState({ recipe: 'islet', seed: 3 });
+    const { u, L } = uniformsFor(state);
+    const sea01 = L.formationSea / L.heightScale;
+    expect(miniComposeCPU(u, ...worldAt(state, 0, 0), 0.25)).toBeGreaterThan(sea01 + 0.2);
+    for (const [x, z] of [[-0.95, -0.95], [0.95, 0.95], [-0.95, 0.95], [0.95, -0.95]]) {
+      expect(miniComposeCPU(u, x * L.half, z * L.half, 0.25)).toBeLessThan(sea01);
+    }
+  });
+
+  it('lake: a basin below the water line framed by land', () => {
+    const state = createMiniTerrainState({ recipe: 'lake', seed: 5 });
+    const { u, L } = uniformsFor(state);
+    const sea01 = L.formationSea / L.heightScale;
+    expect(miniComposeCPU(u, ...worldAt(state, 0, 0), 0.25)).toBeLessThan(sea01);
+    expect(miniComposeCPU(u, ...worldAt(state, 0, -0.85), 0.25)).toBeGreaterThan(sea01 + 0.3);
+  });
+
+  it('is deterministic and continuous across the footprint', () => {
+    const state = createMiniTerrainState({ recipe: 'cove', seed: 99 });
+    const { u, L } = uniformsFor(state);
+    let maxStep = 0;
+    let prev = miniComposeCPU(u, -L.half, 0, 0.25);
+    for (let i = 1; i <= 512; i++) {
+      const x = -L.half + (i / 512) * L.width;
+      const v = miniComposeCPU(u, x, 0, 0.25);
+      maxStep = Math.max(maxStep, Math.abs(v - prev));
+      prev = v;
+    }
+    // ~2 units per step: a steep cliff, never a discontinuity
+    expect(maxStep).toBeLessThan(0.08);
+    expect(miniComposeCPU(u, 12.5, -40, 0.3)).toBe(miniComposeCPU(u, 12.5, -40, 0.3));
+  });
+});
+
+describe('Mini shader integration', () => {
+  it('declares the Mini uniforms once and composes after the shared finalizer', () => {
+    expect(COMMON_UNIFORMS_GLSL.match(/uniform float uMiniShape;/g)).toHaveLength(1);
+    const src = buildHeightGLSL('');
+    expect(src).toContain('float miniCompose(vec2 xz, float stackH01)');
+    expect(src).toContain('if (uInfiniteMode < 0.5 && uMiniShape > 0.5) finalH01 = miniCompose(xz, finalH01);');
+    expect(MINI_COMPOSITION_GLSL).not.toMatch(/\bfor\s*\(|\bwhile\s*\(|\bbreak;/);
+  });
+
+  it('defaults the shared uniforms to "Mini off"', () => {
+    const u = createTerrainUniforms();
+    expect(u.uMiniShape.value).toBe(0);
+    expect(u.uMiniCut.value).toBe(0);
+  });
+});
+
+describe('Mini water cut and underwater volume', () => {
+  it('builds four outward-facing faces from the base to the water level', () => {
+    const geo = buildMiniWaterCutGeometry(512, -70, 80, 0.5);
+    const pos = geo.getAttribute('position');
+    const nor = geo.getAttribute('normal');
+    const idx = geo.index;
+    expect(idx.count).toBe(24);
+    const a = new THREE.Vector3(); const b = new THREE.Vector3(); const c = new THREE.Vector3();
+    for (let t = 0; t < idx.count; t += 3) {
+      a.fromBufferAttribute(pos, idx.getX(t));
+      b.fromBufferAttribute(pos, idx.getX(t + 1));
+      c.fromBufferAttribute(pos, idx.getX(t + 2));
+      const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+      const expected = new THREE.Vector3().fromBufferAttribute(nor, idx.getX(t));
+      expect(n.dot(expected)).toBeGreaterThan(0.99);
+    }
+    let minY = Infinity; let maxY = -Infinity; let maxXZ = 0;
+    for (let i = 0; i < pos.count; i++) {
+      minY = Math.min(minY, pos.getY(i));
+      maxY = Math.max(maxY, pos.getY(i));
+      maxXZ = Math.max(maxXZ, Math.abs(pos.getX(i)), Math.abs(pos.getZ(i)));
+    }
+    expect(minY).toBe(-70);
+    expect(maxY).toBe(80);
+    expect(maxXZ).toBeLessThan(512);   // inset: the opaque section wall stays in front
+  });
+
+  it('never treats a camera outside the footprint as underwater', () => {
+    const ctrl = new UnderwaterController();
+    const volume = { minX: -512, maxX: 512, minZ: -512, maxZ: 512, floorY: -70 };
+    const base = { worldMode: 'studio', seaLevel: 70, waterActive: true, quality: 'high' };
+    ctrl.update(1, { ...base, cameraPos: new THREE.Vector3(900, 20, 0), volume });
+    expect(ctrl.isUnderwater).toBe(false);
+    expect(ctrl.underwaterBlend).toBe(0);
+    ctrl.update(1, { ...base, cameraPos: new THREE.Vector3(0, 20, 0), volume });
+    expect(ctrl.isUnderwater).toBe(true);
+    // without a volume the legacy flat test is unchanged
+    const legacy = new UnderwaterController();
+    legacy.update(1, { ...base, cameraPos: new THREE.Vector3(900, 20, 0) });
+    expect(legacy.isUnderwater).toBe(true);
+  });
+
+  it('frames the whole footprint from a three-quarter view', () => {
+    const state = createMiniTerrainState({ recipe: 'islet', seed: 8 });
+    const f = resolveMiniFraming(state, { fov: 45, aspect: 16 / 9 });
+    const L = resolveMiniLayout(state);
+    expect(f.radius).toBeGreaterThan(L.width);
+    expect(f.radius).toBeLessThan(f.maxRadius);
+    expect(f.minRadius).toBeLessThan(f.radius);
+    expect(f.phi).toBeGreaterThan(Math.PI / 4);
+    expect(f.phi).toBeLessThan(Math.PI / 2);
+  });
+});
+
+describe('Mini Terrain keeps a single footprint', () => {
+  it('refuses every tile growth path and collapses restored tiles', async () => {
+    const { Engine } = await import('../src/engine/Engine.js');
+    const P = Engine.prototype;
+    const ghost = { visible: true };
+    const fake = {
+      mini: { state: { recipe: 'cove' } },
+      worldMode: 'studio',
+      _landingShowcase: false,
+      exploreMode: 'none',
+      tileAssemblyShape: 'square',
+      circleRadiusCells: 0,
+      diskRadiusCells: 0,
+      tileGridExtent: 2,
+      tiles: [{ cx: 0, cz: 0 }, { cx: 1, cz: 0 }],
+      _tileGhost: ghost,
+      _rebuildTiles() { throw new Error('tiles must not be rebuilt in Mini'); },
+    };
+    for (const name of ['_miniLocksTiles', '_enforceMiniSingleTile', '_hasTile', '_inTilePlacementBounds', 'canAddTileAt', 'canExpandCircle']) {
+      if (P[name]) fake[name] = P[name];
+    }
+    expect(P.canAddTileAt.call(fake, 0, 1)).toBe(false);
+    expect(P.addTile.call(fake, 0, 1)).toBe(false);
+    expect(P.canExpandCircle.call(fake)).toBe(false);
+    expect(P.removeTile.call(fake, 1, 0)).toBe(false);
+    expect(P._tileInteractionActive.call(fake)).toBe(false);
+    P.setTileAssemblyShape.call(fake, 'circle');
+    expect(fake.tileAssemblyShape).toBe('square');
+    expect(P._enforceMiniSingleTile.call(fake)).toBe(true);
+    expect(fake.tiles).toEqual([{ cx: 0, cz: 0 }]);
+    expect(ghost.visible).toBe(false);
+  }, 30000);   // importing the full engine module can be slow under a parallel run
+});

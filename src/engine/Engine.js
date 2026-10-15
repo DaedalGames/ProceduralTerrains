@@ -82,6 +82,9 @@ import {
   buildTileAssemblyPlinthGeometry,
   createBoardPlinthMaterial,
 } from './terrain/BoardPlinth.js';
+import { MiniTerrainController } from './mini/MiniTerrainController.js';
+import { MINI_TERRAIN_VERSION, normalizeMiniTerrainState } from './mini/MiniTerrainSettings.js';
+import { miniStylePatch } from './mini/MiniLook.js';
 import { PlanetStyleManager } from './style/PlanetStyleManager.js';
 import { TerrainHeightSampler } from './terrain/TerrainHeightSampler.js';
 import { ErosionField } from './terrain/erosion/ErosionField.js';
@@ -861,6 +864,8 @@ export class Engine {
     );
     this.plinth.renderOrder = 5;
     this.scene.add(this.plinth);
+    // Mini Terrain presentation (inactive until a Mini document is installed).
+    this.mini = new MiniTerrainController(this);
 
     // Dedicated circular outer wall (circle assembly only). Shares the terrain
     // material so its top edge follows the generated island/mountain silhouette;
@@ -1036,7 +1041,7 @@ export class Engine {
   }
 
   _initProps() {
-    this.propsManager = new ProceduralPropsManager(this.scene);
+    this.propsManager = new ProceduralPropsManager(this.scene, this.uniforms);
     this.realWorldBuildingLayer = new RealWorldBuildingLayer(this.scene);
     this.realWorldMarkerLayer = new RealWorldMarkerLayer(this.scene);
   }
@@ -1384,7 +1389,26 @@ export class Engine {
 
   // A cell can be added if empty, inside the 5×5 grid, and 4-adjacent to an
   // occupied cell (assembly stays connected). No cap on how many are placed.
+  // Mini Terrain is ONE footprint: no tile growth, removal or reshaping.
+  _miniLocksTiles() {
+    return !!this.mini?.state;
+  }
+
+  // A Mini document always owns exactly the origin cell (square). Applied
+  // after every tile restore so an edited file or an old snapshot cannot
+  // reintroduce an extended territory.
+  _enforceMiniSingleTile() {
+    if (!this._miniLocksTiles()) return false;
+    this.tileAssemblyShape = 'square';
+    this.circleRadiusCells = 0;
+    this.tiles = [{ cx: 0, cz: 0 }];
+    this._tileGhostCell = null;
+    if (this._tileGhost) this._tileGhost.visible = false;
+    return true;
+  }
+
   canAddTileAt(cx, cz) {
+    if (this._miniLocksTiles()) return false;
     if (this._landingShowcase || this.worldMode !== 'studio') return false;
     if (!this._inTilePlacementBounds(cx, cz)) return false;
     if (this._hasTile(cx, cz)) return false;
@@ -1417,7 +1441,8 @@ export class Engine {
   }
 
   canExpandCircle() {
-    return !this._landingShowcase
+    return !this._miniLocksTiles()
+      && !this._landingShowcase
       && this.worldMode === 'studio'
       && this.tileAssemblyShape === 'circle'
       && this.diskRadiusCells < this.tileGridExtent;
@@ -1440,6 +1465,7 @@ export class Engine {
   }
 
   removeTile(cx, cz) {
+    if (this._miniLocksTiles()) return false;
     if (this.tileAssemblyShape === 'circle') return false;
     if (this.tiles.length <= 1) return false;
     const i = this.tiles.findIndex((t) => t.cx === cx && t.cz === cz);
@@ -1464,6 +1490,7 @@ export class Engine {
   }
 
   setTileAssemblyShape(shape) {
+    if (this._miniLocksTiles()) return;
     const next = shape === 'circle' ? 'circle' : 'square';
     if (next === this.tileAssemblyShape) return;
     const circleRadius = next === 'circle' ? this._circleRadiusForTiles(this.tiles) : 0;
@@ -1596,7 +1623,8 @@ export class Engine {
   }
 
   _tileInteractionActive() {
-    return !this._landingShowcase
+    return !this._miniLocksTiles()
+      && !this._landingShowcase
       && this.worldMode === 'studio'
       && this.exploreMode === 'none'
       && !this._markerRoutePicking
@@ -2808,9 +2836,15 @@ export class Engine {
     presetKey = null,
     noiseStackPresetKey = null,
     initialGraph = null,
+    mini = null,
   } = {}) {
     this.projectMode = projectMode === 'nodes' ? 'nodes' : projectMode === 'manual' ? 'manual' : 'procedural';
     this.workspacePreset = workspacePreset === 'real-terrain' ? 'real-terrain' : null;
+    // Mini Terrain is a presentation of a procedural project; the document is
+    // installed before the single applyAll below so the first build is final.
+    this.mini?.install(mini && this.projectMode === 'procedural'
+      ? this.mini.createState({ recipe: mini.recipe, seed: mini.seed ?? seed, preset: mini.preset })
+      : null);
     this._clearPendingTerrainParams();
     this.params = { ...DEFAULT_PARAMS };
     if (this.projectMode === 'procedural' && PRESETS[presetKey]) {
@@ -2831,6 +2865,10 @@ export class Engine {
     this.planetStyle.reset();
     if (this.projectMode === 'procedural' && PRESETS[presetKey]?.palettePreset) {
       this.planetStyle.applyPalettePreset(PRESETS[presetKey].palettePreset);
+    }
+    if (this.mini?.state) {
+      Object.assign(this.params, this.mini.paramsPatch('all'));
+      this.planetStyle.setStyle(miniStylePatch(this.mini.state.recipe, this.mini.state.preset));
     }
 
     // Establish the requested classic stack before the single applyAll below.
@@ -2940,8 +2978,9 @@ export class Engine {
     this._syncCpuHeightProgram();
 
     this.controls.reset(this.boardSize);
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
     if (!silent) {
-      const label = this.projectMode === 'nodes'
+      const label = this.mini?.state ? 'New Mini Terrain' : this.projectMode === 'nodes'
         ? 'New Nodes terrain'
         : this.projectMode === 'manual'
           ? 'New Manual Terrain'
@@ -4440,7 +4479,7 @@ export class Engine {
       chunkSize: p.chunkSize,
       maxHeight,
       skirtDepth: this._skirtDepth(),
-      lodSegments: resolveLodSegments(this.perf),
+      lodSegments: this._boardLodSegments(),
       cells: this.tiles,
       progressive: true,
       initialBatchSize: this._studioChunkCreatesPerFrame(),
@@ -4489,7 +4528,7 @@ export class Engine {
         chunkSize: p.chunkSize,
         maxHeight,
         skirtDepth: this._skirtDepth(),
-        lodSegments: resolveLodSegments(this.perf),
+        lodSegments: this._boardLodSegments(),
         cells: this.tiles,
         progressive: this.worldMode === 'studio',
         initialBatchSize: this._studioInitialChunkBatch(),
@@ -4578,21 +4617,40 @@ export class Engine {
   }
 
   _maxHeight() { return this.params.heightScale * 1.35 + 2; }
-  _skirtDepth() { return Math.max(24, this.params.heightScale * 0.08); }
+  _skirtDepth() {
+    if (this.mini?.active) return this.mini.layout.baseDepth;
+    return Math.max(24, this.params.heightScale * 0.08);
+  }
   // how far the terrain's perimeter wall flares out past the board edge (and how
   // far the plinth box is outset to cap it) — keeps the wall clear of the water.
-  _wallThickness() { return Math.max(10, (this.boardSize || 0) * 0.006); }
+  // Mini Terrain keeps the section walls vertical: water stops at the footprint.
+  _wallThickness() {
+    if (this.mini?.active) return 0;
+    return Math.max(10, (this.boardSize || 0) * 0.006);
+  }
+
+  // Board LOD segments: Mini uses one fixed-resolution surface (all four LOD
+  // slots equal, so geomorphing stays inert); every other mode keeps the
+  // performance-driven ladder.
+  _boardLodSegments() {
+    if (this.mini?.active) return this.mini.lodSegments();
+    return resolveLodSegments(this.perf);
+  }
 
   // Visibility for the diorama base. The circular radial wall mirrors the
   // plinth but only matters in circle mode.
   _setPlinthVisible(v) {
-    this.plinth.visible = v;
+    this._plinthWanted = v;
+    this.mini?.setStageVisible(v);
+    this.plinth.visible = v && !this.mini?.active;
     if (this.diskWall) this.diskWall.visible = v && this.tileAssemblyShape === 'circle';
   }
 
   _updatePlinth() {
     const size = this.boardSize;
     if (!size) return false;
+    // Mini Terrain owns its base (socle, studio stage, water cut).
+    if (this.mini?.syncPresentation()) return false;
     const skirtDepth = this._skirtDepth();
     const sea = this.params.seaLevel;
     const topY = sea > 0.5 ? sea : 0;
@@ -4670,6 +4728,7 @@ export class Engine {
     u.uEdgeFalloffMode.value = p.edgeFalloffMode === 'mountains' ? 1 : 0;
     u.uBoardHalf.value = size / 2;
     u.uChunkSize.value = p.chunkSize;
+    this.mini?.applyUniforms(u);
     this._applyTileUniforms();
     if (this.destructionField) {
       const bounds = this._creatorBounds();
@@ -5305,6 +5364,7 @@ export class Engine {
       this.planetCloudLayer?.mesh,
       this.planetCloudChunks?.group,
       this.waterSystem?._boundsHelper,
+      ...(this.waterSystem?.auxiliaryWaterMeshes?.() ?? []),
       ...this._captureOverlayRoots(),
     ].filter(Boolean);
   }
@@ -7618,6 +7678,17 @@ export class Engine {
       && (this.uniforms?.uUseWaterTerrainBiomeTex?.value ?? 0) > 0.5;
   }
 
+  // True only while the published studio height bake describes the CURRENT
+  // terrain (generation + layout). Consumers that derive data from the bake
+  // texture (Mini light map, Mini prop field) must never read it otherwise:
+  // during a transition it still holds the previous terrain.
+  _studioBakeCurrent() {
+    return this.worldMode === 'studio'
+      && this.uniforms?.uUseTerrainHeightTex?.value > 0.5
+      && this._bakedStudioGen === this._terrainGen
+      && this._bakedStudioLayout === this._studioBakeLayoutKey();
+  }
+
   _usesLiveStudioHeightField() {
     // Manual sculpting streams field edits every frame and its full fragment
     // shades the live field per pixel. Node projects keep the lightweight
@@ -8870,6 +8941,7 @@ export class Engine {
         camera: this.camera,
         sampler: this._getHeightSampler(),
         getWaterLevel: () => this._waterLevel(),
+        bounds: this.mini?.walkBounds() ?? null,
       });
       this.cb.onToast('Player mode — click to lock mouse · Space jump · Shift run');
     } else {
@@ -9138,6 +9210,11 @@ export class Engine {
       error.code = 'MANUAL_STUDIO_ONLY';
       throw error;
     }
+    if (this.mini?.state && requested !== 'studio' && !context.input.project) {
+      const error = new Error('Mini Terrain is a single diorama in the finite world');
+      error.code = 'MINI_STUDIO_ONLY';
+      throw error;
+    }
     context.previousWorldMode = this.worldMode;
     context.targetWorldMode = requested;
     context.targetProjectMode = context.input.projectMode || this.projectMode;
@@ -9397,6 +9474,10 @@ export class Engine {
       this.cb.onToast('Manual Terrain is currently available in Tile mode');
       return;
     }
+    if (this.mini?.state && mode !== 'studio') {
+      this.cb.onToast('Mini Terrain is a single diorama: Infinite World and Planet are unavailable');
+      return;
+    }
 
     if (mode === 'planet' && !planetModules) {
       try {
@@ -9414,6 +9495,10 @@ export class Engine {
     if (mode === this.worldMode) return;
     if (this.projectMode === 'manual' && mode !== 'studio') {
       this.cb.onToast('Manual Terrain is currently available in Tile mode');
+      return;
+    }
+    if (this.mini?.state && mode !== 'studio') {
+      this.cb.onToast('Mini Terrain is a single diorama: Infinite World and Planet are unavailable');
       return;
     }
     if (this.paintMode?.state.enabled) this.setPaintMode(false);
@@ -10389,7 +10474,7 @@ export class Engine {
     }
     if (this.studioCloud) {
       // Cover the whole tile assembly (union of cells), not just the origin cell.
-      this.studioCloud.applyParams(this.params, this._maxHeight(), this.boardSize, this.perf, {
+      this.studioCloud.applyParams(this.params, this._maxHeight(), this.boardSize, this.perf, this.mini?.cloudLayout() ?? {
         extent: Math.max(this._unionWidth(), this._unionDepth()),
         center: this._unionCenter(),
       });
@@ -10814,7 +10899,7 @@ export class Engine {
     this.underwater.enabled = s.underwaterEffect !== false;
 
     // Studio board: segment counts + master distance scale
-    this.board.setLodSegments(segments);
+    this.board.setLodSegments(this._boardLodSegments());
     if (this.tileAssemblyShape === 'circle' && this.plinth) {
       this._syncCircularBoundarySpec();
       this._updatePlinth();
@@ -10822,7 +10907,8 @@ export class Engine {
     this.board.setLodDistanceScale(s.lodDistanceScale);
     this.board.cullingAggressiveness = s.cullingAggressiveness;
     this.board.setMergeOptions({
-      enabled: s.terrainMerge,
+      // a Mini surface is one fixed mesh: never fold it into a coarse proxy
+      enabled: s.terrainMerge && !this.mini?.active,
       quadsPerChunk: s.terrainMergeQuads,
       mergeDistance: s.terrainMergeDistance,
       macroEnabled: s.terrainMacroProxy,
@@ -11406,6 +11492,7 @@ export class Engine {
           : 1,
       },
     };
+    if (this.mini?.state) data.miniTerrain = this.mini.serialize();
     if (this.projectMode === 'manual') data.manualTerrain = this.manualTerrain?.serialize() ?? { version: 5, baseSource: 'flat', shapes: [], sculpt: null, surfacePaint: null };
     const realWorldSource = normalizeRealWorldSource(this.realWorldSource);
     if (realWorldSource) data.realWorldSource = realWorldSource;
@@ -11481,6 +11568,24 @@ export class Engine {
       ? normalizeManualTerrainDocument(json?.manualTerrain)
       : null;
     this.workspacePreset = json?.workspacePreset === 'real-terrain' ? 'real-terrain' : null;
+    // Projects without a Mini section keep exactly their previous behaviour.
+    let miniStyleMigration = null;
+    this.mini?.install(this.projectMode === 'procedural'
+      ? normalizeMiniTerrainState(json?.miniTerrain)
+      : null);
+    if (this.mini?.state) {
+      // The layout is derived from the document, never trusted from params;
+      // documents written by an older Mini version get their whole derived
+      // look re-applied (relief/height units and prop system changed).
+      const storedVersion = Number(json?.miniTerrain?.version) || 1;
+      if (storedVersion < MINI_TERRAIN_VERSION) {
+        Object.assign(this.params, this.mini.paramsPatch('all'));
+        miniStyleMigration = miniStylePatch(this.mini.state.recipe, this.mini.state.preset);
+      } else {
+        Object.assign(this.params, this.mini.paramsPatch('structure'));
+      }
+    }
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
     if (this.projectMode === 'manual' && manualDocument.baseSource === 'flat') {
       this.params.surfaceTextureSource = SURFACE_TEXTURE_SOURCE.BUILT_IN;
       this.params.surfaceTextureMode = true;
@@ -11498,6 +11603,7 @@ export class Engine {
     this._migrateLegacyCloudPerf(src);
     if (src.planetStyle) this.planetStyle.importJSON({ planetStyle: src.planetStyle });
     else if (src.planetPreset) this.planetStyle.applyPlanetPreset(src.planetPreset);
+    if (miniStyleMigration) this.planetStyle.setStyle(miniStyleMigration);
     this._syncPlanetStyleToParams();
     // restore the tile assembly (old saves with no tiles -> single origin tile)
     this.tileAssemblyShape = json?.tileAssemblyShape === 'circle' ? 'circle' : 'square';
@@ -11510,6 +11616,7 @@ export class Engine {
     this.tiles = this.tileAssemblyShape === 'circle'
       ? this._circleTiles(this.circleRadiusCells)
       : this._sanitizeTiles(json?.tiles);
+    this._enforceMiniSingleTile();
     this.explodeTool?.dispose?.();
     this.explodeTool = null;
     if (this._explodeBuildingTimer) clearTimeout(this._explodeBuildingTimer);
@@ -11667,6 +11774,7 @@ export class Engine {
       manualTerrain: this.manualTerrain?.serialize({ includeSculpt: false, includeSurface: false }) ?? { version: 5, baseSource: 'flat', shapes: [] },
       manualSculptRev: this.manualTerrain?.field?.sculptRevision ?? 0,
       manualSurfaceRev: this.manualTerrain?.surfaceRevision ?? 0,
+      miniTerrain: this.mini?.serialize() ?? null,
     };
   }
 
@@ -11755,6 +11863,11 @@ export class Engine {
     this.tiles = this.tileAssemblyShape === 'circle'
       ? this._circleTiles(this.circleRadiusCells)
       : this._sanitizeTiles(snap.tiles);
+
+    // Mini document first: board layout, base and composition depend on it.
+    this.mini?.install(normalizeMiniTerrainState(snap.miniTerrain));
+    this._enforceMiniSingleTile();
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
 
     // push params → uniforms and rebuild board geometry (chunk layout may differ)
     this.cb.onParams(this._paramsSnapshot());
@@ -12566,6 +12679,7 @@ export class Engine {
       worldMode: this.worldMode,
       projectMode: this.projectMode,
       workspacePreset: this.workspacePreset,
+      miniTerrain: this.mini?.serialize() ?? null,
       realWorldSource: this.realWorldSource,
       timeOfDay: this.timeOfDay,
       soloLayerId: this._soloLayerId ?? null,
@@ -12602,6 +12716,70 @@ export class Engine {
         retryable: this._bootError.retryable,
       } : null,
     };
+  }
+
+  // ------------------------------------------------------------ Mini Terrain
+
+  getMiniTerrain() {
+    return this.mini?.serialize() ?? null;
+  }
+
+  /**
+   * Edit the Mini document. Each field invalidates only its own category:
+   * water level → water params; vegetation → props; clouds → cloud params;
+   * relief/seed/recipe → composition (terrain field re-bake, no geometry
+   * rebuild); quality → surface resolution + water backend.
+   */
+  setMiniTerrain(patch = {}) {
+    const plan = this.mini?.planChange(patch);
+    if (!plan) return null;
+    this.mini.state = plan.state;
+    const keys = Object.keys(plan.params);
+    if (keys.length) this._clearPendingTerrainParams(keys);
+    for (const [key, value] of Object.entries(plan.params)) this.params[key] = value;
+    if (plan.palette) {
+      this.planetStyle.setStyle(plan.palette);
+      this._syncPlanetStyleToParams();
+      this.planetStyle.applyToUniforms(this.uniforms);
+    }
+    if (plan.changed.includes('quality') || plan.changed.includes('width')) {
+      this.board.setLodSegments(this._boardLodSegments());
+    }
+    const rebuild = keys.some((key) => REBUILD_KEYS.has(key));
+    const terrainDirty = plan.composition || keys.some((key) => TERRAIN_FIELD_KEYS.has(key));
+    this._needsRender = true;
+    this._afterParamChange(rebuild, terrainDirty);
+    if (plan.changed.some((key) => key === 'recipe' || key === 'width')) this.mini.frame({ blend: true });
+    this.cb.onParams(this._paramsSnapshot());
+    this.cb.onMiniTerrain?.(this.mini.serialize());
+    return this.mini.serialize();
+  }
+
+  /** New composition from a fresh seed (keeps amounts, quality, presentation). */
+  regenerateMiniTerrain(seed = null) {
+    if (!this.mini?.state) return null;
+    const next = Number.isFinite(Number(seed)) ? Number(seed) >>> 0 : ((Math.random() * 0xffffffff) >>> 0);
+    return this.setMiniTerrain({ seed: next });
+  }
+
+  frameMiniTerrain() {
+    this.mini?.frame({ blend: true });
+  }
+
+  saveMiniView(name) {
+    const state = this.mini?.saveView(name);
+    if (state) this.cb.onMiniTerrain?.(this.mini.serialize());
+    return state ? this.mini.serialize() : null;
+  }
+
+  removeMiniView(index) {
+    const state = this.mini?.removeView(index);
+    if (state) this.cb.onMiniTerrain?.(this.mini.serialize());
+    return state ? this.mini.serialize() : null;
+  }
+
+  goToMiniView(index) {
+    return this.mini?.goToView(index) ?? false;
   }
 
   setClientState(patch = {}) {
@@ -12925,6 +13103,7 @@ export class Engine {
       causticsEnabled: p.waterUnderwaterCausticsEnabled !== false,
       particlesEnabled: !!p.waterUnderwaterParticles,
       lightShaftsEnabled: !!p.waterUnderwaterLightShafts,
+      volume: this.mini?.underwaterVolume() ?? null,
     });
 
     // terrain caustics (shared uniforms; world-XZ projection → seamless across
@@ -12933,7 +13112,9 @@ export class Engine {
     const causticUser = p.waterUnderwaterCaustics ?? 0.4;
     const causticsOn = waterActive && ctrl.causticsEnabled && quality !== 'off';
     if (u.uCausticStrength) {
-      u.uCausticStrength.value = causticsOn ? causticUser : 0;
+      // Mini Terrain draws caustics in its own water shader (seabed seen
+      // through the water only), so the terrain pass must not add them twice.
+      u.uCausticStrength.value = causticsOn && !this.mini?.active ? causticUser : 0;
       // Caustics live on the submerged sea floor and are visible from any
       // viewpoint (above or below water), so they are NOT tied to the camera
       // being underwater — only to water covering the terrain. Depth fade in
@@ -13164,6 +13345,7 @@ export class Engine {
         }
       }
 
+      this.mini?.beforeRender();
       const cameraPlan = this._prepareCameraPipeline();
       const cameraSceneSize = this._cameraSceneSize(cameraPlan);
       const cameraTarget = cameraPlan.usesSceneTarget ? this.visualPost.inputTarget : null;
@@ -13455,6 +13637,7 @@ export class Engine {
       performance: this.profiler?.snapshot?.() || null,
       version: APP_VERSION,
       mode: this.worldMode,
+      mini: this.mini?.diagnostics() ?? null,
       exploreMode: this.exploreMode,
       state,
       qualityPreset: perf.preset,
@@ -13728,6 +13911,7 @@ export class Engine {
     this.minimap.dispose();
     this.underwater.dispose();
     this.visualPost?.dispose();
+    this.mini?.dispose();
     this.waterSystem?.dispose();
     this.water?.geometry?.dispose();
     for (const t of this._matTrash) for (const m of t.mats) m.dispose();

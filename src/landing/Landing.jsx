@@ -2,7 +2,7 @@ import { matchesTranslatedSearch } from '../i18n/language.js';
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
 import SurfacePackCredits from '../components/ui/SurfacePackCredits.jsx';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
+import { ArrowRight, Box, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
 import { FaDiscord, FaGithub, FaXTwitter } from 'react-icons/fa6';
 import { SiKofi } from 'react-icons/si';
 import { APP_NAME, APP_VERSION, AUTHOR_PORTFOLIO_URL, AUTHOR_X_URL, CURSOR_PACK_AUTHOR, CURSOR_PACK_URL, GITHUB_REPO_URL } from '../constants/app.js';
@@ -11,6 +11,7 @@ import { projectApi } from '../project/projectApi.js';
 import { buildUnifiedProjectIndex } from '../project/projectSync.js';
 import { PROJECT_TEMPLATES, getProjectTemplate, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
 import { NODE_PROJECT_TEMPLATES, getNodeProjectTemplate, nodeTemplatePreviewCacheKey } from '../project/NodeProjectTemplates.js';
+import { MINI_COMPOSITION_IDS, MINI_RECIPES } from '../engine/mini/MiniTerrainSettings.js';
 import { TERRAIN_GRADIENT_OPTIONS, terrainGradientCss } from '../engine/terrain/graph/TerrainGradientPresets.js';
 import { BUILDING_SOURCE, BUILDING_SOURCE_URL } from '../engine/terrain/RealWorldBuildings.js';
 import { Logo } from './shared.jsx';
@@ -419,8 +420,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
           <SyncIcon size={13} aria-hidden />
           {cloudProject && <span className={`lp-card-visibility-icon ${cloudProject.visibility}`}><VisibilityIcon size={12} aria-hidden /></span>}
         </span>
-        <span className={`lp-template-kind-badge ${project.terrain.workspacePreset === 'real-terrain' ? 'real' : project.terrain.editorMode}`}>
-          {translateText(project.terrain.workspacePreset === 'real-terrain' ? 'Real terrain' : project.terrain.editorMode === 'nodes' ? 'Nodes' : project.terrain.editorMode === 'manual' ? 'Manual' : 'Procedural')}
+        <span className={`lp-template-kind-badge ${project.terrain.miniTerrain ? 'mini' : project.terrain.workspacePreset === 'real-terrain' ? 'real' : project.terrain.editorMode}`}>
+          {translateText(project.terrain.miniTerrain ? 'Mini terrain' : project.terrain.workspacePreset === 'real-terrain' ? 'Real terrain' : project.terrain.editorMode === 'nodes' ? 'Nodes' : project.terrain.editorMode === 'manual' ? 'Manual' : 'Procedural')}
         </span>
         <span className="lp-card-info">
           <strong>{project.metadata.name}</strong>
@@ -761,6 +762,35 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
               <small>{translateText("Choose any real-world location and work in a focused import workspace with geographic elevation, imagery, and buildings.")}</small>
               <span className="landing-create-action">{translateText("Select a location ")}<ArrowRight size={13} /></span>
             </button>
+          </div>
+          <div className="landing-create-mini">
+            <div className="landing-create-mini-head">
+              <span className="landing-create-icon mini"><Box size={22} /></span>
+              <div>
+                <strong>{translateText("Mini Terrain")}</strong>
+                <small>{translateText("A composed procedural diorama on a cut-away base, with water that stops at its edges. Opens already composed.")}</small>
+              </div>
+            </div>
+            <div className="landing-create-mini-choices">
+              <span className="landing-create-mini-group">{translateText("Procedural")}</span>
+              <div className="landing-create-mini-recipes">
+                {PROJECT_TEMPLATES.map((template) => (
+                  <button key={template.id} type="button" onClick={() => create(template.id, 'mini')} disabled={!menuReady || exiting}>
+                    <strong>{translateText(template.id === 'blank' ? 'Procedural' : template.name)}</strong>
+                    <ArrowRight size={13} aria-hidden />
+                  </button>
+                ))}
+              </div>
+              <span className="landing-create-mini-group">{translateText("Composed scenes")}</span>
+              <div className="landing-create-mini-recipes">
+                {MINI_COMPOSITION_IDS.map((id) => (
+                  <button key={id} type="button" onClick={() => create(id, 'mini')} disabled={!menuReady || exiting}>
+                    <strong>{translateText(MINI_RECIPES[id].labelEn)}</strong>
+                    <ArrowRight size={13} aria-hidden />
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
       </div>}

@@ -76,6 +76,7 @@ import {
 } from './platform/DesktopBridge.js';
 import { setApiBackend } from './auth/authApi.js';
 import { getProjectTemplate, PROJECT_TEMPLATES } from './project/ProjectTemplates.js';
+import { MINI_COMPOSITION_IDS, MINI_RECIPES } from './engine/mini/MiniTerrainSettings.js';
 import {
   NODE_PROJECT_TEMPLATES, createNodeTemplateGraph, getNodeProjectTemplate,
 } from './project/NodeProjectTemplates.js';
@@ -84,6 +85,9 @@ import { getWaterBaselineScene } from './engine/water/WaterBaseline.js';
 
 const MODE_LABEL = { studio: 'Tile', infinite: 'Infinite World', planet: 'Planet' };
 const NODE_PANEL_IDS = ['explode', 'planet', 'water', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'debug'];
+// Mini Terrain keeps capture/save/undo and the useful advanced panels, but no
+// tile/world layout, streaming or exploration tools.
+const MINI_PANEL_IDS = ['mini', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
 const REAL_TERRAIN_PANEL_IDS = ['terrain', 'markers', 'explode', 'water', 'props', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'history', 'debug'];
 const PerformanceOverlay = lazy(() => import('./components/perf/PerformanceOverlay.jsx'));
 // Start loading the drawer chunk with the app so the first tool click does
@@ -243,6 +247,9 @@ export default function App() {
 
   const [worldMode, setWorldMode] = useState('studio');
   const [realTerrainMode, setRealTerrainMode] = useState(false);
+  // Normalized Mini Terrain document mirrored from the engine (null = not Mini).
+  const [miniTerrain, setMiniTerrainState] = useState(null);
+  const miniPatchRef = useRef(null);
   const [realWorldMapRequest, setRealWorldMapRequest] = useState(0);
   const [exploreMode, setExploreMode] = useState('none');
   const [playerMode, setPlayerMode] = useState(false);
@@ -569,6 +576,7 @@ export default function App() {
             scheduleRecordRef.current?.();
           },
           onProjectMode: setProjectMode,
+          onMiniTerrain: setMiniTerrainState,
           onGraphState: setGraphState,
           onGraphView: setGraphView,
           onExplodeState: (next) => {
@@ -1151,8 +1159,19 @@ export default function App() {
     const eng = engineRef.current;
     if (!eng) return;
     const realPreset = editorMode === 'real';
+    const miniPreset = editorMode === 'mini';
     const nextMode = editorMode === 'nodes' ? 'nodes' : editorMode === 'manual' ? 'manual' : 'procedural';
-    const template = nextMode === 'nodes'
+    // A Mini diorama is either a composition (cove, islet, lake) or ANY regular
+    // procedural template (blank, island, mountain, ...) presented as a diorama.
+    const miniComposition = miniPreset && MINI_COMPOSITION_IDS.includes(templateId) ? MINI_RECIPES[templateId] : null;
+    const miniBaseTemplate = miniPreset && !miniComposition
+      ? getProjectTemplate(templateId === 'procedural' ? 'blank' : templateId)
+      : null;
+    const miniRecipe = miniComposition ?? (miniPreset ? MINI_RECIPES.procedural : null);
+    const miniName = miniComposition ? miniComposition.labelEn : miniBaseTemplate?.name;
+    const template = miniRecipe
+      ? { id: miniComposition ? miniComposition.id : miniBaseTemplate.id, name: miniName, description: `Mini Terrain diorama: ${String(miniName).toLowerCase()}.` }
+      : nextMode === 'nodes'
       ? getNodeProjectTemplate(templateId)
       : nextMode === 'manual'
         ? { id: 'manual-blank', name: 'Manual Terrain', description: 'Build a terrain by composing editable procedural landforms.' }
@@ -1179,7 +1198,9 @@ export default function App() {
         // after newProject(), causing two extra full terrain updates and a
         // visible flash of the default/previous landscape.
         const baseSeed = Number(landingRef.current?.sessionSeed) || ((Math.random() * 0xffffffff) >>> 0);
-        const catalog = nextMode === 'nodes' ? NODE_PROJECT_TEMPLATES : nextMode === 'manual' ? [template] : PROJECT_TEMPLATES;
+        const catalog = miniRecipe
+          ? [...PROJECT_TEMPLATES, ...MINI_COMPOSITION_IDS.map((id) => ({ id }))]
+          : nextMode === 'nodes' ? NODE_PROJECT_TEMPLATES : nextMode === 'manual' ? [template] : PROJECT_TEMPLATES;
         // Keep Blank terrain tied to the random showcase rendered during boot.
         // Named templates get their own deterministic variation so selecting
         // them still produces a distinct world.
@@ -1200,9 +1221,15 @@ export default function App() {
           projectMode: nextMode,
           workspacePreset: realPreset ? 'real-terrain' : null,
           seed: projectSeed,
-          presetKey: nextMode === 'procedural' ? template.preset : null,
-          noiseStackPresetKey: nextMode === 'procedural' ? template.noiseStackPreset : null,
+          presetKey: nextMode === 'procedural' && !miniRecipe ? template.preset : null,
+          // a procedural Mini keeps its template's noise stack (e.g. Geological Hybrid)
+          noiseStackPresetKey: nextMode === 'procedural'
+            ? (miniRecipe ? (miniBaseTemplate?.noiseStackPreset ?? null) : template.noiseStackPreset)
+            : null,
           initialGraph: templateGraph,
+          mini: miniRecipe
+            ? { recipe: miniRecipe.id, seed: projectSeed, preset: miniBaseTemplate?.preset ?? null }
+            : null,
         };
         // A new terrain is a new document. Do not let saveCurrentProject reuse
         // the id of whichever project was previously open.
@@ -1241,7 +1268,9 @@ export default function App() {
           setNativeHistoryActions([]);
           setHistState({ canUndo: false, canRedo: false });
         } catch { /* history is best effort */ }
-        const metadata = realPreset
+        const metadata = miniRecipe
+          ? { name: `Mini · ${miniName}`, description: template.description, tags: ['mini-terrain', template.id] }
+          : realPreset
           ? { name: 'Real Terrain', description: 'Real-world geographic terrain import.', tags: ['real-terrain', 'geographic'] }
           : nextMode === 'nodes'
           ? {
@@ -1269,6 +1298,7 @@ export default function App() {
     await new Promise((resolve) => requestAnimationFrame(resolve));
     created = await saveCurrentProject(created, { captureFresh: false });
     if (created) showToast(`${template.name} project created`, 'success');
+    if (miniRecipe && created) setActivePanel('mini');
     if (realPreset && created) {
       setActivePanel('terrain');
       setSettingsTarget({ panelId: 'terrain', tabId: 'import', settingId: 'terrain.realWorldCustom' });
@@ -2100,11 +2130,12 @@ export default function App() {
     if (!settingsSearchOpen || !searchEnabled) return [];
     return searchSettings(settingsSearchQuery, (panelId) => (
       panelAvailable(panelId, worldMode)
+      && (miniTerrain ? MINI_PANEL_IDS.includes(panelId) : panelId !== 'mini')
       && (!realTerrainMode || REAL_TERRAIN_PANEL_IDS.includes(panelId))
     ))
       .filter((item) => !realTerrainMode || item.panelId !== 'terrain' || item.tabId === 'import' || ['terrain.heightScale', 'terrain.noiseScale'].includes(item.settingId))
       .map((item) => ({ ...item, valueText: formatSearchValue(item) }));
-  }, [settingsSearchOpen, settingsSearchQuery, searchEnabled, worldMode, realTerrainMode, formatSearchValue, language]);
+  }, [settingsSearchOpen, settingsSearchQuery, searchEnabled, worldMode, realTerrainMode, miniTerrain, formatSearchValue, language]);
 
   const groupedSettingsSearchResults = useMemo(() => {
     const map = new Map();
@@ -2196,6 +2227,8 @@ export default function App() {
   }, [uiSettingsOpen]);
 
   const projectPanelAvailable = (id) => {
+    if (miniTerrain) return MINI_PANEL_IDS.includes(id);
+    if (id === 'mini') return false;
     if (realTerrainMode) return REAL_TERRAIN_PANEL_IDS.includes(id);
     return !['nodes', 'manual'].includes(workspaceProjectMode) || NODE_PANEL_IDS.includes(id);
   };
@@ -2403,8 +2436,40 @@ export default function App() {
     });
   };
 
+  // Mini Terrain edits: the panel updates optimistically, the engine receives
+  // at most one merged patch per animation frame (slider drags never queue a
+  // re-bake per input event), then one history checkpoint.
+  const queueMiniPatch = (patch) => {
+    setMiniTerrainState((current) => (current ? { ...current, ...patch } : current));
+    if (miniPatchRef.current) {
+      Object.assign(miniPatchRef.current, patch);
+      return;
+    }
+    miniPatchRef.current = { ...patch };
+    requestAnimationFrame(() => {
+      const next = miniPatchRef.current;
+      miniPatchRef.current = null;
+      if (!next || !engineRef.current) return;
+      Promise.resolve(engineRef.current.setMiniTerrain(next)).then((state) => {
+        if (state && !miniPatchRef.current) setMiniTerrainState(state);
+        scheduleRecordRef.current?.();
+      });
+    });
+  };
   const ctx = {
     params, worldMode, onParam,
+    miniTerrain,
+    onMiniTerrain: queueMiniPatch,
+    onMiniRegenerate: () => {
+      Promise.resolve(engine()?.regenerateMiniTerrain()).then((state) => {
+        if (state) setMiniTerrainState(state);
+        scheduleRecordRef.current?.();
+      });
+    },
+    onMiniFrame: () => engine()?.frameMiniTerrain(),
+    onMiniSaveView: () => Promise.resolve(engine()?.saveMiniView()).then((state) => state && setMiniTerrainState(state)),
+    onMiniRemoveView: (index) => Promise.resolve(engine()?.removeMiniView(index)).then((state) => state && setMiniTerrainState(state)),
+    onMiniGoToView: (index) => engine()?.goToMiniView(index),
     realTerrainMode, realWorldMapRequest,
     onRealWorldMapRequestHandled: (handled) => setRealWorldMapRequest((request) => request === handled ? 0 : request),
     settingsTarget,
@@ -2557,7 +2622,9 @@ export default function App() {
         projectName={projectName}
         onProjectNameChange={updateProjectName}
         previewMode={previewMode}
-        onNew={() => createProjectFromTemplate('blank', { editorMode: realTerrainMode ? 'real' : projectMode })}
+        onNew={() => (miniTerrain
+          ? createProjectFromTemplate(miniTerrain.recipe === 'procedural' ? 'blank' : miniTerrain.recipe, { editorMode: 'mini' })
+          : createProjectFromTemplate('blank', { editorMode: realTerrainMode ? 'real' : projectMode }))}
         onRandomize={() => engine().randomizeSeed()}
         onSave={() => (isDesktopApp() ? saveCurrentDesktopDocument() : saveCurrentProject())}
         onSaveAs={isDesktopApp() ? () => saveCurrentDesktopDocument({ forceSaveAs: true }) : undefined}
@@ -2648,7 +2715,7 @@ export default function App() {
             onLayoutChange={handleToolsRailLayout}
             shellRef={appShellRef}
             showLabels={uiPrefs.toolbarLabels}
-            panelIds={realTerrainMode ? REAL_TERRAIN_PANEL_IDS : ['nodes', 'manual'].includes(workspaceProjectMode) ? NODE_PANEL_IDS : undefined}
+            panelIds={miniTerrain ? MINI_PANEL_IDS : realTerrainMode ? REAL_TERRAIN_PANEL_IDS : ['nodes', 'manual'].includes(workspaceProjectMode) ? NODE_PANEL_IDS : undefined}
             realTerrainMode={realTerrainMode}
           />
         )}
@@ -2881,6 +2948,7 @@ export default function App() {
       {!previewMode && !landingMode && projectMode === 'procedural' && (
         <WorldModeBar
           worldMode={realTerrainMode ? 'real' : worldMode}
+          miniActive={!!miniTerrain}
           onSetWorldMode={selectWorldMode}
           modeLocked={modeLocked}
           modeDisplay={uiPrefs.modeDisplay}

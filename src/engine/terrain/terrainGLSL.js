@@ -6,6 +6,7 @@
 
 import { NOISE_STACK_PRIMS2D_GLSL } from './noise/noisePrimsGLSL.js';
 import { NOISE_STACK_MASKS2D_GLSL } from './noise/masks.js';
+import { MINI_COMPOSITION_GLSL, MINI_COMPOSITION_UNIFORMS_GLSL } from '../mini/miniCompositionGLSL.js';
 
 export const COMMON_UNIFORMS_GLSL = /* glsl */ `
 uniform vec2  uSeedOffset;     // deterministic domain offset derived from seed
@@ -27,6 +28,7 @@ uniform float uEdgeFalloffMode; // 0 island, 1 mountains
 uniform float uInfiniteMode;   // 0 = bounded Tile terrain, 1 = streamed Infinite terrain
 uniform float uBoardHalf;      // half board size in world units
 uniform float uChunkSize;      // internal chunk size in world units
+${MINI_COMPOSITION_UNIFORMS_GLSL}
 uniform vec3  uSunDir;         // normalized, pointing FROM surface TO sun
 uniform vec3  uFogColor;
 uniform float uFogDensity;
@@ -790,6 +792,8 @@ float legacyShape2D(vec2 xz, Climate c) {
 
 ${graphFunctions}
 
+${MINI_COMPOSITION_GLSL}
+
 // Codegen-injected noise stack. Accumulates h from the ordered layers; pw is
 // the (possibly domain-warped) noise-domain coordinate shared by all layers.
 // uAmplitude acts as a master strength multiplier for the entire stack.
@@ -849,7 +853,10 @@ float shapeHeight(vec2 xz, Climate c) {
       h += (edgeMountains * 0.55 + edgeBreakup * 0.12) * edgeMask * uAmplitude * clamp(uFalloff, 0.0, 1.0);
     }
   }
-  float finalH = finalizeStackHeight(h) * uHeightScale;
+  float finalH01 = finalizeStackHeight(h);
+  // Mini Terrain: the stack becomes the detail over a composed silhouette.
+  if (uInfiniteMode < 0.5 && uMiniShape > 0.5) finalH01 = miniCompose(xz, finalH01);
+  float finalH = finalH01 * uHeightScale;
   if (uInfiniteMode < 0.5 && uImportHeightMode > 1.5) {
     float importedH = importedMapValue(uImportHeightTex, importHeightUvAt(xz)) * uHeightScale * uImportHeightStrength + uImportHeightOffset;
     finalH = (uImportHeightMode > 2.5) ? mix(finalH, importedH, uImportHeightBlend) : importedH;

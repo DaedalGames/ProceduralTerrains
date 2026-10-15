@@ -16,6 +16,7 @@ import {
 } from './terrainGLSL.js';
 import { BIOME_GLSL } from './biomeGLSL.js';
 import { generateStackGLSL } from './noise/noiseStackCodegen.js';
+import { MINI_CUT_GLSL } from '../mini/miniCutGLSL.js';
 import { defaultLegacyStack, MAX_LAYERS } from './noise/NoiseStack.js';
 import {
   PALETTE_UNIFORMS_GLSL,
@@ -424,6 +425,7 @@ varying float vLod;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;   // surface height above this column (Mini cut strata)
 ${preview ? 'varying vec3 vTerrainPreviewNormal;' : ''}
 
 void main() {
@@ -499,6 +501,7 @@ ${preview ? /* glsl */ `
   vSkirt = max(skirt, wall);
   vWall = wall;
   vWallMesh = aWall;
+  vCutRimH = h;
 
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -558,6 +561,7 @@ uniform float uColorMode;
 uniform float uEps;
 ${worldMode === 'studio' && !features.manual ? 'uniform int uTerrainNormalSampleCount;' : ''}
 uniform vec3  uPlinthColor;
+${MINI_CUT_GLSL}
 uniform float uAnalysisEnabled;
 uniform float uAnalysisMode;
 uniform float uAnalysisOpacity;
@@ -596,6 +600,7 @@ varying float vLod;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;
 
 const vec3 LOD_COLORS[4] = vec3[4](
   vec3(0.90, 0.28, 0.30),
@@ -972,6 +977,10 @@ ${features.manual ? '' : /* glsl */ `
   // so a small threshold colours the whole wall, leaving only a hairline of
   // terrain colour at the rim where it meets the surface (a natural transition).
   if (vWall > 0.02) {
+    if (uMiniCut > 0.5) {
+      gl_FragColor = vec4(miniCutShade(vWorldPos, vCutRimH, uSeaLevel, uSunDir), 1.0);
+      return;
+    }
     float wd = length(cameraPosition - vWorldPos);
     float wfog = 1.0 - exp(-uFogDensity * uFogDensity * wd * wd);
     vec3 wcol = mix(uPlinthColor, uFogColor, clamp(wfog, 0.0, 1.0));
@@ -1157,11 +1166,13 @@ uniform float uColorMode;
 uniform float uEps;
 uniform float uNormalStrength;
 uniform vec3  uPlinthColor;
+${MINI_CUT_GLSL}
 
 varying vec3  vWorldPos;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;
 varying vec3  vTerrainPreviewNormal;
 
 // The preview has no live per-pixel field: wherever the camera-centred near
@@ -1218,6 +1229,10 @@ void main() {
   float dist = length(cameraPosition - vWorldPos);
 
   if (vWall > 0.02) {
+    if (uMiniCut > 0.5) {
+      gl_FragColor = vec4(miniCutShade(vWorldPos, vCutRimH, uSeaLevel, uSunDir), 1.0);
+      return;
+    }
     float wfog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
     gl_FragColor = vec4(mix(uPlinthColor, uFogColor, clamp(wfog, 0.0, 1.0)), 1.0);
     return;
@@ -1300,6 +1315,13 @@ export function createTerrainUniforms() {
     uInfiniteMode:   { value: 0.0 },
     uBoardHalf:      { value: 1024 },
     uChunkSize:      { value: 128 },
+    // Mini Terrain composition (uMiniShape 0 = off: every other mode/project).
+    uMiniShape:      { value: 0.0 },
+    uMiniFrame:      { value: new THREE.Vector4(0, 1, 0, 0) },
+    uMiniGeometry:   { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniHeights:    { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniWobble:     { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniDetail:     { value: new THREE.Vector4(0, 0, 0, 0) },
     // Tile mode (multi-cell studio assembly). Defaults reproduce a single
     // origin-centred board (uUseTiles=0 -> legacy falloff/wall path).
     uTileOccupancy:  { value: null },
@@ -1332,6 +1354,14 @@ export function createTerrainUniforms() {
     uSkirtDepth:     { value: 40 },
     uPlinthBaseY:    { value: -40 },
     uPlinthColor:    { value: new THREE.Color(0x14110d) },
+    // Mini Terrain section strata (uMiniCut 0 = legacy flat plinth colour).
+    uMiniCut:        { value: 0.0 },
+    uMiniCutTopsoil: { value: new THREE.Vector3(0.05, 0.03, 0.02) },
+    uMiniCutBandA:   { value: new THREE.Vector3(0.31, 0.23, 0.15) },
+    uMiniCutBandB:   { value: new THREE.Vector3(0.20, 0.14, 0.09) },
+    uMiniCutDeep:    { value: new THREE.Vector3(0.07, 0.06, 0.05) },
+    uMiniCutSediment:{ value: new THREE.Vector3(0.51, 0.40, 0.21) },
+    uMiniCutParams:  { value: new THREE.Vector4(8, -70, 12, 330) },
     uAnalysisEnabled: { value: 0.0 },
     uAnalysisMode: { value: 1.0 },
     uAnalysisOpacity: { value: 0.72 },

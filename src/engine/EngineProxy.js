@@ -110,6 +110,8 @@ export const ENGINE_METHODS = Object.freeze([
   'setTileDebug', 'setTileMapSetting', 'setTimeOfDay', 'setTouchInput', 'setViewport',
   'smoothExplosionEdges', 'startEmptyTerrain', 'transitionMode', 'updateManualShape',
   'updateManualShapeLayer', 'updateSpline', 'applyInputFrame',
+  'getMiniTerrain', 'setMiniTerrain', 'regenerateMiniTerrain', 'frameMiniTerrain',
+  'saveMiniView', 'removeMiniView', 'goToMiniView',
 ]);
 
 const cloneError = (payload) => {
@@ -406,6 +408,7 @@ export class EngineClient {
       if (args[0]) savePerfSettings(args[0]);
     }
     if (name === 'onProjectMode') patch.projectMode = args[0];
+    if (name === 'onMiniTerrain') patch.miniTerrain = args[0];
     if (name === 'onTimeOfDayChange') patch.timeOfDay = args[0];
     if (name === 'onBootShaderStats') recordBootShaderStats(args[0]);
     this._setSnapshot({ ...this.snapshot, ...patch });
@@ -438,6 +441,7 @@ const snapshotGetters = {
   params: 'params', perf: 'perf', gpuName: 'gpuName', rendererConfig: 'rendererConfig',
   rendererCapabilities: 'rendererCapabilities', worldMode: 'worldMode',
   projectMode: 'projectMode', realWorldSource: 'realWorldSource', timeOfDay: 'timeOfDay',
+  miniTerrain: 'miniTerrain',
   _soloLayerId: 'soloLayerId', _disposed: 'disposed',
 };
 for (const [property, snapshotKey] of Object.entries(snapshotGetters)) {

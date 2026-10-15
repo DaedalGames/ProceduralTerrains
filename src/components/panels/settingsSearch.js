@@ -1,6 +1,16 @@
 import { translateText } from '../../i18n/language.js';
 
 const SETTINGS_INDEX = [
+  // Mini Terrain (only offered while a Mini project is open)
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.recipe', label: 'Mini Preset', keywords: 'mini diorama preset recipe cove cliff islet island lake mountain composition', aliases: 'crique ilot lac' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.regenerate', label: 'Regenerate Diorama', keywords: 'mini diorama regenerate seed random new composition' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.relief', label: 'Mini Relief', keywords: 'mini diorama relief height cliffs mountains' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.waterLevel', label: 'Mini Water Level', keywords: 'mini diorama water level sea lake flood' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.vegetation', label: 'Mini Vegetation', keywords: 'mini diorama vegetation trees forest plants density' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.clouds', label: 'Mini Clouds', keywords: 'mini diorama clouds sky' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.cutStyle', label: 'Cut Style', keywords: 'mini diorama cut section strata layers walls base socle' },
+  { panelId: 'mini', sectionLabel: 'Quality', settingId: 'mini.quality', label: 'Terrain Resolution', keywords: 'mini diorama quality resolution segments triangles capture' },
+
   // Terrain — presets (shape preset also carries the cartoon palette/noise)
   { panelId: 'terrain', tabId: 'shape', sectionLabel: 'Shape', settingId: 'terrain.preset', label: 'Terrain Preset', keywords: 'preset style layout highlands alpine desert dunes canyon volcanic rolling archipelago cartoon', aliases: 'cartoon toon preset' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.noisePreset', label: 'Noise Preset', keywords: 'noise preset style cartoon simple flat low relief default', aliases: 'cartoon toon' },
@@ -199,6 +209,7 @@ const SETTINGS_INDEX = [
   { panelId: 'props', sectionLabel: 'Distribution', settingId: 'props.propsFlowers', label: 'Flower Density', keywords: 'props flowers meadow scatter' },
   { panelId: 'props', sectionLabel: 'Distribution', settingId: 'props.propsRocks', label: 'Rock Density', keywords: 'props rocks boulders stones terrain color' },
   { panelId: 'props', sectionLabel: 'Distribution', settingId: 'props.propsTreeDensity', label: 'Tree Density', keywords: 'props trees broadleaf conifer forest density scatter' },
+  { panelId: 'props', sectionLabel: 'Distribution', settingId: 'props.propsForest', label: 'Forest Coverage', keywords: 'props trees forest woodland coverage canopy dense clearings' },
   { panelId: 'props', sectionLabel: 'Look', settingId: 'props.propsGrass', label: 'Grass Height', keywords: 'props grass scale height patch blades biome color' },
   { panelId: 'props', sectionLabel: 'Look', settingId: 'props.propsRockScale', label: 'Rock Scale', keywords: 'props rocks scale boulders stones' },
   { panelId: 'props', sectionLabel: 'Look', settingId: 'props.propsTreeScale', label: 'Tree Scale', keywords: 'props trees broadleaf conifer forest size height' },

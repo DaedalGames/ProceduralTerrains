@@ -1460,6 +1460,7 @@ body:has(.landing-overlay.boot-holding) #app.landing-mode .viewport-area {
 .lp-template-kind-badge.nodes { border-color: rgba(37,99,235,.4); background: rgba(13,23,44,.88); color: #8bb4ff; }
 .lp-template-kind-badge.manual { border-color: rgba(139,92,246,.42); background: rgba(31,18,52,.9); color: #c4b5fd; }
 .lp-template-kind-badge.real { border-color: rgba(16,185,129,.42); background: rgba(10,44,34,.9); color: #6ee7b7; }
+.lp-template-kind-badge.mini { border-color: rgba(245,158,11,.42); background: rgba(44,31,8,.9); color: #fcd34d; }
 .lp-card-cloud-badge { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 3px; padding: 4px 5px; border: 1px solid rgba(255,255,255,.14); border-radius: 5px; background: rgba(5,5,5,.82); backdrop-filter: blur(6px); }
 .lp-card-cloud-badge.synced { border-color: rgba(34,197,94,.4); color: #81dca3; }
 .lp-card-cloud-badge.unsynced { border-color: rgba(245,158,11,.38); color: #f0c56a; }
@@ -1878,6 +1879,20 @@ body:has(.landing-overlay.boot-holding) #app.landing-mode .viewport-area {
 .landing-create-icon.nodes { border-color: rgba(37,99,235,.45); background: rgba(37,99,235,.14); color: #7aa7ff; }
 .landing-create-icon.manual { border-color: rgba(139,92,246,.45); background: rgba(139,92,246,.13); color: #c4b5fd; }
 .landing-create-icon.real { border-color: rgba(16,185,129,.45); background: rgba(16,185,129,.13); color: #6ee7b7; }
+.landing-create-icon.mini { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.12); color: #fcd34d; }
+.landing-create-mini { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr); gap: 16px; align-items: center; margin-top: 12px; padding: 16px 18px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-panel); animation: landing-create-option-in .3s cubic-bezier(.22, 1, .36, 1) .14s both; }
+.landing-create-mini-head { display: flex; gap: 14px; align-items: flex-start; }
+.landing-create-mini-head .landing-create-icon { flex: none; margin-bottom: 0; }
+.landing-create-mini-head strong { display: block; color: var(--text-bright); font-size: 16px; }
+.landing-create-mini-head small { display: block; margin-top: 6px; color: var(--text-muted); font-size: 11.5px; line-height: 1.5; }
+.landing-create-mini-choices { display: grid; gap: 6px; }
+.landing-create-mini-group { color: var(--text-muted); font: 650 9.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.landing-create-mini-recipes { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.landing-create-mini-recipes > button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 10px 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-control); color: var(--text-main); text-align: left; cursor: var(--cursor-pointer); transition: border-color .15s ease, background .15s ease; }
+.landing-create-mini-recipes > button strong { font-size: 13px; color: var(--text-bright); }
+.landing-create-mini-recipes > button svg { color: var(--accent); flex: none; }
+.landing-create-mini-recipes > button:hover:not(:disabled), .landing-create-mini-recipes > button:focus-visible { border-color: var(--border-active); background: #101010; }
+.landing-create-mini-recipes > button:disabled { opacity: .55; cursor: default; }
 .landing-create-options strong { color: var(--text-bright); font-size: 16px; }
 .landing-create-options small { margin-top: 7px; color: var(--text-muted); font-size: 11.5px; line-height: 1.5; }
 .landing-create-action { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 20px; color: var(--accent); font-size: 11px; font-weight: 650; }
@@ -1990,6 +2005,8 @@ body:has(.landing-overlay.boot-holding) #app.landing-mode .viewport-area {
   .landing-boot-progress-step { font-size: 10px; }
   .landing-create-dialog { padding: 18px; }
   .landing-create-options { grid-template-columns: 1fr; }
+  .landing-create-mini { grid-template-columns: 1fr; }
+  .landing-create-mini-recipes { grid-template-columns: 1fr; }
   .landing-create-options > button { min-height: 170px; }
   .auth-page { width: 100%; padding-top: 0; }
   .auth-card { padding: 20px 17px; }
@@ -2023,4 +2040,5 @@ body:has(.landing-overlay.boot-holding) #app.landing-mode .viewport-area {
   .landing-create-backdrop,
   .landing-create-dialog,
   .landing-create-options > button { animation: none; }
+  .landing-create-mini { animation: none; }
 }

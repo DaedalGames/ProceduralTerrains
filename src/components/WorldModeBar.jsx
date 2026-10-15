@@ -1,5 +1,5 @@
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
-import { Globe2, Grid2x2, Map } from 'lucide-react';
+import { Box, Globe2, Grid2x2, Map } from 'lucide-react';
 
 const MODES = [
   { id: 'studio', label: 'Tile', Icon: Grid2x2 },
@@ -17,6 +17,7 @@ export default function WorldModeBar({
   modeLocked,
   modeDisplay = 'both',
   visible = true,
+  miniActive = false,
 }) {
   useLanguage();
   if (!visible) return null;
@@ -30,8 +31,21 @@ export default function WorldModeBar({
       role="group"
       aria-label={translateText("World mode")}
     >
+      {miniActive && (
+        <button
+          type="button"
+          className="camera-bar-btn mode-bar-btn active"
+          aria-pressed
+          title={translateText('Mini Terrain: a single diorama in the finite world')}
+        >
+          {showIcons && <Box size={14} strokeWidth={1.75} aria-hidden />}
+          {showLabels && <span className="mode-bar-label">{translateText('Mini Terrain')}</span>}
+        </button>
+      )}
       {MODES.map((m) => {
         const Icon = m.Icon;
+        // Mini is a single finite diorama: the other world modes do not apply.
+        if (miniActive) return null;
         return (
           <button
             key={m.id}

@@ -7,6 +7,7 @@ import { SliderCtl, ToggleRow, SelectRow } from '../controls.jsx';
 import { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './panelMeta.js';
 export { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './panelMeta.js';
 import MarkersPanel from './MarkersPanel.jsx';
+import MiniTerrainPanel from './MiniTerrainPanel.jsx';
 import ImportMapsContent from '../ui/ImportMapsContent.jsx';
 import CollapsibleGroup from '../ui/CollapsibleGroup.jsx';
 import ControlSection from '../ui/ControlSection.jsx';
@@ -421,6 +422,7 @@ const PROP_SLIDERS = {
   propsRocks: { label: 'Rock Density', min: 0, max: 2, step: 0.05, digits: 2 },
   propsRockScale: { label: 'Rock Scale', min: 0.05, max: 2.5, step: 0.05, digits: 2 },
   propsTreeDensity: { label: 'Tree Density', min: 0, max: 2, step: 0.05, digits: 2 },
+  propsForest: { label: 'Forest Coverage', min: 0, max: 1, step: 0.01, digits: 2, info: 'Turns scattered groves into continuous woodland (clearings stay where the terrain asks for them).' },
   propsTreeScale: { label: 'Tree Scale', min: 0.25, max: 2.5, step: 0.05, digits: 2 },
   propsWind: { label: 'Wind', min: 0, max: 1.5, step: 0.05, digits: 2 },
   propsWindSpeed: { label: 'Animation Speed', min: 0, max: 4, step: 0.05, digits: 2 },
@@ -459,6 +461,7 @@ function PropsPanel({ ctx }) {
             <SliderCtl def={PROP_SLIDERS.propsFlowers} value={params.propsFlowers} onChange={(v) => onParam('propsFlowers', v)} />
             <SliderCtl def={PROP_SLIDERS.propsRocks} value={params.propsRocks ?? 0.8} onChange={(v) => onParam('propsRocks', v)} />
             <SliderCtl def={PROP_SLIDERS.propsTreeDensity} value={params.propsTreeDensity ?? 0.65} onChange={(v) => onParam('propsTreeDensity', v)} />
+            <SliderCtl def={PROP_SLIDERS.propsForest} value={params.propsForest ?? 0} onChange={(v) => onParam('propsForest', v)} settingId="props.propsForest" />
           </ControlSection>
 
           <ControlSection id="props-look" title={translateText("Look")} defaultOpen settingId="props.section.look">
@@ -1105,6 +1108,7 @@ function NoiseLayersPanelWrapper({ ctx }) {
 }
 
 const COMPONENTS = {
+  mini: MiniTerrainPanel,
   markers: MarkersPanel,
   terrain: TerrainPanel, explode: ExplodePanel, noiseLayers: NoiseLayersPanelWrapper, world: WorldPanel, planet: PlanetPanel, biomes: BiomesPanel,
   water: WaterPanel, props: PropsPanel, clouds: CloudsPanel, visuals: VisualsPanel, skybox: SkyboxPanel, lighting: LightingPanel, export: ExportPanel,

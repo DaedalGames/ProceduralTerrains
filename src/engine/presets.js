@@ -92,6 +92,7 @@ export const DEFAULT_PARAMS = {
 
   // procedural ground props
   propsEnabled: false,
+  propsSeed: -1,           // -1 = scatter from the terrain seed; >= 0 = own sub-seed
   propsDensity: 0.65,
   propsGrassDensity: 1.0,
   propsFlowers: 0.28,
@@ -99,6 +100,7 @@ export const DEFAULT_PARAMS = {
   propsRocks: 0.8,
   propsRockScale: 1.0,
   propsTreeDensity: 0.65,
+  propsForest: 0,          // 0 = open-world groves; 1 = continuous forest cover
   propsTreeScale: 1.0,
   propsWind: 0.6,
   propsWindSpeed: 1.6,

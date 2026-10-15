@@ -4,7 +4,14 @@ import {
   ALIGN, PROP_TYPES, flowerTint, grassTint, terrainRockTint, treeTint,
 } from './propCatalog.js';
 import { createWindUniforms } from './windGLSL.js';
-import { makeWindMaterial } from './GrassMaterial.js';
+import {
+  createPropLitMaterial,
+  makeBroadleafGeometry,
+  makeConiferGeometry,
+  makeFlowerGeometry,
+  makeGrassGeometry,
+  makeRockGeometry,
+} from './PropModels.js';
 import {
   enabledAssetsForType,
   normalizePropAsset,
@@ -27,244 +34,6 @@ export const PROP_QUALITY_BUDGETS = Object.freeze([
   Object.freeze({ grass: 2800, flowers: 260, rocks: 480, trees: 1400, distanceScale: 1.15, buildMs: 3, grassDistance: 320, nearDistance: 280 }),
   Object.freeze({ grass: 5000, flowers: 450, rocks: 800, trees: 2500, distanceScale: 1.35, buildMs: 4, grassDistance: 480, nearDistance: 420 }),
 ]);
-
-const ATLAS_GRID = 4;
-const ATLAS_SIZE = 512;
-const ATLAS_TILES = Object.freeze({ grass: 0, flower: 1, broadleaf: 2, conifer: 3, bark: 4 });
-
-function atlasUv(tile, u, v) {
-  const col = tile % ATLAS_GRID;
-  const row = Math.floor(tile / ATLAS_GRID);
-  const pad = 2 / (ATLAS_SIZE / ATLAS_GRID);
-  return [
-    (col + pad + u * (1 - pad * 2)) / ATLAS_GRID,
-    (row + pad + v * (1 - pad * 2)) / ATLAS_GRID,
-  ];
-}
-
-// One self-contained foliage atlas. It is generated deterministically once and
-// uploaded as a normal mipmapped texture, so there are no external asset loads.
-function makeFoliageAtlas() {
-  const data = new Uint8Array(ATLAS_SIZE * ATLAS_SIZE * 4);
-  const tileSize = ATLAS_SIZE / ATLAS_GRID;
-  const setPixel = (tile, px, py, color, alpha) => {
-    const col = tile % ATLAS_GRID;
-    const row = Math.floor(tile / ATLAS_GRID);
-    const x = col * tileSize + px;
-    const y = row * tileSize + py;
-    const i = (y * ATLAS_SIZE + x) * 4;
-    data[i] = color[0]; data[i + 1] = color[1]; data[i + 2] = color[2]; data[i + 3] = alpha;
-  };
-  const noise = (x, y, salt) => hashInt(x + salt * 13, y - salt * 7, salt * 97);
-
-  for (let y = 0; y < tileSize; y++) {
-    const v = y / (tileSize - 1);
-    for (let x = 0; x < tileSize; x++) {
-      const u = x / (tileSize - 1);
-      // Give transparent texels a representative edge colour. Standard
-      // mipmap generation averages RGB independently of alpha; leaving those
-      // texels black turns thin blades and tree crowns into dark silhouettes
-      // as soon as a lower mip is selected.
-      setPixel(ATLAS_TILES.grass, x, y, [72, 138, 56], 0);
-      setPixel(ATLAS_TILES.flower, x, y, [82, 145, 66], 0);
-      setPixel(ATLAS_TILES.broadleaf, x, y, [82, 146, 72], 0);
-      setPixel(ATLAS_TILES.conifer, x, y, [62, 116, 78], 0);
-      // Grass card: several tapered blades with irregular lean.
-      let grassAlpha = 0;
-      for (let blade = 0; blade < 9; blade++) {
-        const base = 0.08 + blade * 0.105;
-        const height = 0.48 + noise(blade, 3, 1) * 0.5;
-        if (v > height) continue;
-        const t = v / height;
-        const center = base + Math.sin(t * 2.4 + blade) * (0.025 + blade % 2 * 0.01);
-        const width = (0.022 + noise(blade, 5, 2) * 0.018) * (1 - t * 0.9);
-        if (Math.abs(u - center) < width) grassAlpha = 255;
-      }
-      if (grassAlpha) {
-        const shade = 0.72 + v * 0.28 + noise(x, y, 3) * 0.08;
-        setPixel(ATLAS_TILES.grass, x, y, [82 * shade, 156 * shade, 66 * shade], grassAlpha);
-      }
-
-      // Wildflower cluster: stems, leaves and a pale tintable flower head.
-      const stem = Math.abs(u - 0.5 - Math.sin(v * 5) * 0.012) < 0.018 && v < 0.78;
-      const leaf = v > 0.28 && v < 0.54 && Math.abs(u - (0.5 + (v - 0.4) * 1.2)) < 0.04;
-      const dx = u - 0.5, dy = v - 0.82;
-      const ang = Math.atan2(dy, dx) * 5;
-      const petalR = 0.12 + Math.cos(ang) * 0.035;
-      const flower = Math.hypot(dx, dy) < petalR;
-      if (stem || leaf || flower) {
-        const color = flower ? [250, 242, 221] : [78, 151, 63];
-        setPixel(ATLAS_TILES.flower, x, y, color, 255);
-      }
-
-      // Broadleaf crown: ragged ellipse with small transparent gaps.
-      const bx = (u - 0.5) / 0.47;
-      const by = (v - 0.52) / 0.46;
-      const broadEdge = bx * bx + by * by + (noise(x >> 2, y >> 2, 4) - 0.5) * 0.24;
-      const broadHole = noise(x, y, 5) > 0.985 && broadEdge < 0.78;
-      if (broadEdge < 1 && !broadHole) {
-        const shade = 0.72 + v * 0.25 + noise(x >> 1, y >> 1, 6) * 0.16;
-        setPixel(ATLAS_TILES.broadleaf, x, y, [91 * shade, 158 * shade, 79 * shade], 255);
-      }
-
-      // Conifer crown: three layered triangular branch tiers.
-      let conifer = false;
-      for (let layer = 0; layer < 3; layer++) {
-        const y0 = 0.08 + layer * 0.23;
-        const y1 = 0.62 + layer * 0.18;
-        if (v >= y0 && v <= y1) {
-          const t = (v - y0) / (y1 - y0);
-          const half = (0.46 - layer * 0.08) * (1 - t);
-          conifer ||= Math.abs(u - 0.5) < half;
-        }
-      }
-      if (conifer && noise(x, y, 7) > 0.025) {
-        const shade = 0.68 + v * 0.2 + noise(x >> 1, y >> 1, 8) * 0.12;
-        setPixel(ATLAS_TILES.conifer, x, y, [68 * shade, 126 * shade, 84 * shade], 255);
-      }
-
-      const barkShade = 0.62 + noise(x >> 2, y, 9) * 0.28 + Math.sin(u * 44) * 0.08;
-      setPixel(ATLAS_TILES.bark, x, y, [145 * barkShade, 106 * barkShade, 72 * barkShade], 255);
-    }
-  }
-
-  const texture = new THREE.DataTexture(data, ATLAS_SIZE, ATLAS_SIZE, THREE.RGBAFormat, THREE.UnsignedByteType);
-  texture.name = 'procedural-props-foliage-atlas';
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = true;
-  texture.needsUpdate = true;
-  return texture;
-}
-
-function geometryBuilder() {
-  const positions = [], colors = [], bends = [], uvs = [], indices = [];
-  const addVertex = (p, uv, bend, color = [1, 1, 1]) => {
-    positions.push(p[0], p[1], p[2]);
-    uvs.push(uv[0], uv[1]);
-    bends.push(bend);
-    colors.push(color[0], color[1], color[2]);
-    return positions.length / 3 - 1;
-  };
-  const addQuad = (a, b, c, d, tile, bendBottom = 0, bendTop = 1, color = [1, 1, 1]) => {
-    const i = positions.length / 3;
-    addVertex(a, atlasUv(tile, 0, 0), bendBottom, color);
-    addVertex(b, atlasUv(tile, 1, 0), bendBottom, color);
-    addVertex(c, atlasUv(tile, 1, 1), bendTop, color);
-    addVertex(d, atlasUv(tile, 0, 1), bendTop, color);
-    indices.push(i, i + 1, i + 2, i, i + 2, i + 3);
-  };
-  const finish = (name) => {
-    const geometry = new THREE.BufferGeometry();
-    geometry.name = name;
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.setAttribute('aBend', new THREE.Float32BufferAttribute(bends, 1));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
-    return geometry;
-  };
-  return { addQuad, finish };
-}
-
-function addCard(builder, { angle = 0, width = 1, height = 1, y = 0, x = 0, z = 0, tile, bendBottom = 0, bendTop = 1 }) {
-  const sx = Math.cos(angle) * width * 0.5;
-  const sz = Math.sin(angle) * width * 0.5;
-  builder.addQuad(
-    [x - sx, y, z - sz], [x + sx, y, z + sz],
-    [x + sx, y + height, z + sz], [x - sx, y + height, z - sz],
-    tile, bendBottom, bendTop,
-  );
-}
-
-function makeCardGeometry({ name, cards, tile, width = 1, height = 1 }) {
-  const builder = geometryBuilder();
-  for (let i = 0; i < cards; i++) {
-    addCard(builder, { angle: (i / cards) * Math.PI, width, height, tile });
-  }
-  return builder.finish(name);
-}
-
-function addTrunk(builder, { height, bottomRadius, topRadius, segments = 6 }) {
-  for (let i = 0; i < segments; i++) {
-    const a0 = (i / segments) * Math.PI * 2;
-    const a1 = ((i + 1) / segments) * Math.PI * 2;
-    builder.addQuad(
-      [Math.cos(a0) * bottomRadius, 0, Math.sin(a0) * bottomRadius],
-      [Math.cos(a1) * bottomRadius, 0, Math.sin(a1) * bottomRadius],
-      [Math.cos(a1) * topRadius, height, Math.sin(a1) * topRadius],
-      [Math.cos(a0) * topRadius, height, Math.sin(a0) * topRadius],
-      ATLAS_TILES.bark, 0, 0.12,
-    );
-  }
-}
-
-function makeTreeGeometry(kind, far = false) {
-  const tile = kind === 'conifer' ? ATLAS_TILES.conifer : ATLAS_TILES.broadleaf;
-  if (far) return makeCardGeometry({ name: `${kind}-far`, cards: 2, tile, width: kind === 'conifer' ? 0.58 : 0.72, height: 1 });
-  const builder = geometryBuilder();
-  if (kind === 'conifer') {
-    addTrunk(builder, { height: 0.78, bottomRadius: 0.045, topRadius: 0.018 });
-    const layers = [
-      { y: 0.18, h: 0.55, w: 0.62 }, { y: 0.38, h: 0.48, w: 0.49 }, { y: 0.57, h: 0.43, w: 0.36 },
-    ];
-    for (const layer of layers) {
-      for (let i = 0; i < 3; i++) addCard(builder, { angle: i * Math.PI / 3, width: layer.w, height: layer.h, y: layer.y, tile, bendBottom: 0.22, bendTop: 0.72 });
-    }
-  } else {
-    addTrunk(builder, { height: 0.64, bottomRadius: 0.06, topRadius: 0.025 });
-    const crowns = [
-      [-0.12, 0.43, 0.02, 0.56, 0.48], [0.14, 0.48, -0.05, 0.52, 0.46], [0, 0.55, 0.09, 0.62, 0.45],
-    ];
-    for (const [x, y, z, w, h] of crowns) {
-      addCard(builder, { angle: 0.15, width: w, height: h, x, y, z, tile, bendBottom: 0.25, bendTop: 0.8 });
-      addCard(builder, { angle: Math.PI * 0.5 + 0.15, width: w, height: h, x, y, z, tile, bendBottom: 0.25, bendTop: 0.8 });
-    }
-  }
-  return builder.finish(`${kind}-near`);
-}
-
-function makeRockGeometry(detail, name) {
-  const geometry = new THREE.IcosahedronGeometry(1, detail);
-  geometry.name = name;
-  const position = geometry.getAttribute('position');
-  const colors = [];
-  for (let i = 0; i < position.count; i++) {
-    const x = position.getX(i), y = position.getY(i), z = position.getZ(i);
-    const warp = 0.84 + Math.sin(x * 4.9 + z * 2.7) * 0.1 + Math.cos(y * 6.1 - x * 2.2) * 0.06;
-    position.setXYZ(i, x * warp, Math.max(-0.72, y * (0.82 + Math.sin(z * 3.8) * 0.08)), z * warp);
-    const shade = clamp(0.68 + y * 0.17 + Math.sin(x * 8.1 + z * 5.7) * 0.09, 0.42, 1);
-    colors.push(shade, shade * 0.98, shade * 0.92);
-  }
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function configureCutoutMaterial(material, atlas, alphaTest = 0.42) {
-  material.map = atlas;
-  // Most foliage cards face sideways, so terrain lights alone can leave both
-  // sides almost unlit in valleys. Reuse the atlas as a modest ambient albedo
-  // term: the cutouts retain their authored colour while direct light still
-  // provides the main contrast and the instance tint remains on the diffuse
-  // contribution.
-  if (material.emissive) {
-    material.emissive.setHex(0xffffff);
-    material.emissiveMap = atlas;
-    material.emissiveIntensity = 0.48;
-  }
-  material.alphaTest = alphaTest;
-  material.transparent = false;
-  material.depthWrite = true;
-  material.side = THREE.DoubleSide;
-  material.needsUpdate = true;
-  return material;
-}
 
 // Dithered fades keep foliage alpha-tested (depth-writing, no transparent
 // sorting) while softening both LOD changes and the final cull boundary.
@@ -329,33 +98,28 @@ export async function createPropAssetPreviewModel(rawAsset) {
     object.userData.disposePreview = () => disposeImportedModelParts(parts);
     return object;
   }
-  const atlas = makeFoliageAtlas();
-  let geometry;
-  let material;
-  if (asset.type === 'rock') {
-    geometry = makeRockGeometry(1, `preview-${asset.id}`);
-    material = new THREE.MeshStandardMaterial({
-      color: asset.color, vertexColors: true, roughness: 0.92, metalness: 0,
-    });
-  } else {
-    geometry = asset.type === 'grass'
-      ? makeCardGeometry({ name: `preview-${asset.id}`, cards: 3, tile: ATLAS_TILES.grass, width: 1.1 })
-      : asset.type === 'flower'
-        ? makeCardGeometry({ name: `preview-${asset.id}`, cards: 2, tile: ATLAS_TILES.flower, width: 0.56 })
-        : makeTreeGeometry(asset.type, false);
-    material = configureCutoutMaterial(new THREE.MeshStandardMaterial({
-      color: asset.color, roughness: 0.85, metalness: 0,
-    }), atlas, asset.type === 'grass' || asset.type === 'flower' ? 0.42 : 0.46);
-  }
-  const object = new THREE.Mesh(geometry, material);
+  // Same models and shader as the scene: a one-instance mesh carrying the
+  // asset colour as its instance tint.
+  const geometry = previewGeometry(asset.type);
+  const material = createPropLitMaterial({ foliage: asset.type !== 'rock', name: `prop-preview-${asset.type}` });
+  const object = new THREE.InstancedMesh(geometry, material, 1);
+  object.setMatrixAt(0, new THREE.Matrix4());
+  object.setColorAt(0, new THREE.Color().fromArray(propAssetColorRGB(asset)));
   object.name = `prop-asset-preview-${asset.id}`;
   object.scale.set(asset.scale * asset.width, asset.scale * asset.height, asset.scale * asset.width);
   object.userData.disposePreview = () => {
     geometry.dispose();
     material.dispose();
-    atlas.dispose();
   };
   return object;
+}
+
+function previewGeometry(type) {
+  if (type === 'rock') return makeRockGeometry();
+  if (type === 'grass') return makeGrassGeometry();
+  if (type === 'flower') return makeFlowerGeometry();
+  if (type === 'conifer') return makeConiferGeometry();
+  return makeBroadleafGeometry();
 }
 
 function emptyBuckets() {
@@ -363,33 +127,34 @@ function emptyBuckets() {
 }
 
 export class ProceduralPropsManager {
-  constructor(scene) {
+  constructor(scene, sharedUniforms = null) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = 'procedural-props';
     this.scene.add(this.group);
 
-    this.atlas = makeFoliageAtlas();
-    this.grassNearGeometry = makeCardGeometry({ name: 'grass-near', cards: 3, tile: ATLAS_TILES.grass, width: 1.1 });
-    this.grassMidGeometry = makeCardGeometry({ name: 'grass-mid', cards: 2, tile: ATLAS_TILES.grass, width: 1.25 });
-    this.flowerGeometry = makeCardGeometry({ name: 'flowers', cards: 2, tile: ATLAS_TILES.flower, width: 0.56 });
-    this.rockNearGeometry = makeRockGeometry(1, 'rock-near'); // 80 triangles
-    this.rockFarGeometry = makeRockGeometry(0, 'rock-far');  // 20 triangles
-    this.broadleafNearGeometry = makeTreeGeometry('broadleaf', false);
-    this.broadleafFarGeometry = makeTreeGeometry('broadleaf', true);
-    this.coniferNearGeometry = makeTreeGeometry('conifer', false);
-    this.coniferFarGeometry = makeTreeGeometry('conifer', true);
+    // Built-in prop library: lit opaque volumes (see PropModels.js).
+    this.grassNearGeometry = makeGrassGeometry();
+    this.grassMidGeometry = makeGrassGeometry({ far: true });
+    this.flowerGeometry = makeFlowerGeometry();
+    this.rockNearGeometry = makeRockGeometry();
+    this.rockFarGeometry = makeRockGeometry({ far: true });
+    this.broadleafNearGeometry = makeBroadleafGeometry();
+    this.broadleafFarGeometry = makeBroadleafGeometry({ far: true });
+    this.coniferNearGeometry = makeConiferGeometry();
+    this.coniferFarGeometry = makeConiferGeometry({ far: true });
 
     this.windUniforms = createWindUniforms();
-    this.grassNearMaterial = configureDistanceFade(configureCutoutMaterial(makeWindMaterial(this.windUniforms, { strengthMul: 1, name: 'grass-near' }), this.atlas));
-    this.grassMidMaterial = configureDistanceFade(configureCutoutMaterial(makeWindMaterial(this.windUniforms, { strengthMul: 0.72, name: 'grass-mid' }), this.atlas));
-    this.flowerMaterial = configureDistanceFade(configureCutoutMaterial(makeWindMaterial(this.windUniforms, { strengthMul: 0.62, name: 'flowers' }), this.atlas));
-    this.treeMaterial = configureDistanceFade(configureCutoutMaterial(makeWindMaterial(this.windUniforms, { strengthMul: 0.18, name: 'trees' }), this.atlas, 0.46));
-    // Rock vertex colours already bake a coarse face-to-face albedo variation;
-    // an unlit base keeps distant boulders readable under every sky preset.
-    this.rockMaterial = configureDistanceFade(new THREE.MeshBasicMaterial({
-      vertexColors: true,
-    }));
+    // Optional Mini Terrain light map (sun visibility / AO), shared by all.
+    this._miniLight = { tex: { value: null }, enabled: { value: 0 }, half: { value: 512 } };
+    const lit = (name, windStrengthMul, foliage = true) => createPropLitMaterial({
+      shared: sharedUniforms, wind: this.windUniforms, windStrengthMul, foliage, name, miniLight: this._miniLight,
+    });
+    this.grassNearMaterial = lit('grass-near', 1);
+    this.grassMidMaterial = lit('grass-mid', 0.72);
+    this.flowerMaterial = lit('flowers', 0.62);
+    this.treeMaterial = lit('trees', 0.18);
+    this.rockMaterial = lit('rocks', 0, false);
 
     this.meshes = [];
     this._meshPool = new Map();
@@ -440,6 +205,11 @@ export class ProceduralPropsManager {
     paintLayers, splineRevision = -1, terrainRevision = -1, containsPoint = null,
     centerOverride = null, dirtyBounds = null,
   }) {
+    // An explicit props sub-seed (Mini Terrain) decorrelates scattering from
+    // the relief seed; -1 (default) keeps the historical params.seed behaviour.
+    if (Number.isInteger(params.propsSeed) && params.propsSeed >= 0) {
+      params = { ...params, seed: params.propsSeed };
+    }
     const enabled = !!params.propsEnabled;
     this.group.visible = enabled;
     if (!enabled || !camera) return;
@@ -461,7 +231,7 @@ export class ProceduralPropsManager {
       desc.id, enabledAssetsForType(assets, desc.id),
     ]));
     const scatterKey = [
-      mode, params.seed, params.propsDensity, params.propsGrassDensity,
+      mode, params.seed, params.propsDensity, params.propsGrassDensity, params.propsForest,
       params.propsGrass, params.propsFlowers, params.propsRocks, params.propsRockScale,
       params.propsTreeDensity, params.propsTreeScale, params.seaLevel, boardSize,
       this._assetLibraryRevision,
@@ -673,11 +443,17 @@ export class ProceduralPropsManager {
           const z = gz * cell + (jitterZ - 0.5) * cell * 0.84;
           if (x < minX || x >= maxX || z < minZ || z >= maxZ) continue;
           if (this._containsPoint && !this._containsPoint(x, z)) continue;
-          if ((desc.id === 'broadleaf' || desc.id === 'conifer') && !this._treeSpacingWinner(gx, gz, params.seed, salt)) continue;
+          // Forest coverage lets a share of the cells skip the local-maximum
+          // spacing rule (0 = historical one-tree-per-neighbourhood spacing).
+          if ((desc.id === 'broadleaf' || desc.id === 'conifer')
+              && !(hashInt(gx * 3 + salt, gz * 7 - salt, params.seed) < (params.propsForest ?? 0) * 0.7)
+              && !this._treeSpacingWinner(gx, gz, params.seed, salt)) continue;
           const priority = hashInt(gx + salt * 2, gz - salt * 3, params.seed);
           const paintDensity = sampler.paintDensityForTypeAt?.(desc.id, x, z)
             ?? ((desc.id === 'grass' || desc.id === 'flower') ? (sampler.paintDensityAt?.(x, z) ?? 0) : 0);
-          const upperBound = clamp(master * (typeDensity + paintDensity) * libraryDensity * (desc.density ?? 1), 0, 1);
+          const forestBoost = desc.id === 'broadleaf' || desc.id === 'conifer'
+            ? 1 + clamp(params.propsForest ?? 0, 0, 1) * 1.2 : 1;
+          const upperBound = clamp(master * (typeDensity + paintDensity) * libraryDensity * (desc.density ?? 1) * forestBoost, 0, 1);
           if (priority > upperBound) continue;
           const sample = sampler.sampleAt(x, z);
           this._diagnostics.samples++;
@@ -1044,6 +820,8 @@ export class ProceduralPropsManager {
       if (!uniforms) return;
       uniforms.center.value.copy(camera.position);
       uniforms.ranges.value.fromArray(mesh.userData.propFadeRanges);
+      // one material serves several LOD batches with different ranges
+      mesh.material.uniformsNeedUpdate = true;
     };
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -1062,6 +840,13 @@ export class ProceduralPropsManager {
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Mini Terrain cliff shadows / AO on props (null disables). */
+  setMiniLightMap(texture, half = 512) {
+    this._miniLight.tex.value = texture || null;
+    this._miniLight.enabled.value = texture ? 1 : 0;
+    this._miniLight.half.value = half;
   }
 
   tickWind(timeSeconds, params) {
@@ -1106,6 +891,5 @@ export class ProceduralPropsManager {
       if (entry.parts) disposeImportedModelParts(entry.parts);
     }
     this._customModels.clear();
-    this.atlas.dispose();
   }
 }

@@ -3,6 +3,7 @@ import {
   MapPin,
   Activity,
   Bomb,
+  Box,
   Bug,
   Cloud,
   Download,
@@ -31,6 +32,7 @@ function panelIcon(Icon) {
 
 export const PANEL_ICONS = {
   terrain: panelIcon(Mountain),
+  mini: panelIcon(Box),
   markers: panelIcon(MapPin),
   explode: panelIcon(Bomb),
   tiles: panelIcon(Grid2x2),

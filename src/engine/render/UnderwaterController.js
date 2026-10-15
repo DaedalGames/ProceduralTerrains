@@ -68,6 +68,11 @@ export class UnderwaterController {
    *   blendBand            transition band width (world units)
    *   transitionSpeed      transition speed multiplier
    *   causticsEnabled / particlesEnabled / lightShaftsEnabled
+   *   volume               optional bounded water volume (Mini Terrain):
+   *                        { minX, maxX, minZ, maxZ, floorY }. When present the
+   *                        camera is submerged only INSIDE the footprint and
+   *                        above its floor — a camera outside looking at the
+   *                        cut faces is never treated as underwater.
    */
   update(dt, ctx) {
     const {
@@ -76,6 +81,7 @@ export class UnderwaterController {
       fellBack = false, planetRadius = 0,
       blendBand, transitionSpeed,
       causticsEnabled = false, particlesEnabled = false, lightShaftsEnabled = false,
+      volume = null,
     } = ctx;
 
     if (blendBand != null) this.blendBand = Math.max(0.2, blendBand);
@@ -99,6 +105,18 @@ export class UnderwaterController {
         submerge = oceanRadius - camRadius;
       } else if (Number.isFinite(seaLevel)) {
         submerge = seaLevel - cameraPos.y;
+        if (volume && submerge > -1e8) {
+          // Signed distance to the footprint walls / floor (positive inside):
+          // fades the activation across the cut faces instead of popping.
+          const inside = Math.min(
+            cameraPos.x - volume.minX,
+            volume.maxX - cameraPos.x,
+            cameraPos.z - volume.minZ,
+            volume.maxZ - cameraPos.z,
+            cameraPos.y - (volume.floorY ?? -Infinity),
+          );
+          submerge = Math.min(submerge, inside);
+        }
       }
     }
 
