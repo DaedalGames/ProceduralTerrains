@@ -26,12 +26,14 @@ import { InfiniteWorld } from './terrain/InfiniteWorld.js';
 import { InfiniteTerrainClipmap } from './terrain/InfiniteTerrainClipmap.js';
 import { CloudSlabLayer } from './sky/CloudSlabLayer.js';
 import { InfiniteCloudLayer } from './sky/InfiniteCloudLayer.js';
+import { RealisticCloudSlabLayer, RealisticInfiniteCloudLayer } from './sky/realistic/RealisticCloudLayers.js';
 import { CloudAdaptiveQualityController } from './sky/CloudAdaptiveQualityController.js';
 import {
   CLOUD_QUALITY_PRESETS,
   CLOUD_LEGACY_PERF_KEYS,
   normalizeCloudFormation,
   resolveCloudQuality,
+  resolveCloudRenderMode,
 } from './sky/CloudSettings.js';
 import { TerrainHeightBaker } from './terrain/TerrainHeightBaker.js';
 import { NearHeightCache } from './terrain/NearHeightCache.js';
@@ -900,8 +902,23 @@ export class Engine {
 
     // studio/flat-board volumetric cloud slab (sits above the board; hidden
     // until enabled). Planet mode has its own spherical PlanetCloudLayer.
+    this.studioCloud = this._createStudioCloudLayer();
+
+    // Procedural sky dome. Persistent + shared by studio (Tile) and infinite
+    // world so both modes show the exact same configured sky (driven by the
+    // shared timeOfDay + skybox* params). Visibility is toggled per world mode
+    // by _applySkyboxSettings(); planet mode hides it (open-space backdrop).
+    this.proceduralSky = new ProceduralSky(this.scene);
+    this.proceduralSky.setVisible(false);
+  }
+
+  /** Studio slab for the current cloud render mode (legacy / realistic). */
+  _createStudioCloudLayer() {
     const initialCloudConfig = resolveCloudQuality({ ...this.params, ...this.perf });
-    this.studioCloud = new CloudSlabLayer(this.scene, {
+    const Layer = resolveCloudRenderMode(this.params) === 'realistic'
+      ? RealisticCloudSlabLayer
+      : CloudSlabLayer;
+    return new Layer(this.scene, {
       initialConfig: initialCloudConfig,
       compile: async (mats) => {
         if (this._disposed) return { ready: false, aborted: true };
@@ -924,13 +941,40 @@ export class Engine {
       },
       renderer: this.renderer,
     });
+  }
 
-    // Procedural sky dome. Persistent + shared by studio (Tile) and infinite
-    // world so both modes show the exact same configured sky (driven by the
-    // shared timeOfDay + skybox* params). Visibility is toggled per world mode
-    // by _applySkyboxSettings(); planet mode hides it (open-space backdrop).
-    this.proceduralSky = new ProceduralSky(this.scene);
-    this.proceduralSky.setVisible(false);
+  /** Camera-following infinite-world slab for the current cloud render mode. */
+  _createInfiniteCloudLayer() {
+    const Layer = resolveCloudRenderMode(this.params) === 'realistic'
+      ? RealisticInfiniteCloudLayer
+      : InfiniteCloudLayer;
+    return new Layer(this.scene, {
+      compile: async (mats) => {
+        // Applying restored quality may request a rebuild while mode setup is
+        // still synchronous. Yield so the transition gate and scene exist first.
+        await yieldTask();
+        if (this._disposed || this.worldMode !== 'infinite') {
+          return { ready: false, aborted: true };
+        }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const target = this._resolveCameraCompileTarget();
+          const result = await this._compileMaterialVariants(mats, {
+            canvasOnly: true,
+            timeoutMs: 120000,
+            renderTarget: target.renderTarget,
+          });
+          if (result?.ready !== true || this._disposed
+              || this.worldMode !== 'infinite') return result;
+          const current = this._resolveCameraCompileTarget();
+          if (this._sameCameraCompileTarget(target, current)) return result;
+          await yieldTask();
+        }
+        return { ready: false, aborted: true };
+      },
+      renderer: this.renderer,
+      chunkSize: this.params.chunkSize,
+      viewRadius: this.perf.viewRadius,
+    });
   }
 
   _initControls() {
@@ -5096,9 +5140,9 @@ export class Engine {
   _prepareCameraPipeline() {
     const runtimeParams = this._bootRuntimeParams || this.params;
     const cloudsNeedDepth = this.worldMode === 'studio'
-      ? !!this.studioCloud?.active
+      ? !!(this.studioCloud?.wantsSceneDepth ?? this.studioCloud?.active)
       : (this.worldMode === 'infinite'
-        ? !!this.infiniteCloud?.active
+        ? !!(this.infiniteCloud?.wantsSceneDepth ?? this.infiniteCloud?.active)
         : (this.worldMode === 'planet'
           && (!!this.planetCloudLayer?.active || !!this.planetCloudChunks?.active)));
     const requireSharedOpaque = cloudsNeedDepth
@@ -9685,33 +9729,7 @@ export class Engine {
     this.infiniteWorld.behindCameraCulling = this.board.behindCameraCulling;
     this.infiniteWorld.setMergeDebug(this._debug.mergeDebug);
 
-    this.infiniteCloud = p.cloudsEnabled === true ? new InfiniteCloudLayer(this.scene, {
-      compile: async (mats) => {
-        // Applying restored quality may request a rebuild while mode setup is
-        // still synchronous. Yield so the transition gate and scene exist first.
-        await yieldTask();
-        if (this._disposed || this.worldMode !== 'infinite') {
-          return { ready: false, aborted: true };
-        }
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const target = this._resolveCameraCompileTarget();
-          const result = await this._compileMaterialVariants(mats, {
-            canvasOnly: true,
-            timeoutMs: 120000,
-            renderTarget: target.renderTarget,
-          });
-          if (result?.ready !== true || this._disposed
-              || this.worldMode !== 'infinite') return result;
-          const current = this._resolveCameraCompileTarget();
-          if (this._sameCameraCompileTarget(target, current)) return result;
-          await yieldTask();
-        }
-        return { ready: false, aborted: true };
-      },
-      renderer: this.renderer,
-      chunkSize: p.chunkSize,
-      viewRadius: perf.viewRadius,
-    }) : null;
+    this.infiniteCloud = p.cloudsEnabled === true ? this._createInfiniteCloudLayer() : null;
     this._applyCloudSettings();
 
     const clipmapResolutions = this.gpuTier === 'low'
@@ -10365,14 +10383,16 @@ export class Engine {
 
     // Apply the requested cloud quality before starting GPU work so a default
     // material is never compiled and immediately replaced.
-    if (p.cloudsEnabled === true && p.cloudChunksEnabled === true) {
+    const realisticClouds = resolveCloudRenderMode(p) === 'realistic';
+    if (p.cloudsEnabled === true && p.cloudChunksEnabled === true && !realisticClouds) {
       this.planetCloudChunks = new planet.PlanetCloudChunks(this.scene, {
         planetRadius: this._planetRadius(),
         faceGrid: 4,
         compile: (mats) => this._compileCameraTargetMaterials(mats),
       });
     } else if (p.cloudsEnabled === true) {
-      this.planetCloudLayer = new planet.PlanetCloudLayer(this.scene, {
+      const Layer = realisticClouds ? planet.RealisticPlanetCloudLayer : planet.PlanetCloudLayer;
+      this.planetCloudLayer = new Layer(this.scene, {
         planetRadius: this._planetRadius(),
         compile: (mats) => this._compileCameraTargetMaterials(mats),
         renderer: this.renderer,
@@ -10417,16 +10437,34 @@ export class Engine {
    *  rebuild). Both layers read the same cloud* params; each is only visible in
    *  its own world mode. */
   _applyCloudSettings() {
+    // A render-mode switch swaps every layer for its legacy / realistic twin.
+    const realisticClouds = resolveCloudRenderMode(this.params) === 'realistic';
+    const isRealistic = (layer) => layer?.renderMode === 'realistic';
+    if (this.studioCloud && isRealistic(this.studioCloud) !== realisticClouds) {
+      this.studioCloud.dispose();
+      this.studioCloud = this._createStudioCloudLayer();
+      this.studioCloud.setInScene(this.worldMode === 'studio');
+    }
+    if (this.infiniteCloud && isRealistic(this.infiniteCloud) !== realisticClouds) {
+      this.infiniteCloud.dispose();
+      this.infiniteCloud = this._createInfiniteCloudLayer();
+    } else if (!this.infiniteCloud && this.worldMode === 'infinite' && this.params.cloudsEnabled === true) {
+      this.infiniteCloud = this._createInfiniteCloudLayer();
+    }
     if (this.worldMode === 'planet') {
       const planet = this._planetModules;
       if (!planet) return;
+      if (this.planetCloudLayer && isRealistic(this.planetCloudLayer) !== realisticClouds) {
+        this.planetCloudLayer.dispose();
+        this.planetCloudLayer = null;
+      }
       if (this.params.cloudsEnabled !== true) {
         this.planetCloudChunks?.dispose?.();
         this.planetCloudChunks = null;
         this.planetCloudLayer?.dispose?.();
         this.planetCloudLayer = null;
       } else {
-      const wantChunks = this.params.cloudChunksEnabled === true;
+      const wantChunks = this.params.cloudChunksEnabled === true && !realisticClouds;
       if (wantChunks && !this.planetCloudChunks) {
         if (this.planetCloudLayer) {
           this.planetCloudLayer.dispose();
@@ -10444,7 +10482,8 @@ export class Engine {
           this.planetCloudChunks.dispose();
           this.planetCloudChunks = null;
         }
-        this.planetCloudLayer = new planet.PlanetCloudLayer(this.scene, {
+        const Layer = realisticClouds ? planet.RealisticPlanetCloudLayer : planet.PlanetCloudLayer;
+        this.planetCloudLayer = new Layer(this.scene, {
           planetRadius: this._planetRadius(),
         compile: (mats) => this._compileCameraTargetMaterials(mats),
           renderer: this.renderer,

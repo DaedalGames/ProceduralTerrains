@@ -33,6 +33,13 @@ uniform vec2  uLowTexel;         // 1 / lowResSize
 uniform float uDepthSharpness;   // bilateral falloff on raw depth difference
 uniform float uAlphaSharpness;   // preserve cloud/sky silhouettes
 uniform float uUseDepth;         // 1 = depth-aware, 0 = plain bilinear
+uniform float uSmooth;           // 1 = depth-aware tent filter (hides the march dither)
+
+float depthWeight(vec2 uv, float dC) {
+  if (uUseDepth < 0.5) return 1.0;
+  float dd = abs(texture2D(tSceneDepth, uv).x - dC) * uDepthSharpness;
+  return 1.0 / (1.0 + dd * dd);
+}
 
 // Depth-aware 2x2 bilateral upsample: weight each low-res neighbour by its
 // bilinear footprint AND by how closely the scene depth at that neighbour
@@ -43,6 +50,22 @@ void main() {
   float dC = 1.0;
   if (uUseDepth > 0.5) {
     dC = texture2D(tSceneDepth, vUv).x;
+  }
+
+  if (uSmooth > 0.5) {
+    // tent: centre + four bilinear taps 0.75 texel out on the diagonals (a
+    // 3x3 footprint), each kept on this pixel's side of a depth edge
+    vec2 o = uLowTexel * 0.75;
+    vec4 sum = texture2D(tCloud, vUv) * 0.36;
+    float ws = 0.36;
+    for (int k = 0; k < 4; k++) {
+      vec2 uv = vUv + o * vec2(k == 0 || k == 2 ? 1.0 : -1.0, k < 2 ? 1.0 : -1.0);
+      float w = 0.16 * depthWeight(uv, dC);
+      sum += texture2D(tCloud, uv) * w;
+      ws += w;
+    }
+    gl_FragColor = sum / ws;
+    return;
   }
 
   vec2 p = vUv / uLowTexel - 0.5;
@@ -89,6 +112,7 @@ export class CloudLowResPass {
   constructor() {
     this.scale = 0.5;                 // 1.0 = off (caller skips), 0.5 = half, 0.25 = quarter
     this.depthAware = true;
+    this.smooth = false;             // tent upsample instead of the sharp bilateral
     this.rt = null;
     this._size = new THREE.Vector2();
     this._prevClear = new THREE.Color();
@@ -102,6 +126,7 @@ export class CloudLowResPass {
         uDepthSharpness: { value: 1800.0 },
         uAlphaSharpness: { value: 10.0 },
         uUseDepth:       { value: 1.0 },
+        uSmooth:         { value: 0.0 },
       },
       vertexShader: COMPOSITE_VERT,
       fragmentShader: COMPOSITE_FRAG,
@@ -198,6 +223,7 @@ export class CloudLowResPass {
     u.tSceneDepth.value = sceneDepthTex;
     u.uLowTexel.value.set(1 / this.rt.width, 1 / this.rt.height);
     u.uUseDepth.value = (this.depthAware && sceneDepthTex) ? 1.0 : 0.0;
+    u.uSmooth.value = this.smooth ? 1.0 : 0.0;
 
     const prevAutoClear = renderer.autoClear;
     renderer.autoClear = false;

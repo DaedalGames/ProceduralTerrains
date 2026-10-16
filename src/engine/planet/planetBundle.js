@@ -1,6 +1,7 @@
 export { PlanetWorld } from '../terrain/PlanetWorld.js';
 export { PlanetCloudChunks } from '../sky/PlanetCloudChunks.js';
 export { PlanetCloudLayer } from '../sky/PlanetCloudLayer.js';
+export { RealisticPlanetCloudLayer } from '../sky/realistic/RealisticCloudLayers.js';
 export { createPlanetMaterial, createPlanetWaterMaterial, rebuildPlanetMaterialSource, rebuildPlanetWaterMaterialSource, upgradePlanetMaterialSource } from '../terrain/PlanetMaterial.js';
 export { PlanetHeightSampler } from '../terrain/PlanetHeightSampler.js';
 export { PlanetHeightBaker } from '../terrain/PlanetHeightBaker.js';

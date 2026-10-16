@@ -64,7 +64,27 @@ export const CLOUD_DEFAULT_PARAMS = {
   cloudShadowOpacity: 0.45,
   cloudColor: [1.0, 1.0, 1.0],
   cloudShadowColor: [0.42, 0.47, 0.60],
+
+  // Rendering mode: 'legacy' = the procedural slab/shell renderer above,
+  // 'realistic' = the Procedural Planets renderer (sky/realistic/). Shape,
+  // shell, motion and colour keys above are shared; the keys below only drive
+  // the realistic renderer (defaults = Procedural Planets).
+  cloudRenderMode: 'legacy',
+  cloudSystemScale: 3.2,      // weather-system frequency
+  cloudErosion: 0.7,          // wispy bottoms / billowy tops
+  cloudBillowSize: 1.0,       // size of the billows
+  cloudTowering: 0.55,        // low flat decks .. tall towering cumulonimbus
+  cloudShear: 0.25,           // upper winds carry the tops downstream
+  cloudForwardScatter: 1.0,   // silver lining toward the sun
+  cloudSkyTint: [0.78, 0.84, 0.95],   // ambient (sky-lit) tint
+  cloudExposure: 1.0,
 };
+
+export const CLOUD_RENDER_MODES = ['legacy', 'realistic'];
+
+export function resolveCloudRenderMode(params) {
+  return params?.cloudRenderMode === 'realistic' ? 'realistic' : 'legacy';
+}
 
 // Legacy quality/perf keys that used to live in params. Old saves may still
 // carry them; loadSeedJSON ports them into `perf` once (see Engine).

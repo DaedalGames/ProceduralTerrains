@@ -95,15 +95,9 @@ export class CloudSlabLayer {
     this._occBuiltAt = 0;
     this._occupancyPass = null;
 
-    this.material = createCloudSlabMaterial(
-      this._steps,
-      this._lightSteps,
-      this._octaves,
-      this._detailOctaves,
-      this._useErosion,
-      this._lightMode
-    );
-    if (opts.renderer) {
+    this._renderer = opts.renderer || null;
+    this.material = this._createMaterial();
+    if (opts.renderer && this._usesOccupancy) {
       this._occupancyPass = new CloudOccupancyPass(
         opts.renderer,
         this.material.uniforms,
@@ -125,6 +119,21 @@ export class CloudSlabLayer {
 
   get active() {
     return this._enabled && this._inScene && this._inRange && this._ready;
+  }
+
+  // Subclass hooks (the realistic renderer swaps the material and has no
+  // occupancy grid).
+  get _usesOccupancy() { return true; }
+
+  _createMaterial() {
+    return createCloudSlabMaterial(
+      this._steps,
+      this._lightSteps,
+      this._octaves,
+      this._detailOctaves,
+      this._useErosion,
+      this._lightMode
+    );
   }
 
   get ready() {
