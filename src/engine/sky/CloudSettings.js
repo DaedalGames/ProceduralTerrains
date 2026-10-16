@@ -34,6 +34,7 @@ export const CLOUD_DEFAULT_PARAMS = {
   // Kept in serialized params for backwards compatibility. The renderer now
   // compiles one soft formation only; legacy values are normalized on load.
   cloudNoiseVariant: 'soft',
+  cloudNoiseSeed: 0,         // independent cloud pattern variation (both renderers)
 
   // shell geometry (world units, relative to the planet radius)
   cloudAltitude: 240,         // height of the inner shell above the surface
@@ -70,7 +71,7 @@ export const CLOUD_DEFAULT_PARAMS = {
   // shell, motion and colour keys above are shared; the keys below only drive
   // the realistic renderer (defaults = Procedural Planets).
   cloudRenderMode: 'legacy',
-  cloudSystemScale: 3.2,      // weather-system frequency
+  cloudSystemScale: 3.2,      // weather / formation frequency (higher = smaller clouds)
   cloudErosion: 0.7,          // wispy bottoms / billowy tops
   cloudBillowSize: 1.0,       // size of the billows
   cloudTowering: 0.55,        // low flat decks .. tall towering cumulonimbus
@@ -81,6 +82,15 @@ export const CLOUD_DEFAULT_PARAMS = {
 };
 
 export const CLOUD_RENDER_MODES = ['legacy', 'realistic'];
+
+export function cloudNoiseOffset(seed = 0) {
+  let s = Number(seed) >>> 0;
+  if (!s) return [0, 0, 0];
+  return [0, 1, 2].map(() => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return (s / 4294967296 - 0.5) * 64;
+  });
+}
 
 export function resolveCloudRenderMode(params) {
   return params?.cloudRenderMode === 'realistic' ? 'realistic' : 'legacy';

@@ -1,3 +1,4 @@
+import { TERRAIN_CLOUD_SHADOW_GLSL } from '../sky/CloudShadowPass.js';
 import { installSurfaceMaterialBackend } from './surface/SurfaceArrayGLSL.js';
 import * as THREE from 'three';
 import {
@@ -121,6 +122,7 @@ const buildFragment = (planetHeightGLSL) => /* glsl */ `
 precision highp float;
 
 ${COMMON_UNIFORMS_GLSL}
+${TERRAIN_CLOUD_SHADOW_GLSL}
 ${PLANET_UNIFORMS_GLSL}
 ${NOISE_GLSL}
 ${BIOME_GLSL}
@@ -295,7 +297,7 @@ void main() {
   // spherical-up lighting (hemisphere term uses planet up = dir, not world +Y)
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   float diff = max(dot(n, uSunDir), 0.0);
-  vec3 sunCol = uTerrainSunCol * uTerrainSunIntensity;
+  vec3 sunCol = uTerrainSunCol * uTerrainSunIntensity * (1.0 - terrainCloudShadow(vWorldPos));
   vec3 skyAmb = uTerrainSkyAmb * 0.50 * (up * 0.5 + 0.5);
   vec3 bounce = uTerrainBounce * 0.25 * (1.0 - up * 0.5);
   vec3 col = td.albedo * (sunCol * diff + skyAmb + bounce) * ao;
@@ -338,6 +340,7 @@ const buildMinimalFragment = (planetHeightGLSL) => /* glsl */ `
 precision highp float;
 
 ${COMMON_UNIFORMS_GLSL}
+${TERRAIN_CLOUD_SHADOW_GLSL}
 ${PLANET_UNIFORMS_GLSL}
 ${NOISE_GLSL}
 ${BIOME_GLSL}
@@ -410,7 +413,7 @@ void main() {
   albedo = max((mix(vec3(luma), albedo, uPaletteSaturation) - 0.5) * uPaletteContrast + 0.5, vec3(0.0)) * uPaletteTint;
 
   float diff = max(dot(n, uSunDir), 0.0);
-  vec3 col = albedo * (uTerrainSunCol * uTerrainSunIntensity * diff
+  vec3 col = albedo * (uTerrainSunCol * uTerrainSunIntensity * diff * (1.0 - terrainCloudShadow(vWorldPos))
                        + uTerrainSkyAmb * 0.50 * (up * 0.5 + 0.5)
                        + uTerrainBounce * 0.25 * (1.0 - up * 0.5));
 

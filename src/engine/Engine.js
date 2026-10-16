@@ -10471,6 +10471,7 @@ export class Engine {
           this.planetCloudLayer = null;
         }
         this.planetCloudChunks = new planet.PlanetCloudChunks(this.scene, {
+          renderer: this.renderer,
           planetRadius: this._planetRadius(),
           faceGrid: 4,
         compile: (mats) => this._compileCameraTargetMaterials(mats),
@@ -11422,28 +11423,19 @@ export class Engine {
   _syncTerrainCloudShadows() {
     const u = this.uniforms;
     if (!u?.uTerrainCloudShadowEnabled) return;
-    const state = this.studioCloud?.getTerrainShadowState?.();
-    const enabled = this.worldMode === 'studio'
-      && this.params.cloudsEnabled
-      && this.params.cloudShadowsEnabled
-      && !!state;
-
-    u.uTerrainCloudShadowEnabled.value = enabled ? 1.0 : 0.0;
-    u.uTerrainCloudShadowStrength.value = Math.min(
-      0.85,
-      Math.max(0, this.params.cloudShadowOpacity ?? 0.45)
-    );
+    const layer = this.worldMode === 'planet' ? (this.planetCloudLayer || this.planetCloudChunks)
+      : this.worldMode === 'infinite' ? this.infiniteCloud : this.studioCloud;
+    const requested = !!this.params.cloudsEnabled && !!this.params.cloudShadowsEnabled;
+    const state = requested ? layer?.renderTerrainShadow?.(u.uSunDir.value, this._tileOccTex) : null;
+    u.uTerrainCloudShadowEnabled.value = state ? 1 : 0;
+    u.uTerrainCloudShadowStrength.value = Math.min(0.85, Math.max(0, this.params.cloudShadowOpacity ?? 0.45));
+    u.uTerrainCloudShadowTex.value = state?.texture ?? null;
+    u.uTileOccupancy.value = state?.texture ?? this._tileOccTex ?? null;
     if (state) {
       u.uTerrainCloudShadowCenter.value.copy(state.center);
       u.uTerrainCloudShadowExtent.value = state.extent;
       u.uTerrainCloudShadowAltitude.value = state.altitude;
-      u.uTerrainCloudShadowScale.value = state.scale;
-      u.uTerrainCloudShadowCoverage.value = state.coverage;
-      u.uTerrainCloudShadowSoftness.value = state.softness;
-      u.uTerrainCloudShadowWind.value.copy(state.wind);
-      u.uTerrainCloudShadowTime.value = state.time;
-      u.uTerrainCloudShadowRotation.value = state.rotation;
-      u.uTerrainCloudShadowEvolve.value = state.evolve;
+      u.uTerrainCloudShadowPlanet.value = state.planet ? 1 : 0;
     }
   }
 
@@ -13554,6 +13546,7 @@ export class Engine {
     if (this.infiniteCloud) {
       this.profiler.begin('clouds');
       this.infiniteCloud.update(dt, this.camera.position, this.uniforms.uSunDir.value);
+      this._syncTerrainCloudShadows();
       this.profiler.end('clouds');
     }
     if (!this._needsRender && !this._renderCadenceDue(now)) return;
@@ -13628,9 +13621,11 @@ export class Engine {
       this.profiler.begin('clouds');
       if (this.planetCloudChunks) {
         this.planetCloudChunks.update(dt, this.camera.position, this.uniforms.uSunDir.value, this.camera, this.planetWorld, this._debug);
+        this._syncTerrainCloudShadows();
       }
       if (this.planetCloudLayer) {
         this.planetCloudLayer.update(dt, this.camera.position, this.uniforms.uSunDir.value);
+        this._syncTerrainCloudShadows();
       }
       this.profiler.end('clouds');
     }

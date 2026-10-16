@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CloudSlabLayer } from '../CloudSlabLayer.js';
 import { PlanetCloudLayer } from '../PlanetCloudLayer.js';
-import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS } from '../CloudSettings.js';
+import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS, cloudNoiseOffset } from '../CloudSettings.js';
 import { REALISTIC_CLOUD_VERTEX, REALISTIC_CLOUD_FRAGMENT, REALISTIC_MAX_STEPS } from './realisticCloudGLSL.js';
 import {
   getRealisticNoiseVolumes,
@@ -29,6 +29,18 @@ function param(params, key) {
   return params[key] ?? CLOUD_DEFAULT_PARAMS[key];
 }
 
+function applyFormationFrequencies(u, params, billow, cellSpan) {
+  // System Scale is a frequency, like legacy Cloud Scale: increasing it must
+  // shrink individual clouds as well as the weather systems. Keep the default
+  // appearance, and let Billow Size control their size within each system.
+  const systemFrequency = Math.max(0.1, param(params, 'cloudSystemScale'))
+    / CLOUD_DEFAULT_PARAMS.cloudSystemScale;
+  const billowSize = Math.max(0.1, param(params, 'cloudBillowSize'));
+  u.uCloudShapeFreq.value = systemFrequency / (billow * 1.6 * billowSize);
+  u.uCloudDetailFreq.value = u.uCloudShapeFreq.value * 4.1;
+  u.uCloudCellFreq.value = 0.33 * systemFrequency / (cellSpan * billowSize);
+}
+
 export function createRealisticCloudMaterial({ planet = false } = {}) {
   const uniforms = {
     uLoopGuard:        { value: 0 },
@@ -41,6 +53,7 @@ export function createRealisticCloudMaterial({ planet = false } = {}) {
     uCloudDetailFreq:  { value: 4e-3 },
     uCloudCellFreq:    { value: 3e-4 },
     uCloudWind:        { value: new THREE.Vector3() },
+    uCloudVariationOffset: { value: new THREE.Vector3() },
     uCloudCoverage:    { value: 0.5 },
     uCloudSoftness:    { value: 0.18 },
     uCloudDensity:     { value: 0.8 },
@@ -107,6 +120,7 @@ function applyRealisticLighting(u, state) {
 
 /** Uniforms shared by both geometries (shape, look, quality). */
 function applySharedParams(u, params, config, q) {
+  u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
   u.uCloudCoverage.value = param(params, 'cloudCoverage');
   u.uCloudSoftness.value = Math.max(0.01, param(params, 'cloudSoftness'));
   u.uCloudDensity.value = param(params, 'cloudDensity');
@@ -154,7 +168,7 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
   _createMaterial() { return createRealisticCloudMaterial({ planet: false }); }
   _applyOccupancyUniforms() {}
   _rebuildOccupancy() {}
-  getTerrainShadowState() { return null; }
+  getTerrainShadowState() { return this._shadowPass?.state ?? null; }
 
   applyParams(params, maxHeight, boardSize, perf, layout = {}) {
     this._boardSize = boardSize || this._boardSize;
@@ -188,24 +202,23 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
     // layer stacks more of them into taller towers); the reference length is
     // tied to the board so a slider value means the same look at any size.
     const board = Math.max(this._boardSize, 1);
-    const billowSize = Math.max(0.1, param(params, 'cloudBillowSize'));
     const billow = Math.sqrt(thickness * board * 0.3);
-    u.uCloudShapeFreq.value = 1 / (billow * 1.6 * billowSize);
-    u.uCloudDetailFreq.value = u.uCloudShapeFreq.value * 4.1;
     // Tower cells twice as wide as on a planet: the slab is mostly seen from
     // the side, where narrow cells of different heights read as streaks.
-    u.uCloudCellFreq.value = 0.33 / (thickness * 3.2 * billowSize);
+    applyFormationFrequencies(u, params, billow, thickness * 3.2);
     // shear: how far the layer top is carried downstream (world units)
     u.uCloudShear.value = param(params, 'cloudShear') * thickness * 2.2;
     this._baseSteps = applySharedParams(u, params, config, q);
 
-    // Weather systems are far larger than one cloud, as on a planet (there a
-    // noise unit is ~35 layer thicknesses at the default thickness). The
-    // individual cumulus then come from the 3D billows and tower cells;
-    // cloud-sized weather blobs would be 2D outlines extruded into smooth
-    // vertical walls, read as smeared streaks from the side.
-    this._weatherScale = param(params, 'cloudSystemScale') / (board * 34.0);
-    this._seed.copy(seedOffset(params.seed ?? 0));
+    // Keep the broad weather at the default scale. Above it, bring weather
+    // variation into board-sized distances too: the old /34 mapping stayed
+    // nearly constant over a mini terrain even at 10, joining fine billows
+    // into a single oversized mass. The 3D frequencies above keep the smaller
+    // weather patches volumetric rather than simply extruding their outlines.
+    const systemScale = param(params, 'cloudSystemScale');
+    const weatherFrequency = Math.max(1, systemScale / CLOUD_DEFAULT_PARAMS.cloudSystemScale);
+    this._weatherScale = systemScale * weatherFrequency * weatherFrequency / (board * 34.0);
+    this._seed.copy(seedOffset(params.seed ?? 0)).add(u.uCloudVariationOffset.value);
     this._windowHalf = radius * 1.3 + u.uCloudShear.value;
 
     const wa = param(params, 'cloudWindDir') * Math.PI / 180;
@@ -357,17 +370,14 @@ export class RealisticPlanetCloudLayer extends PlanetCloudLayer {
 
     // noise frequencies in world units, tied to the shell thickness exactly
     // as in Procedural Planets (billows grow with sqrt of the thickness)
-    const billowSize = Math.max(0.1, param(params, 'cloudBillowSize'));
     const billow = Math.sqrt(thick * R * 0.009);
-    u.uCloudShapeFreq.value = 1 / (billow * 1.6 * billowSize);
-    u.uCloudDetailFreq.value = u.uCloudShapeFreq.value * 4.1;
-    u.uCloudCellFreq.value = 0.33 / (thick * 1.6 * billowSize);
+    applyFormationFrequencies(u, params, billow, thick * 1.6);
     // shear in direction units: how far the shell top is carried downstream
     u.uCloudShear.value = param(params, 'cloudShear') * (thick / R) * 2.2;
     this._baseSteps = applySharedParams(u, params, config, q);
 
     this._systemScale = param(params, 'cloudSystemScale');
-    this._seed.copy(seedOffset(params.seed ?? 0));
+    this._seed.copy(seedOffset(params.seed ?? 0)).add(u.uCloudVariationOffset.value);
     this._rotSpeed = param(params, 'cloudRotationSpeed') * 0.01;
     const windSpeed = param(params, 'cloudWindSpeed');
     this._noiseWindRate.set(1, 0.3, -0.6).multiplyScalar(windSpeed * 0.004);

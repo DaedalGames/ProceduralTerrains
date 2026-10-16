@@ -31,21 +31,6 @@ float remap(float v, float a, float b, float c, float d) {
   return c + (v - a) / max(b - a, 1e-5) * (d - c);
 }
 
-// 4x4 ordered (Bayer) start offset. Dithers with long-range structure
-// (interleaved gradient noise, R2) repeat their phase along rows or columns,
-// and where the steps are long that repetition turns the march error into
-// stripes (horizontal after the low-res upscale with IGN, vertical streaks
-// with R2); white noise leaves grain. Every 4x4 block holds all 16 offsets,
-// so the tent upsample averages the error out.
-float bayer2(vec2 a) {
-  return fract(a.x * 0.5 + a.y * a.y * 0.75);
-}
-
-float ign(vec2 p) {
-  vec2 a = floor(p);
-  return bayer2(floor(a * 0.5)) * 0.25 + bayer2(a) + 1.0 / 32.0;
-}
-
 float phaseHG(float mu, float g) {
   float g2 = g * g;
   return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * mu, 1e-4), 1.5));
@@ -257,7 +242,7 @@ void main() {
 }
 `;
 
-export const REALISTIC_CLOUD_FRAGMENT = /* glsl */ `
+export const REALISTIC_CLOUD_FIELD_GLSL = /* glsl */ `
 precision highp float;
 precision highp sampler3D;
 ${COMMON_GLSL}
@@ -272,6 +257,7 @@ uniform float uCloudShapeFreq;
 uniform float uCloudDetailFreq;
 uniform float uCloudCellFreq;
 uniform vec3  uCloudWind;
+uniform vec3  uCloudVariationOffset;
 uniform float uCloudCoverage;
 uniform float uCloudSoftness;
 uniform float uCloudDensity;
@@ -394,7 +380,7 @@ vec3 billowPos(vec3 p, float hf) {
 // constant up a column
 float columnNoise(vec3 p, float hf) {
   vec3 d = normalize(p);
-  return textureLod(uCloudNoise, cloudRotate(d + shearOffset(d, hf)) * uCloudBottom * uCloudCellFreq + uCloudWind * 0.2, 0.0).r;
+  return textureLod(uCloudNoise, cloudRotate(d + shearOffset(d, hf)) * uCloudBottom * uCloudCellFreq + uCloudWind * 0.2 + uCloudVariationOffset, 0.0).r;
 }
 
 // direct sun reaching p: planet shadow with a soft penumbra and reddening
@@ -453,8 +439,17 @@ float edgeFade(vec3 p) {
 }
 
 // bilinear weather for the light march (a coarse lookup is enough there)
+vec2 weatherWarp(vec3 p) {
+  // A weather map is 2D. Warp it with a genuinely 3D field so the edges of
+  // thick clouds round off at each height instead of forming vertical walls.
+  vec2 n = textureLod(uCloudNoise, p * uCloudShapeFreq * 0.7
+    + uCloudVariationOffset + uCloudWind * 0.35, 0.0).rg;
+  return (n - vec2(0.65, 0.55)) * (0.35 / max(uCloudShapeFreq, 1e-6));
+}
+
 vec4 cloudWeatherLight(vec3 p, float hf) {
   vec2 F = p.xz - uFieldShift - uShearDir * (uCloudShear * hf);
+  F += weatherWarp(p);
   vec2 uv = (F - uWeatherCenter) * uWeatherInvSpan + 0.5;
   vec4 w = mix(textureLod(uWeatherMap, uv, 0.0), textureLod(uWeatherMapNext, uv, 0.0), uWeatherBlend);
   return vec4(cloudCover(w) * edgeFade(p), w.g, 0.0, 0.5);
@@ -462,6 +457,7 @@ vec4 cloudWeatherLight(vec3 p, float hf) {
 
 vec4 cloudWeather(vec3 p, float hf) {
   vec2 F = p.xz - uFieldShift;
+  F += weatherWarp(p);
   vec4 w = weatherAt2D(F - uShearDir * (uCloudShear * hf));
   return vec4(cloudCover(w) * edgeFade(p), w.g, 0.0, -1.0);
 }
@@ -473,7 +469,7 @@ vec3 billowPos(vec3 p, float hf) {
 
 float columnNoise(vec3 p, float hf) {
   vec2 F = p.xz - uFieldShift - uShearDir * (uCloudShear * hf);
-  return textureLod(uCloudNoise, vec3(F.x, uCloudBottom, F.y) * uCloudCellFreq + uCloudWind * 0.2, 0.0).r;
+  return textureLod(uCloudNoise, vec3(F.x, uCloudBottom, F.y) * uCloudCellFreq + uCloudWind * 0.2 + uCloudVariationOffset, 0.0).r;
 }
 
 vec3 sunIrradiance(vec3 p) { return uSunLight; }
@@ -488,24 +484,37 @@ vec3 skyIrradiance(vec3 p, float hf) {
 // Density at height fraction hf of column g / cover cov; pr = billow position.
 float cloudShape(vec3 pr, float hf, vec4 g, float cov, float detail) {
   if (hf <= 0.0 || hf >= 1.0 || hf >= g.w + 1.1 * TOP_JITTER) return 0.0;
-  vec2 n = textureLod(uCloudNoise, pr * uCloudShapeFreq + uCloudWind * 0.35, 0.0).rg;
+  vec2 n = textureLod(uCloudNoise, pr * uCloudShapeFreq + uCloudWind * 0.35 + uCloudVariationOffset, 0.0).rg;
   // The billows move the top ramp: per-column top heights alone have no
   // vertical structure, and seen from the side they read as vertical
   // streaks running down the whole body. The flat bases stay flat.
   float hTop = hf + (n.x - 0.55) * (2.0 * TOP_JITTER);
-  float prof = smoothstep(g.x, g.y, hf) * (1.0 - smoothstep(g.z, g.w, hTop));
+  float prof = smoothstep(g.x, max(g.y, 0.12), hf) * (1.0 - smoothstep(max(g.z, g.w * 0.4), g.w, hTop));
   if (prof <= 0.0) return 0.0;
-  float base = sat(remap(n.y, n.x - 1.0, 1.0, 0.0, 1.0));
+  float base = sat(remap(n.y, mix(0.24, 0.38, n.x), 0.82, 0.0, 1.0));
   // profile BEFORE the coverage remap: each column gets its own top height
   // (cauliflower tops); coverage thresholds the billows so system fringes
   // break into cumulus fields and turn translucent
   float dens = sat(remap(base * prof, 1.0 - cov, 1.0, 0.0, 1.0)) * cov;
   if (detail <= 0.0 || dens <= 0.0) return dens;
   // erosion: wispy bottoms, billowy tops
-  float hfb = textureLod(uCloudErosion, pr * uCloudDetailFreq + uCloudWind, 0.0).r;
+  float hfb = textureLod(uCloudErosion, pr * uCloudDetailFreq + uCloudWind + uCloudVariationOffset, 0.0).r;
   float m = mix(hfb, 1.0 - hfb, sat(hf * 4.0));
   return sat(remap(dens, m * 0.8 * uCloudDetail * detail, 1.0, 0.0, 1.0));
 }
+
+float cloudDensityAt(vec3 p, float detail) {
+  float hf = heightFrac(p);
+  if (hf <= 0.0 || hf >= 1.0) return 0.0;
+  vec4 w = cloudWeather(p, hf);
+  if (w.x <= 0.01) return 0.0;
+  w.w = columnNoise(p, hf);
+  return cloudShape(billowPos(p, hf), hf, cloudColumnGradient(w), w.x, detail);
+}
+`;
+
+export const REALISTIC_CLOUD_FRAGMENT = /* glsl */ `
+${REALISTIC_CLOUD_FIELD_GLSL}
 
 vec3 reconstructWorldPosition(vec2 uv, float depth) {
   vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -578,21 +587,10 @@ void main() {
   }
   if (tEnd <= t0) discard;
 
-  // step length from the field's finest structure (the billows), capped by
-  // the ray-step budget
-  // Rays that run along the layer (seen from inside it, or grazing) get up to
-  // twice the sample density, within the ray-step budget: their samples sit
-  // far apart and cross many billows, which shows as streaks and grain.
-  float along = sat((segLen / thick - 2.0) / 4.0);
-  float baseStep = 0.0625 / uCloudShapeFreq * mix(1.0, 0.5, along);
-  float steps = clamp(segLen / baseStep, 12.0, max(uCloudSteps, 12.0));
-  // Rays much longer than the layer is thick (grazing / from inside the
-  // layer) run out of budget: space their samples near-biased, so the near
-  // clouds stay resolved and the far ones, small on screen, take the long
-  // steps. Short crossings keep the even spacing.
-  float bias = 1.0 + 0.6 * sat((segLen / thick - 3.0) / 6.0);
-  float jitter = ign(gl_FragCoord.xy);
-  float t = t0 + segLen * pow(jitter / steps, bias);
+  // Use the requested quality budget. The old billow-based estimate fell to
+  // 12–24 steps in thick clouds even at 96-step quality, leaving horizontal
+  // contour bands at their bases. Integrate complete, disjoint intervals.
+  float steps = clamp(uCloudSteps, 12.0, float(${REALISTIC_MAX_STEPS}));
 
   float T = 1.0;
   vec3 L = vec3(0.0);
@@ -611,10 +609,11 @@ void main() {
   float powderView = 1.0 - 0.7 * sat(cosT);
 
   for (int i = 0; i < ${REALISTIC_MAX_STEPS} + uLoopGuard; i++) {
-    if (float(i) >= steps || T < 0.01 || t >= tEnd) break;
-    float tNext = t0 + segLen * pow(min((float(i) + 1.0 + jitter) / steps, 1.0), bias);
-    float ds = max(tNext - t, 1e-3);
-    float dsi = min(ds, tEnd - t);
+    float intervalStart = t0 + segLen * float(i) / steps;
+    if (float(i) >= steps || T < 0.01 || intervalStart >= tEnd) break;
+    float ds = segLen / steps;
+    float dsi = min(ds, tEnd - intervalStart);
+    float t = intervalStart + dsi * 0.5;
     vec3 p = ro + rd * t;
     float hf = heightFrac(p);
     if (hf > 0.0 && hf < 1.0) {
@@ -623,21 +622,18 @@ void main() {
       float dens = 0.0;
       vec4 g = vec4(0.0);
       if (w.x > 0.01) {
-        vec4 g0 = cloudGradient(w.y, w.x);
-        // the column noise only moves the top ramp: lower samples skip it
-        w.w = hf > min(g0.z, g0.w * 0.49) - 0.02 - 1.1 * TOP_JITTER ? columnNoise(p, hf) : 0.5;
+        // Use the same column at every height; conditionally changing its
+        // height partway through the march created a visible horizontal shelf.
+        w.w = columnNoise(p, hf);
         g = cloudColumnGradient(w);
         // erosion fades out where the step is longer than its cells: under-
         // sampled detail only adds aliasing (streaks on long grazing rays)
         float detailW = sat(2.0 - ds * uCloudDetailFreq * 4.0);
-        dens = cloudShape(billowPos(p, hf), hf, g, w.x, detailW);
-        // long (far, near-biased) steps: one more density tap mid-step, so a
-        // single point does not decide the opacity of the whole step
-        if (ds > 1.5 * baseStep) {
-          vec3 pm = ro + rd * (t + 0.5 * dsi);
-          float hm = heightFrac(pm);
-          dens = 0.5 * (dens + cloudShape(billowPos(pm, sat(hm)), hm, g, w.x, detailW));
-        }
+        // Two symmetric density taps, each with its own weather and profile.
+        // Lighting stays at the interval centre, so surface brightness cannot
+        // turn a pixel's random sampling phase into visible grain or stripes.
+        vec3 offset = rd * (dsi * 0.288675);
+        dens = 0.5 * (cloudDensityAt(p - offset, detailW) + cloudDensityAt(p + offset, detailW));
       }
       if (dens > 0.003) {
         // light march toward the sun (cone-ish growing steps)
@@ -650,14 +646,11 @@ void main() {
           // past the first step the sun ray has left this column: its own
           // cover and profile (reusing the sample's column, as on a thin
           // planet shell, lit thick slabs in vertical bands per column)
-          vec4 gl = g;
-          float covL = w.x;
-          if (j > 0) {
-            vec4 wl = cloudWeatherLight(lp, sat(hj));
-            covL = wl.x;
-            gl = cloudColumnGradient(wl);
+          if (hj > 0.0 && hj < 1.0) {
+            vec4 wl = cloudWeatherLight(lp, hj);
+            wl.w = columnNoise(lp, hj);
+            if (wl.x > 0.01) odL += cloudShape(billowPos(lp, hj), hj, cloudColumnGradient(wl), wl.x, j < 2 ? 1.0 : 0.0) * ls;
           }
-          if (covL > 0.01) odL += cloudShape(billowPos(lp, sat(hj)), hj, gl, covL, j < 2 ? 1.0 : 0.0) * ls;
           ls *= 1.6;
         }
         odL *= sigma;
@@ -678,7 +671,6 @@ void main() {
         T *= Tr;
       }
     }
-    t = tNext;
   }
 
   float alpha = 1.0 - T;

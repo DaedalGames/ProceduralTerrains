@@ -210,6 +210,7 @@ const SETTINGS_INDEX = [
 
   // Clouds / props / debug / export
   { panelId: 'clouds', sectionLabel: 'Shape', settingId: 'clouds.cloudCoverage', label: 'Coverage', keywords: 'cloud density cover sky shape' },
+  { panelId: 'clouds', sectionLabel: 'Shape', settingId: 'clouds.cloudNoiseSeed', label: 'Noise Variation', keywords: 'cloud noise seed variation random pattern realistic legacy' },
   { panelId: 'clouds', sectionLabel: 'Shape', settingId: 'clouds.cloudDensity', label: 'Density', keywords: 'cloud thickness opacity shape' },
   { panelId: 'clouds', sectionLabel: 'Shape', settingId: 'clouds.cloudSoftness', label: 'Softness', keywords: 'cloud edge softness shape' },
   { panelId: 'clouds', settingId: 'clouds.cloudsEnabled', label: 'Enable Clouds', keywords: 'cloud volumetric sky enable' },

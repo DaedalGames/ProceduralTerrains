@@ -30,45 +30,30 @@ describe('terrain atmosphere lighting', () => {
     expect(engine.uniforms.uTerrainBounce.value.toArray()).toEqual([0.1, 0.2, 0.3]);
   });
 
-  it('enables projected cloud shadows only for the live Tile cloud slab', () => {
-    const center = new THREE.Vector2(120, -80);
-    const wind = new THREE.Vector3(0.04, 0, 0.02);
+  it.each(['studio', 'infinite', 'planet'])('uses the live %s cloud shadow map and restores the tile mask when disabled', (mode) => {
     const engine = Object.create(Engine.prototype);
-    engine.worldMode = 'studio';
-    engine.params = {
-      cloudsEnabled: true,
-      cloudShadowsEnabled: true,
-      cloudShadowOpacity: 1,
-    };
+    engine.worldMode = mode;
+    engine.params = { cloudsEnabled: true, cloudShadowsEnabled: true, cloudShadowOpacity: 1 };
     engine.uniforms = createTerrainUniforms();
-    engine.studioCloud = {
-      getTerrainShadowState: () => ({
-        center,
-        extent: 1800,
-        altitude: 720,
-        scale: 0.0012,
-        coverage: 0.6,
-        softness: 0.18,
-        wind,
-        time: 4.5,
-        rotation: 0.2,
-        evolve: 0.03,
-      }),
-    };
-
+    engine._tileOccTex = new THREE.Texture();
+    const texture = new THREE.Texture();
+    const layer = { renderTerrainShadow: () => ({ texture, center: new THREE.Vector2(120, -80),
+      extent: 1800, altitude: 720, planet: mode === 'planet' }) };
+    engine.studioCloud = mode === 'studio' ? layer : null;
+    engine.infiniteCloud = mode === 'infinite' ? layer : null;
+    engine.planetCloudLayer = mode === 'planet' ? layer : null;
     engine._syncTerrainCloudShadows();
-
     expect(engine.uniforms.uTerrainCloudShadowEnabled.value).toBe(1);
     expect(engine.uniforms.uTerrainCloudShadowStrength.value).toBe(0.85);
+    expect(engine.uniforms.uTileOccupancy.value).toBe(texture);
     expect(engine.uniforms.uTerrainCloudShadowCenter.value.toArray()).toEqual([120, -80]);
     expect(engine.uniforms.uTerrainCloudShadowAltitude.value).toBe(720);
-    expect(engine.uniforms.uTerrainCloudShadowScale.value).toBe(0.0012);
-    expect(engine.uniforms.uTerrainCloudShadowWind.value.toArray()).toEqual(wind.toArray());
-    expect(engine.uniforms.uTerrainCloudShadowTime.value).toBe(4.5);
-
-    engine.worldMode = 'planet';
+    expect(engine.uniforms.uTerrainCloudShadowPlanet.value).toBe(mode === 'planet' ? 1 : 0);
+    engine.params.cloudShadowsEnabled = false;
     engine._syncTerrainCloudShadows();
     expect(engine.uniforms.uTerrainCloudShadowEnabled.value).toBe(0);
+    expect(engine.uniforms.uTileOccupancy.value).toBe(engine._tileOccTex);
+    texture.dispose(); engine._tileOccTex.dispose();
   });
 
   it('exposes the live animated cloud field used by terrain shadows', () => {

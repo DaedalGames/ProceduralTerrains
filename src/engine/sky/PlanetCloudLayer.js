@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createCloudMaterial } from './CloudVolumeShader.js';
-import { resolveCloudQuality } from './CloudSettings.js';
+import { resolveCloudQuality, cloudNoiseOffset } from './CloudSettings.js';
+import { renderTerrainCloudShadow } from './CloudShadowPass.js';
 import { buildOccupancyOctahedral } from './cloudFieldCPU.js';
 import { CloudLowResPass } from './CloudLowResPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
@@ -154,6 +155,8 @@ export class PlanetCloudLayer {
     u.uCloudScale.value = (params.cloudScale ?? 2.2) * fScale;
     u.uCloudDetailScale.value = (params.cloudDetailScale ?? 7.0) * fScale;
     u.uCloudErosionScale.value = (params.cloudErosionScale ?? 15.0) * fScale;
+    u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+    this._occBuiltAt = 0;
     u.uCloudDetailStrength.value = params.cloudDetailStrength ?? 0.35;
     u.uCloudErosionStrength.value = params.cloudErosionStrength ?? 0.30;
 
@@ -301,6 +304,9 @@ export class PlanetCloudLayer {
     const w = u.uCloudWind.value;
     const occupancyRatio = buildOccupancyOctahedral(this._occData, OCC_SIZE, inner, outer, {
       scale: u.uCloudScale.value,
+      offsetX: u.uCloudVariationOffset.value.x,
+      offsetY: u.uCloudVariationOffset.value.y,
+      offsetZ: u.uCloudVariationOffset.value.z,
       windX: w.x, windY: w.y, windZ: w.z,
       time: u.uCloudTime.value,
       rotation: u.uCloudRotation.value,
@@ -476,7 +482,12 @@ export class PlanetCloudLayer {
     this._depthTarget.texture.generateMipmaps = false;
   }
 
+  renderTerrainShadow(sun, tiles) {
+    return renderTerrainCloudShadow(this, sun, true, tiles);
+  }
+
   dispose() {
+    this._shadowPass?.dispose();
     if (this._depthTarget) {
       this._depthTarget.dispose();
       this._depthTarget = null;

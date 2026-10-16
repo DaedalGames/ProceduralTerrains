@@ -36,15 +36,11 @@ vec3 cl_hash33(vec3 p3) {
   return fract((p3.xxy + p3.yxx) * p3.zyx);
 }
 
-// Interleaved Gradient Noise (Jimenez) — a smooth, ordered dither in [0,1).
-// Used to offset the raymarch start so the fixed step lattice doesn't band.
-// Unlike a white-noise hash it is spatially CORRELATED (neighbouring pixels get
-// nearly the same value), so residual banding becomes a soft gradient instead
-// of salt-and-pepper grain. It is purely a function of the pixel coordinate (no
-// time term) so the pattern is frame-stable: it never crawls while the camera
-// moves or the cloud field animates.
+// Stable spatial hash for the experimental chunk march (no temporal crawl).
 float cl_ign(vec2 pix) {
-  return fract(52.9829189 * fract(dot(pix, vec2(0.06711056, 0.00583715))));
+  vec3 p = fract(vec3(pix.xyx) * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
 }
 
 // --- quintic trilinear value noise -------------------------------------------
@@ -161,6 +157,7 @@ uniform float uCloudAmbientResponse;
 uniform float uCloudSilverLining;
 uniform vec3  uCloudWind;          // domain drift vector (already × speed)
 uniform vec3  uCloudNoiseOffset;   // accumulated noise-space offset for rebasing
+uniform vec3  uCloudVariationOffset;
 uniform vec3  uCloudDomainOrigin;  // world-space origin subtracted before domain rotation
 uniform float uCloudRotation;      // domain rotation angle (radians)
 uniform float uCloudTime;
@@ -187,7 +184,7 @@ float cloudShape(vec3 q) {
   // The falloff in cloudDensity uses the REAL altitude, so this only morphs the
   // shape — it never moves the shell.
   float evoT = uCloudTime * uCloudEvolve;
-  vec3 baseP = q * uCloudScale + uCloudNoiseOffset
+  vec3 baseP = q * uCloudScale + uCloudNoiseOffset + uCloudVariationOffset
     + drift + vec3(0.0, evoT, 0.0);
   // coverage: higher slider -> lower threshold -> more cloud
   float threshold = 1.0 - uCloudCoverage;
@@ -219,14 +216,14 @@ float cloudShape(vec3 q) {
   // centered (detail - 0.5): redistributes density instead of biasing brightness
   float detailRatio = uCloudDetailScale / max(uCloudScale, 1e-6);
   float detail = cl_fbm_detail(q * uCloudDetailScale
-    + uCloudNoiseOffset * detailRatio
+    + (uCloudNoiseOffset + uCloudVariationOffset) * detailRatio
     + drift * 1.7 + vec3(0.0, evoD, 0.0));
   carve += (detail - 0.5) * uCloudDetailStrength;
   #endif
   #if defined(CLOUD_USE_EROSION) && CLOUD_USE_EROSION > 0
   float erosionRatio = uCloudErosionScale / max(uCloudScale, 1e-6);
   float ero = cl_worley(q * uCloudErosionScale
-    + uCloudNoiseOffset * erosionRatio
+    + (uCloudNoiseOffset + uCloudVariationOffset) * erosionRatio
     + vec3(0.0, evoD, 0.0));
   carve -= ero * uCloudErosionStrength;
   #endif
@@ -240,7 +237,7 @@ float cloudShape(vec3 q) {
 float cloudShapeForLight(vec3 q) {
   vec3 drift = uCloudWind * uCloudTime;
   float evoT = uCloudTime * uCloudEvolve;
-  vec3 baseP = q * uCloudScale + uCloudNoiseOffset
+  vec3 baseP = q * uCloudScale + uCloudNoiseOffset + uCloudVariationOffset
     + drift + vec3(0.0, evoT, 0.0);
   float threshold = 1.0 - uCloudCoverage;
   float soft = max(uCloudSoftness, 0.08);

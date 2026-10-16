@@ -164,12 +164,12 @@ describe('shared Tile and Infinite terrain program', () => {
 
     expect(uniforms.uTerrainCloudShadowEnabled.value).toBe(0);
     expect(uniforms.uTerrainCloudShadowStrength.value).toBeCloseTo(0.45);
-    expect(uniforms.uTerrainCloudShadowTex).toBeUndefined();
-    expect(full.fragmentShader).not.toContain('float terrainCloudShadow(vec3 worldPos)');
+    expect(uniforms.uTerrainCloudShadowTex.value).toBeNull();
+    expect(full.fragmentShader).toContain('float terrainCloudShadow(vec3 worldPos)');
     expect(full.fragmentShader).not.toContain('float terrainCloudFbm(vec3 p)');
     expect(full.fragmentShader).toContain('vec3 col = terrainLighting(');
-    expect(full.fragmentShader).not.toContain('cloudShadow');
-    expect(boot.fragmentShader).not.toContain('terrainCloudShadow(vWorldPos)');
+    expect(full.fragmentShader).toContain('#define uTerrainCloudShadowTex uTileOccupancy');
+    expect(boot.fragmentShader).toContain('terrainCloudShadow(vWorldPos)');
   });
 
   it('lights the lightweight Node preview from the visible terrain slopes', () => {

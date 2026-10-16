@@ -2098,6 +2098,7 @@ export default function App() {
 
       case 'clouds.cloudsEnabled': return yesNo(params.cloudsEnabled);
       case 'clouds.cloudCoverage': return num(params.cloudCoverage ?? 0, 2);
+      case 'clouds.cloudNoiseSeed': return num(params.cloudNoiseSeed ?? 0, 0);
       case 'clouds.cloudDensity': return num(params.cloudDensity ?? 0, 2);
       case 'clouds.cloudSoftness': return num(params.cloudSoftness ?? 0, 2);
       case 'clouds.cloudAltitude': return num(params.cloudAltitude ?? 0, 0, 'm');

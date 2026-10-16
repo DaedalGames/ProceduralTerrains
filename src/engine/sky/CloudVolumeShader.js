@@ -218,7 +218,7 @@ void main() {
     t += stepLen;
   }
 #else
-  // single-shell mode (default): near-biased sampling over the COMPLETE shell
+  // single-shell mode (default): symmetric sampling over the COMPLETE shell
   // interval. The distribution is derived before terrain-depth clamping, so the
   // sampling phase stays stable and the shell never develops depth-edge seams.
   // Occupancy gates expensive density at every shaped sample. Do not reject a
@@ -228,18 +228,18 @@ void main() {
   for (int i = 0; i < CLOUD_STEPS + uLoopGuard; i++) {
     float sampleIndex = float(i);
     if (sampleIndex < float(effSteps) && transmittance > 0.01) {
-      float a = (sampleIndex + dither) / float(effSteps);
-      float b = (sampleIndex + 1.0 + dither) / float(effSteps);
-      float ta = pow(clamp(a, 0.0, 1.0), 1.35);
-      float tb = pow(clamp(b, 0.0, 1.0), 1.35);
-      float t = shellStart + seg * ta;
-      float stepLength = min(seg * (tb - ta), max(tEnd - t, 0.0));
+      float ta = sampleIndex / float(effSteps);
+      float tb = (sampleIndex + 1.0) / float(effSteps);
+      float intervalStart = shellStart + seg * ta;
+      float stepLength = min(seg * (tb - ta), max(tEnd - intervalStart, 0.0));
+      float t = intervalStart + stepLength * 0.5;
       if (t < tEnd && stepLength > 0.0) {
         vec3 P = ro + rd * t;
         float occ = uUseOccupancy > 0.5 ? occAt(P) : 1.0;
         if (occ >= 0.5) {
-          vec2 sampleData = cloudSample(P);
-          float dens = sampleData.x;
+          vec3 offset = rd * (stepLength * 0.288675);
+          vec2 sampleData = cloudSample(P - offset);
+          float dens = 0.5 * (sampleData.x + cloudDensity(P + offset));
           if (dens > 0.001) {
             float light = uCloudSelfShadow > 0.5 ? cl_lightTransmittance(P) : 1.0;
             vec3 lit = cl_resolveLighting(P, rd, light, sampleData.y);
@@ -299,6 +299,7 @@ export function createCloudMaterial(steps = 24, lightSteps = 6, octaves = 5, det
       uCloudSilverLining:    { value: 0.25 },
       uCloudWind:            { value: new THREE.Vector3() },
       uCloudNoiseOffset:     { value: new THREE.Vector3() },
+      uCloudVariationOffset: { value: new THREE.Vector3() },
       uCloudDomainOrigin:    { value: new THREE.Vector3() },
       uCloudRotation:        { value: 0.0 },
       uCloudTime:            { value: 0.0 },

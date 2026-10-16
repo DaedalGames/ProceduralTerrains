@@ -8,6 +8,7 @@ import { colorToHex, parseColor } from '../../engine/style/ColorPalette.js';
 import { CLOUD_DEFAULT_PARAMS } from '../../engine/sky/CloudSettings.js';
 
 const SHAPE_SLIDERS = [
+  { key: 'cloudNoiseSeed', label: 'Noise Variation', min: 0, max: 1000, step: 1, info: 'Choose a different cloud noise pattern without changing the terrain seed. Shared by realistic and legacy clouds.' },
   { key: 'cloudCoverage', label: 'Coverage', min: 0, max: 1, step: 0.01, digits: 2, info: 'Fraction of the sky covered by clouds.' },
   { key: 'cloudDensity', label: 'Density', min: 0.1, max: 3, step: 0.05, digits: 2, info: 'Overall opacity / optical thickness of the clouds.' },
   { key: 'cloudSoftness', label: 'Softness', min: 0.01, max: 0.6, step: 0.01, digits: 2, info: 'Softness of the cloud edges where coverage cuts in.' },
@@ -70,7 +71,7 @@ const RENDER_MODE_OPTIONS = [
 
 // Realistic mode: the Procedural Planets cloud settings.
 const REAL_FORM_SLIDERS = [
-  { key: 'cloudSystemScale', label: 'System Scale', min: 1, max: 10, step: 0.1, digits: 1, info: 'Frequency of weather systems.' },
+  { key: 'cloudSystemScale', label: 'System Scale', min: 1, max: 10, step: 0.1, digits: 1, info: 'Frequency of weather systems and cloud formations. Higher values create smaller clouds; lower values create larger clouds.' },
   { key: 'cloudErosion', label: 'Erosion', min: 0, max: 1, step: 0.05, digits: 2, info: 'Wispy bottoms / billowy tops.' },
   { key: 'cloudBillowSize', label: 'Billow Size', min: 0.3, max: 3, step: 0.05, digits: 2, info: 'Size of the billows.' },
   { key: 'cloudTowering', label: 'Towering', min: 0, max: 1, step: 0.05, digits: 2, info: 'Vertical development: low flat decks to tall towering cumulonimbus.' },
@@ -150,7 +151,7 @@ export default function CloudPanel({
         title={translateText("Shape")}
         defaultOpen
         settingId="clouds.section.shape"
-        forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+        forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
       >
         {sliders(SHAPE_SLIDERS)}
       </ControlSection>
@@ -277,7 +278,7 @@ export default function CloudPanel({
             title={translateText("Shape")}
             defaultOpen
             settingId="clouds.section.shape"
-            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
           >
             {SHAPE_SLIDERS.map((def) => (
               <SliderCtl key={def.key} def={def} value={val(params, def.key)} onChange={(v) => onParam(def.key, v)} settingId={`clouds.${def.key}`} />

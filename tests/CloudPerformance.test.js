@@ -37,10 +37,11 @@ describe('cloud performance pipeline', () => {
     occupancySource.dispose();
   });
 
-  it('uses near-biased intervals and their physical length for extinction', () => {
+  it('uses disjoint quadrature intervals and their physical length for extinction', () => {
     for (const material of [createCloudSlabMaterial(), createCloudMaterial()]) {
-      expect(material.fragmentShader).toContain('pow(clamp(a, 0.0, 1.0), 1.35)');
-      expect(material.fragmentShader).toContain('pow(clamp(b, 0.0, 1.0), 1.35)');
+      expect(material.fragmentShader).toContain('float ta = sampleIndex / float(effSteps);');
+      expect(material.fragmentShader).toContain('float tb = (sampleIndex + 1.0) / float(effSteps);');
+      expect(material.fragmentShader).toContain('intervalStart + stepLength * 0.5');
       expect(material.fragmentShader).toContain('dens * stepLength * uCloudExtinction');
       expect(material.fragmentShader).not.toContain('skipped += 1.0');
       material.dispose();
@@ -53,7 +54,7 @@ describe('cloud performance pipeline', () => {
     expect(source).toContain('float slabStart = t0;');
     expect(source).toContain('float slabEnd = t1;');
     expect(source).toContain('float segLen = slabEnd - slabStart;');
-    expect(source).toContain('max(t1 - t, 0.0)');
+    expect(source).toContain('max(t1 - intervalStart, 0.0)');
     expect(source).not.toContain('whole-ray reject');
     material.dispose();
   });

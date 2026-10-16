@@ -94,7 +94,7 @@ export function cloudCoverageAt(x, y, z, f) {
   // detail noise on top of the base FBM, so a column that is empty in the base
   // can still grow cloud from detail. Adding the boost before thresholding makes
   // the occupancy a conservative over-estimate that never skips real cloud.
-  const n = fbmBase(qx * f.scale + dx, qy * f.scale + dy, qz * f.scale + dz, f.octaves) + (f.boost || 0);
+  const n = fbmBase(qx * f.scale + dx + (f.offsetX || 0), qy * f.scale + dy + (f.offsetY || 0), qz * f.scale + dz + (f.offsetZ || 0), f.octaves) + (f.boost || 0);
   const threshold = 1.0 - f.coverage;
   return smoothstep(threshold, threshold + f.softness, n);
 }
