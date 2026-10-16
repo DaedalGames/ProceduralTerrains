@@ -168,6 +168,7 @@ export class MiniTerrainController {
     if (u.uMiniCut) u.uMiniCut.value = active ? 1 : 0;
     if (u.uMiniTerrainBevel) u.uMiniTerrainBevel.value = active ? this.layout.terrainBevel : 0;
     if (u.uMiniBevelRounded) u.uMiniBevelRounded.value = active && this.layout.rounded ? 1 : 0;
+    if (u.uMiniHexagon) u.uMiniHexagon.value = active && this.layout.hexagon ? 1 : 0;
     if (!active) return;
     const style = MINI_CUT_STYLES[this.state.cutStyle] ?? MINI_CUT_STYLES.strata;
     const L = this.layout;
@@ -214,6 +215,7 @@ export class MiniTerrainController {
       maxHeight,
       socle: this.state.socle,
       circle: L.shape === 'circle',
+      hexagon: L.hexagon,
     });
     this.stage.setBackdrop(this.state.backdrop);
     this.stage.setSocleColor(MINI_CUT_STYLES[this.state.cutStyle]?.sediment ?? [0.7, 0.62, 0.5]);
@@ -225,6 +227,7 @@ export class MiniTerrainController {
       inset: Math.max(0.35, L.width * 0.0005),
       bevel: L.waterBevel,
       rounded: L.rounded,
+      hexagon: L.hexagon,
     });
     this.lightMap.setLayout({ half: L.half, segments: L.segments });
     this._applyWaterLook();
@@ -294,7 +297,7 @@ export class MiniTerrainController {
         const u = eng.uniforms;
         const key = [
           eng._terrainGen, programKey, u.uHeightScale.value,
-          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments, L.terrainBevel, L.rounded,
+          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments, L.terrainBevel, L.rounded, L.hexagon,
         ].join(':');
         const renderHeights = (grid) => baker.renderHeightGrid(grid, this._gridTransform(L));
         if (this.lightMap.update(eng.renderer, key, sun, renderHeights)) eng._needsRender = true;
@@ -344,6 +347,7 @@ export class MiniTerrainController {
         inset: Math.max(0.35, L.width * 0.0005),
         bevel: L.waterBevel,
         rounded: L.rounded,
+        hexagon: L.hexagon,
       });
     }
   }
@@ -390,7 +394,7 @@ export class MiniTerrainController {
   underwaterVolume() {
     if (!this.active) return null;
     const L = this.layout;
-    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth, bevel: L.waterBevel, rounded: L.rounded };
+    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth, bevel: L.waterBevel, rounded: L.rounded, hexagon: L.hexagon };
   }
 
   /** Walkable rectangle: the footprint, a step inside the cut faces. */
@@ -400,6 +404,7 @@ export class MiniTerrainController {
     const m = Math.max(1.5, L.width * 0.004);
     const bounds = { minX: -L.half + m, maxX: L.half - m, minZ: -L.half + m, maxZ: L.half - m };
     if (L.shape === 'circle') bounds.radius = L.half - m;
+    if (L.hexagon) bounds.hexagonHalf = L.half - m * 2 / Math.sqrt(3);
     return bounds;
   }
 
@@ -473,6 +478,7 @@ export class MiniTerrainController {
       terrainBevel: L.terrainBevel,
       waterBevel: L.waterBevel,
       rounded: L.rounded,
+      hexagon: L.hexagon,
       cut: {
         topsoil: miniCutColor(style.topsoil),
         bandA: miniCutColor(style.bandA),
@@ -485,7 +491,7 @@ export class MiniTerrainController {
       },
       water: { ...water, depthRange: L.reliefHeight * 0.32 },
       socle: this.state.socle
-        ? { height: L.socleHeight, margin: L.socleMargin, color: miniCutColor(style.sediment), circle: L.shape === 'circle' }
+        ? { height: L.socleHeight, margin: L.socleMargin, color: miniCutColor(style.sediment), circle: L.shape === 'circle', hexagon: L.hexagon }
         : null,
     };
   }

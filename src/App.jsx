@@ -1966,7 +1966,7 @@ export default function App() {
     const palette = paramsStyle.palette ?? {};
 
     switch (id) {
-      case 'mini.shape': return miniTerrain?.shape === 'circle' ? 'Circle' : 'Square';
+      case 'mini.shape': return ({ square: 'Square', circle: 'Circle', hexagon: 'Hexagon' })[miniTerrain?.shape] ?? 'Square';
       case 'mini.waterEdges': return num(miniTerrain?.waterEdges ?? 1, 2);
       case 'mini.bevelSync': return yesNo(miniTerrain?.bevelSync ?? false);
       case 'mini.bevelStyle': return miniTerrain?.bevelStyle === 'rounded' ? 'Rounded' : 'Chamfer';

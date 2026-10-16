@@ -348,7 +348,7 @@ void main() {
   #endif
   vec4 wp = modelMatrix * localPosition;
   vec2 squareXZ = wp.xz;
-  if (uMiniTerrainBevel > 0.0 && uInfiniteMode < 0.5) {
+  if ((uMiniTerrainBevel > 0.0 || uMiniHexagon > 0.5) && uInfiniteMode < 0.5) {
     wp.xz = miniBevelPoint(wp.xz, uBoardHalf, uMiniTerrainBevel, uMiniBevelRounded);
   }
   float h = terrainCachedHeightAt(wp.xz);
@@ -1281,6 +1281,7 @@ export function createTerrainUniforms() {
     // Mini Terrain section strata (uMiniCut 0 = legacy flat plinth colour).
     uMiniCut:        { value: 0.0 },
     uMiniTerrainBevel: { value: 0.0 },
+    uMiniHexagon: { value: 0.0 },
     uMiniBevelRounded: { value: 0.0 },
     uMiniCutTopsoil: { value: new THREE.Vector3(0.05, 0.03, 0.02) },
     uMiniCutBandA:   { value: new THREE.Vector3(0.31, 0.23, 0.15) },

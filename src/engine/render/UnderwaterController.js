@@ -115,7 +115,12 @@ export class UnderwaterController {
             volume.maxZ - cameraPos.z,
             cameraPos.y - (volume.floorY ?? -Infinity),
           );
-          if (volume.bevel > 0) {
+          if (volume.hexagon) {
+            const x = Math.abs(cameraPos.x - (volume.minX + volume.maxX) * 0.5);
+            const z = Math.abs(cameraPos.z - (volume.minZ + volume.maxZ) * 0.5);
+            const a = (volume.maxX - volume.minX) * Math.sqrt(3) / 4;
+            inside = Math.min(inside, a - Math.max(x, x * 0.5 + z * Math.sqrt(3) / 2));
+          } else if (volume.bevel > 0) {
             const cx = (volume.minX + volume.maxX) * 0.5;
             const cz = (volume.minZ + volume.maxZ) * 0.5;
             const span = (volume.maxX - volume.minX + volume.maxZ - volume.minZ) * 0.5;

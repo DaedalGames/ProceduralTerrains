@@ -2,7 +2,7 @@ import { translateText } from '../../i18n/language.js';
 
 const SETTINGS_INDEX = [
   // Mini Terrain (only offered while a Mini project is open)
-  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.shape', label: 'Mini Shape', keywords: 'mini diorama shape outline square circle round disc board forme carre cercle rond' },
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.shape', label: 'Mini Shape', keywords: 'mini diorama shape outline square circle hexagon hexagonal round disc board forme carre cercle rond hexagone' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelSync', label: 'Sync Bevels', keywords: 'mini water terrain bevel sync link synchronized corners coins lier synchroniser' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelStyle', label: 'Bevel Style', keywords: 'mini water terrain bevel rounded round chamfer arrondi biseau coins' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.waterEdges', label: 'Water Edges', keywords: 'mini water edges outline highlight border corners aretes bords' },

@@ -419,7 +419,7 @@ export class TerrainExporter {
           const z = ctr.z + (j / meshRes - 0.5) * cellSize;
           for (let i = 0; i <= meshRes; i++) {
             const x = ctr.x + (i / meshRes - 0.5) * cellSize;
-            const [px, pz] = mini ? miniBevelPoint(x, z, cellSize / 2, mini.terrainBevel, mini.rounded) : [x, z];
+            const [px, pz] = mini ? miniBevelPoint(x, z, cellSize / 2, mini.terrainBevel, mini.rounded, mini.hexagon) : [x, z];
             positions.push(px, mini ? sampleMiniHeight(at, meshRes, cellSize / 2, px, pz) : at(i, j), pz);
             uvs.push((px - ctr.x) / cellSize + 0.5, (pz - ctr.z) / cellSize + 0.5);
           }
@@ -449,12 +449,12 @@ export class TerrainExporter {
         // base slab option), then the socle under it.
         if (mini && includeSkirts) {
           const wallGeo = buildMiniSectionWalls({
-            at, res: meshRes, half: cellSize / 2, baseY: baseHeight, seaLevel, cut: mini.cut, bevel: mini.terrainBevel, rounded: mini.rounded,
+            at, res: meshRes, half: cellSize / 2, baseY: baseHeight, seaLevel, cut: mini.cut, bevel: mini.terrainBevel, rounded: mini.rounded, hexagon: mini.hexagon,
           });
           if (!includeBase) {
             // Drop the bottom fan, including its additional chamfer vertices.
             const index = wallGeo.getIndex();
-            const bottomIndices = (miniFootprint(cellSize / 2, mini.terrainBevel, mini.rounded).length - 2) * 3;
+            const bottomIndices = (miniFootprint(cellSize / 2, mini.terrainBevel, mini.rounded, mini.hexagon).length - 2) * 3;
             wallGeo.setIndex(Array.from(index.array).slice(0, index.count - bottomIndices));
           }
           const wallMesh = new THREE.Mesh(wallGeo, createMiniWallMaterial());
@@ -661,7 +661,7 @@ export class TerrainExporter {
       onToast('Building water volume...');
       const { at } = await bakeHeightGrid(0, 0, cellSize, cellSize, meshRes, meshRes);
       const waterMesh = new THREE.Mesh(
-        buildMiniWaterVolume({ at, res: meshRes, half: cellSize / 2, seaLevel, baseY: baseHeight, bevel: mini.waterBevel, rounded: mini.rounded }),
+        buildMiniWaterVolume({ at, res: meshRes, half: cellSize / 2, seaLevel, baseY: baseHeight, bevel: mini.waterBevel, rounded: mini.rounded, hexagon: mini.hexagon }),
         createMiniWaterMaterial(mini.water),
       );
       waterMesh.name = 'Water_Volume';
@@ -691,7 +691,7 @@ export class TerrainExporter {
         const z = oz + (j / collisionRes - 0.5) * sz;
         for (let i = 0; i <= collisionRes; i++) {
           const x = ox + (i / collisionRes - 0.5) * sx;
-          const [px, pz] = mini ? miniBevelPoint(x, z, mini.half, mini.terrainBevel, mini.rounded) : [x, z];
+          const [px, pz] = mini ? miniBevelPoint(x, z, mini.half, mini.terrainBevel, mini.rounded, mini.hexagon) : [x, z];
           positions.push(px, mini ? sampleMiniHeight(at, collisionRes, mini.half, px, pz) : at(i, j), pz);
         }
       }

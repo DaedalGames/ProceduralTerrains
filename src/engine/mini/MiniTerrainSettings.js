@@ -82,7 +82,8 @@ export const MINI_CUT_STYLE_IDS = Object.freeze(Object.keys(MINI_CUT_STYLES));
 // Footprint outline. A circle is a rounded bevel whose radius is the
 // half-width, so terrain, walls, water, props, light map and export all share
 // the existing bevel path; only the socle and its ground shadow change shape.
-export const MINI_SHAPES = Object.freeze(['square', 'circle']);
+// Hexagons use six regular sides, with half-width as the circumradius.
+export const MINI_SHAPES = Object.freeze(['square', 'circle', 'hexagon']);
 
 // Composition recipes. `shape` is the shader discriminant (uMiniShape).
 // Geometry is in normalized footprint coordinates (half-width = 1); heights in
@@ -295,7 +296,7 @@ export function normalizeMiniTerrainState(input) {
     terrainBevel: clamp(finite(input.bevelSync === true ? input.waterBevel : input.terrainBevel, 0), 0, 10),
     bevelSync: input.bevelSync === true,
     bevelStyle: input.bevelStyle === 'rounded' ? 'rounded' : 'chamfer',
-    shape: input.shape === 'circle' ? 'circle' : 'square',
+    shape: MINI_SHAPES.includes(input.shape) ? input.shape : 'square',
     socle: input.socle !== false,
     backdrop,
     camera,
@@ -375,9 +376,10 @@ export function resolveMiniLayout(state) {
     segments,
     baseDepth,
     shape: s.shape,
-    waterBevel: circle ? W / 2 : W * s.waterBevel / 100,
-    terrainBevel: circle ? W / 2 : W * s.terrainBevel / 100,
-    rounded: circle || s.bevelStyle === 'rounded',
+    hexagon: s.shape === 'hexagon',
+    waterBevel: circle ? W / 2 : s.shape === 'hexagon' ? 0 : W * s.waterBevel / 100,
+    terrainBevel: circle ? W / 2 : s.shape === 'hexagon' ? 0 : W * s.terrainBevel / 100,
+    rounded: circle || (s.shape === 'square' && s.bevelStyle === 'rounded'),
     socleHeight: Math.round(W * 0.045),
     socleMargin: Math.round(W * 0.018),
     quadSize: W / segments,
@@ -695,7 +697,7 @@ export function resolveMiniFraming(state, { fov = 45, aspect = 16 / 9 } = {}) {
   const vFov = fov * Math.PI / 180;
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.5, aspect));
   const fitFov = Math.min(vFov, hFov);
-  const extent = L.width * (s.shape === 'circle' ? 0.6 : 0.76);
+  const extent = L.width * (s.shape === 'square' ? 0.76 : 0.6);
   const radius = Math.round((extent / Math.tan(fitFov / 2)) * 100) / 100;
   return {
     theta: c.cameraAzimuth,

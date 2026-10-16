@@ -35,12 +35,12 @@ import { miniFootprint } from './MiniBevel.js';
 //   off; the opaque section wall depth-occludes the faces below the terrain.
 // ============================================================================
 
-export function buildMiniWaterCutGeometry(half, bottom, top, inset = 0.5, bevel = 0, rounded = false) {
+export function buildMiniWaterCutGeometry(half, bottom, top, inset = 0.5, bevel = 0, rounded = false, hexagon = false) {
   const h = Math.max(1, half - inset);
   const y0 = bottom;
   const y1 = Math.max(top, bottom + 0.01);
   // Each face: 4 vertices, CCW when seen from outside (outward normal).
-  const ring = miniFootprint(h, bevel, rounded);
+  const ring = miniFootprint(h, bevel, rounded, hexagon);
   const faces = ring.map(([x, z], i) => {
     const [nx, nz] = ring[(i + 1) % ring.length];
     const normal = new THREE.Vector3(z - nz, 0, nx - x).normalize().toArray();
@@ -77,17 +77,17 @@ export class MiniWaterCut {
   }
 
   /** Update the box (half-width, section base, water level). */
-  setBounds({ half, bottom, top, inset, bevel = 0, rounded = false }) {
+  setBounds({ half, bottom, top, inset, bevel = 0, rounded = false, hexagon = false }) {
     // a round footprint's bevel is the whole half-width: keep it on the inset box
     bevel = Math.min(bevel, half - inset);
-    const key = `${half}:${bottom}:${top}:${inset}:${bevel}:${rounded}`;
+    const key = `${half}:${bottom}:${top}:${inset}:${bevel}:${rounded}:${hexagon}`;
     this.material.uniforms.uCutHalf.value = half - inset;
     this.material.uniforms.uCutBottom.value = bottom;
     this.material.uniforms.uMiniWaterBevel.value = bevel;
     if (key === this._key) return;
     this._key = key;
     this.mesh.geometry.dispose();
-    this.mesh.geometry = buildMiniWaterCutGeometry(half, bottom, top, inset, bevel, rounded);
+    this.mesh.geometry = buildMiniWaterCutGeometry(half, bottom, top, inset, bevel, rounded, hexagon);
   }
 
   dispose() {

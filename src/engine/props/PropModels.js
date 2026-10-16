@@ -301,6 +301,7 @@ uniform float uMiniHalf;
 uniform float uMiniGroundShift;
 uniform float uMiniTerrainBevel;
 uniform float uMiniBevelRounded;
+uniform float uMiniHexagon;
 uniform float uBoardHalf;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
@@ -343,7 +344,11 @@ ${WIND_VERT_BODY}
     vec2 corner = max(abs(miniRoot.xz) - (uBoardHalf - uMiniTerrainBevel), 0.0);
     bool outsideMini = uMiniBevelRounded > 0.5 ? length(corner) > uMiniTerrainBevel
       : abs(miniRoot.x) + abs(miniRoot.z) > 2.0 * uBoardHalf - uMiniTerrainBevel;
-    if (uMiniTerrainBevel > 0.0 && outsideMini) {
+    if (uMiniHexagon > 0.5) {
+      vec2 q = abs(miniRoot.xz);
+      outsideMini = max(q.x, dot(q, vec2(0.5, 0.866025404))) > uBoardHalf * 0.866025404;
+    }
+    if ((uMiniTerrainBevel > 0.0 || uMiniHexagon > 0.5) && outsideMini) {
       gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     }
   #endif
@@ -453,6 +458,7 @@ export function createPropLitMaterial({ shared = null, wind = null, windStrength
       uMiniGroundShift: fade.groundShift,
       uMiniTerrainBevel: shared?.uMiniTerrainBevel ?? { value: 0 },
       uMiniBevelRounded: shared?.uMiniBevelRounded ?? { value: 0 },
+      uMiniHexagon: shared?.uMiniHexagon ?? { value: 0 },
       uBoardHalf: shared?.uBoardHalf ?? { value: 512 },
       uPropFadeCenter: fade.center,
       uPropFadeRanges: fade.ranges,

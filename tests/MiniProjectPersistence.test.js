@@ -51,10 +51,11 @@ const edits = {
 };
 
 describe('Mini project settings persistence', () => {
-  it.each(['procedural', 'cove'])('keeps edited settings after saving and loading a %s Mini', async (recipe) => {
+  it.each(['procedural', 'cove', 'hexagon'])('keeps edited settings after saving and loading a %s Mini', async (variant) => {
+    const recipe = variant === 'hexagon' ? 'procedural' : variant;
     const state = {
       ...createMiniTerrainState({ recipe, preset: 'dunes', seed: 1936579376 }),
-      shape: 'circle', relief: 1.2, quality: 'capture', cutStyle: 'dark',
+      shape: variant === 'hexagon' ? 'hexagon' : 'circle', relief: 1.2, quality: 'capture', cutStyle: 'dark',
       cloudSpread: 75, waterEdges: 0.8, waterBevel: 3, terrainBevel: 2,
       backdrop: [0.8, 0.7, 0.6], socle: false,
       camera: { views: [{ name: 'Saved view', theta: 0.5, phi: 1, radius: 1500, target: [0, 40, 0] }] },

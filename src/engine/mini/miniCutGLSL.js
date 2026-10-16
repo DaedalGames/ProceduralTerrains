@@ -13,6 +13,7 @@
 
 export const MINI_CUT_GLSL = /* glsl */ `
 uniform float uMiniCut;
+uniform float uMiniHexagon;
 uniform vec3  uMiniCutTopsoil;
 uniform vec3  uMiniCutBandA;
 uniform vec3  uMiniCutBandB;
@@ -86,6 +87,12 @@ vec3 miniCutShade(vec3 wp, float rimH, float seaLevel, vec3 sunDir) {
       vec2 radial = sign(wp.xz) * max(abs(wp.xz) - (uBoardHalf - uMiniTerrainBevel), 0.0);
       n = normalize(vec3(radial.x, 0.0, radial.y));
     }
+  }
+  if (uMiniHexagon > 0.5) {
+    vec2 q = abs(wp.xz);
+    n = q.x > dot(q, vec2(0.5, 0.866025404))
+      ? vec3(sign(wp.x), 0.0, 0.0)
+      : vec3(sign(wp.x) * 0.5, 0.0, sign(wp.z) * 0.866025404);
   }
   float ndl = max(dot(n, normalize(sunDir)), 0.0);
   // soft ambient with a slight sky/ground split + key light

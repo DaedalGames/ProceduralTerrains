@@ -159,6 +159,7 @@ export class MiniLightMap {
       uMiniGridSegments: { value: 256 },
       uHalf: { value: 512 },
       uMiniTerrainBevel: sharedUniforms.uMiniTerrainBevel ?? { value: 0 },
+      uMiniHexagon: sharedUniforms.uMiniHexagon ?? { value: 0 },
       uMiniBevelRounded: sharedUniforms.uMiniBevelRounded ?? { value: 0 },
       uHeightScale: sharedUniforms.uHeightScale,
     };

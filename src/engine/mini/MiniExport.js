@@ -72,9 +72,9 @@ export function miniCutAlbedoCPU(along, y, rimH, seaLevel, cut) {
 
 // The four footprint edges as (vertex index -> grid i, j), the world position
 // of a sample, the outward normal and the coordinate that runs along the face.
-function footprintEdges(res, half, bevel = 0, rounded = false) {
-  if (bevel > 0) {
-    const ring = miniFootprint(half, bevel, rounded);
+function footprintEdges(res, half, bevel = 0, rounded = false, hexagon = false) {
+  if (bevel > 0 || hexagon) {
+    const ring = miniFootprint(half, bevel, rounded, hexagon);
     return ring.map(([x, z], index) => {
       const [nx, nz] = ring[(index + 1) % ring.length];
       const normal = new THREE.Vector3(z - nz, 0, nx - x).normalize().toArray();
@@ -113,10 +113,10 @@ function pushQuad(indices, positions, a, b, c, d, normal) {
  * Section walls + bottom with baked strata vertex colours.
  * @returns {THREE.BufferGeometry}
  */
-export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, rows = 40, bevel = 0, rounded = false }) {
+export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, rows = 40, bevel = 0, rounded = false, hexagon = false }) {
   const positions = []; const normals = []; const colors = []; const indices = [];
   const cutSpec = { ...cut, baseY };
-  for (const edge of footprintEdges(res, half, bevel, rounded)) {
+  for (const edge of footprintEdges(res, half, bevel, rounded, hexagon)) {
     const steps = edge.steps ?? res;
     const first = positions.length / 3;
     for (let k = 0; k <= steps; k++) {
@@ -142,7 +142,7 @@ export function buildMiniSectionWalls({ at, res, half, baseY, seaLevel, cut, row
   }
   // bottom face (deep colour), facing down
   const b0 = positions.length / 3;
-  const bottom = miniFootprint(half, bevel, rounded);
+  const bottom = miniFootprint(half, bevel, rounded, hexagon);
   for (const [x, z] of bottom) {
     positions.push(x, baseY, z);
     normals.push(0, -1, 0);
@@ -169,12 +169,12 @@ export function createMiniWallMaterial() {
  * The water block: surface + the four cut faces over the real water column.
  * @returns {THREE.BufferGeometry}
  */
-export function buildMiniWaterVolume({ at, res, half, seaLevel, baseY, bevel = 0, rounded = false }) {
+export function buildMiniWaterVolume({ at, res, half, seaLevel, baseY, bevel = 0, rounded = false, hexagon = false }) {
   const positions = []; const normals = []; const indices = [];
   // surface: one quad over the whole footprint (the opaque terrain hides it
   // wherever the land rises above the water)
   const s0 = 0;
-  const ring = miniFootprint(half, bevel, rounded);
+  const ring = miniFootprint(half, bevel, rounded, hexagon);
   for (const [x, z] of ring) {
     positions.push(x, seaLevel, z);
     normals.push(0, 1, 0);
@@ -182,7 +182,7 @@ export function buildMiniWaterVolume({ at, res, half, seaLevel, baseY, bevel = 0
   for (let i = 1; i < ring.length - 1; i++) indices.push(s0, s0 + i, s0 + i + 1);
   // cut faces: from the rim (or the base) up to the water level, clamped so
   // dry stretches collapse to nothing and are dropped
-  for (const edge of footprintEdges(res, half, bevel, rounded)) {
+  for (const edge of footprintEdges(res, half, bevel, rounded, hexagon)) {
     const steps = edge.steps ?? res;
     const first = positions.length / 3;
     const bottoms = [];
@@ -232,10 +232,10 @@ export function createMiniWaterMaterial({ shallow, mid, deep, depthRange = 80 })
 }
 
 /** Pedestal under the section base. color: linear triplet. */
-export function buildMiniSocle({ half, margin, height, topY, color, circle = false }) {
+export function buildMiniSocle({ half, margin, height, topY, color, circle = false, hexagon = false }) {
   const size = 2 * (half + margin);
-  const geo = circle
-    ? new THREE.CylinderGeometry(size / 2, size / 2, height, 128, 1)
+  const geo = circle || hexagon
+    ? new THREE.CylinderGeometry(size / 2, size / 2, height, hexagon ? 6 : 128, 1)
     : new THREE.BoxGeometry(size, height, size);
   geo.translate(0, topY - height / 2, 0);
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({

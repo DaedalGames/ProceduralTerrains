@@ -96,6 +96,19 @@ export class PlayerController {
     if (this.pos.z < b.minZ) { this.pos.z = b.minZ; this.vel.z = Math.max(0, this.vel.z); }
     if (this.pos.z > b.maxZ) { this.pos.z = b.maxZ; this.vel.z = Math.min(0, this.vel.z); }
     const r = Math.hypot(this.pos.x, this.pos.z);
+    if (b.hexagonHalf) {
+      const a = b.hexagonHalf * Math.sqrt(3) / 2;
+      for (let i = 0; i < 6; i++) {
+        const angle = i * Math.PI / 3;
+        const nx = Math.cos(angle); const nz = Math.sin(angle);
+        const outside = this.pos.x * nx + this.pos.z * nz - a;
+        if (outside <= 0) continue;
+        this.pos.x -= outside * nx;
+        this.pos.z -= outside * nz;
+        const out = this.vel.x * nx + this.vel.z * nz;
+        if (out > 0) { this.vel.x -= out * nx; this.vel.z -= out * nz; }
+      }
+    }
     if (b.radius && r > b.radius) {
       // round footprint: project back onto the rim, drop the outward speed
       const nx = this.pos.x / r;

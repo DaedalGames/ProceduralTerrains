@@ -36,7 +36,7 @@ const QUALITY_OPTIONS = Object.values(MINI_QUALITY_PROFILES).map((q) => ({
   value: q.id,
   label: `${q.label} · ${q.segments}×${q.segments}`,
 }));
-const SHAPE_OPTIONS = [{ value: 'square', label: 'Square' }, { value: 'circle', label: 'Circle' }];
+const SHAPE_OPTIONS = [{ value: 'square', label: 'Square' }, { value: 'circle', label: 'Circle' }, { value: 'hexagon', label: 'Hexagon' }];
 const CUT_OPTIONS =Object.values(MINI_CUT_STYLES).map((c) => ({ value: c.id, label: c.label }));
 const BASE_OPTIONS = MINI_PROCEDURAL_PRESETS.map((p) => ({ value: p.id, label: p.label }));
 
@@ -122,9 +122,9 @@ export default function MiniTerrainPanel({ ctx }) {
       <CollapsibleGroup title="Base & presentation" defaultOpen settingId="mini.base">
         <SelectRow label="Cut style" value={mini.cutStyle} options={CUT_OPTIONS} onChange={(cutStyle) => set({ cutStyle })} settingId="mini.cutStyle" />
         <SelectRow label="Shape" value={mini.shape ?? 'square'} options={SHAPE_OPTIONS} onChange={(shape) => set({ shape })} settingId="mini.shape"
-          info="Outline of the diorama: a square board or a round one. Terrain, walls, water and socle follow." />
+          info="Outline of the diorama: square, circle or hexagon. Terrain, walls, water and socle follow." />
         <SliderCtl def={WATER_EDGES} value={mini.waterEdges} onChange={(waterEdges) => set({ waterEdges })} settingId="mini.waterEdges" />
-        {mini.shape !== 'circle' && <>
+        {(mini.shape ?? 'square') === 'square' && <>
           <ToggleRow label="Sync Bevels" value={mini.bevelSync} onChange={(bevelSync) => set({ bevelSync })} settingId="mini.bevelSync"
             info="Link the water and terrain corner sizes. Enabling sync uses the current Water Bevel value." />
           <SelectRow label="Bevel Style" value={mini.bevelStyle} options={[{ value: 'chamfer', label: 'Chamfer' }, { value: 'rounded', label: 'Rounded' }]}

@@ -588,6 +588,11 @@ float cutRoundedExit(vec2 p, vec2 dir, vec2 quadrant) {
   return t > 0.0 && min(hit.x, hit.y) >= -0.001 ? t : 1e20;
 }
 
+float cutHexPlaneExit(vec2 p, vec2 dir, vec2 n) {
+  float along = dot(dir, n);
+  return along > 1e-5 ? (uCutHalf * 0.866025404 - dot(p, n)) / along : 1e20;
+}
+
 float cutBoxExit(vec3 p, vec3 dir) {
   vec3 d = vec3(
     abs(dir.x) < 1e-5 ? 1e-5 : dir.x,
@@ -598,8 +603,15 @@ float cutBoxExit(vec3 p, vec3 dir) {
   float tz = ((d.z > 0.0 ? uCutHalf : -uCutHalf) - p.z) / d.z;
   float ty = ((d.y > 0.0 ? uSeaLevel : uCutBottom) - p.y) / d.y;
   float distance = min(min(tx, tz), ty);
-  // Four diagonal planes close the chamfered footprint for optical absorption.
-  if (uMiniWaterBevel > 0.0 && uMiniBevelRounded > 0.5) {
+  // Clip the optical path to the footprint's side planes or rounded corners.
+  if (uMiniHexagon > 0.5) {
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(1.0, 0.0)));
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(0.5, 0.866025404)));
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(-0.5, 0.866025404)));
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(-1.0, 0.0)));
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(-0.5, -0.866025404)));
+    distance = min(distance, cutHexPlaneExit(p.xz, d.xz, vec2(0.5, -0.866025404)));
+  } else if (uMiniWaterBevel > 0.0 && uMiniBevelRounded > 0.5) {
     distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(1.0, 1.0)));
     distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(1.0, -1.0)));
     distance = min(distance, cutRoundedExit(p.xz, d.xz, vec2(-1.0, 1.0)));
@@ -648,6 +660,10 @@ void main() {
   float topPx = topDist / max(fwidth(topDist), 1e-4);
   vec2 corner = vec2(uCutHalf, uCutHalf - uMiniWaterBevel);
   float cornerDist = min(length(abs(p.xz) - corner), length(abs(p.xz) - corner.yx));
+  if (uMiniHexagon > 0.5) {
+    vec2 q = abs(p.xz);
+    cornerDist = min(length(q - vec2(0.0, uCutHalf)), length(q - vec2(uCutHalf * 0.866025404, uCutHalf * 0.5)));
+  }
   float cornerPx = cornerDist / max(fwidth(cornerDist), 1e-4);
   float roundedCorner = uMiniWaterBevel > 0.0 ? uMiniBevelRounded : 0.0;
   float edge = clamp(max(1.0 - smoothstep(0.0, 1.6, topPx), (1.0 - smoothstep(0.0, 1.4, cornerPx)) * 0.5 * (1.0 - roundedCorner)) * uMiniWaterEdges, 0.0, 1.0);
@@ -678,6 +694,7 @@ function waterUniforms(shared) {
     uMiniHalf: { value: 512 },
     uMiniWaterEdges: { value: 1 },
     uMiniWaterBevel: { value: 0 },
+    uMiniHexagon: shared.uMiniHexagon ?? { value: 0 },
     uMiniBevelRounded: shared.uMiniBevelRounded ?? { value: 0 },
     uMiniCaustics: { value: 0.9 },
     uMiniLightTex: { value: null },

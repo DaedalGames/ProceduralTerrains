@@ -7,6 +7,12 @@ import { createMiniTerrainState } from '../src/engine/mini/MiniTerrainSettings.j
 import { WATER_DEFAULT_PARAMS } from '../src/engine/water/WaterSettings.js';
 
 describe('Mini water inspector', () => {
+  it('offers a hexagon footprint and hides square corner controls for it', () => {
+    const html = renderToStaticMarkup(<MiniTerrainPanel ctx={{ miniTerrain: { ...createMiniTerrainState(), shape: 'hexagon' } }} />);
+    expect(html).toContain('Hexagon');
+    expect(html).not.toContain('data-setting-id="mini.waterBevel"');
+    expect(html).not.toContain('data-setting-id="mini.terrainBevel"');
+  });
   it('exposes the three presentation controls in the Mini panel', () => {
     const html = renderToStaticMarkup(<MiniTerrainPanel ctx={{ miniTerrain: createMiniTerrainState() }} />);
     for (const key of ['waterEdges', 'waterBevel', 'terrainBevel', 'bevelSync', 'bevelStyle']) {

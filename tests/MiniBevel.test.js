@@ -6,7 +6,9 @@ import { MiniTerrainController } from '../src/engine/mini/MiniTerrainController.
 import { buildMiniWaterCutGeometry } from '../src/engine/mini/MiniWaterCut.js';
 import { createTerrainUniforms } from '../src/engine/terrain/TerrainMaterial.js';
 import { createMiniWaterSurfaceMaterial, createMiniWaterCutMaterial } from '../src/engine/mini/MiniWaterMaterial.js';
-import { buildMiniWaterVolume, buildMiniSectionWalls } from '../src/engine/mini/MiniExport.js';
+import { buildMiniWaterVolume, buildMiniSectionWalls, buildMiniSocle } from '../src/engine/mini/MiniExport.js';
+import { MiniStudioStage } from '../src/engine/mini/MiniStudioStage.js';
+import { PlayerController } from '../src/engine/player/PlayerController.js';
 import { UnderwaterController } from '../src/engine/render/UnderwaterController.js';
 
 function expectChamferGeometry(geometry, half, bevel, rounded = false) {
@@ -146,10 +148,80 @@ describe('Mini edges and bevels', () => {
   });
 });
 
+describe('Mini hexagon shape', () => {
+  const extent = (x, z) => Math.max(Math.abs(x), Math.abs(x) / 2 + Math.abs(z) * Math.sqrt(3) / 2);
+
+  it('preserves the shape and square bevel preferences across shape changes', () => {
+    const ctrl = new MiniTerrainController({ worldMode: 'studio' });
+    ctrl.state = normalizeMiniTerrainState({ shape: 'hexagon', waterBevel: 3, terrainBevel: 8, bevelStyle: 'rounded' });
+    expect(ctrl.serialize().shape).toBe('hexagon');
+    expect(ctrl.layout).toMatchObject({ hexagon: true, rounded: false, waterBevel: 0, terrainBevel: 0 });
+    expect(ctrl.exportSpec()).toMatchObject({ hexagon: true, socle: { hexagon: true } });
+    const uniforms = createTerrainUniforms();
+    ctrl.applyUniforms(uniforms);
+    expect(uniforms.uMiniHexagon.value).toBe(1);
+    const waterMaterial = createMiniWaterSurfaceMaterial(uniforms);
+    expect(waterMaterial.uniforms.uMiniHexagon).toBe(uniforms.uMiniHexagon);
+    waterMaterial.dispose();
+    ctrl.state = ctrl.planChange({ shape: 'square' }).state;
+    ctrl.applyUniforms(uniforms);
+    expect(uniforms.uMiniHexagon.value).toBe(0);
+    expect(ctrl.state).toMatchObject({ waterBevel: 3, terrainBevel: 8, bevelStyle: 'rounded' });
+  });
+
+  it('forms a regular hexagon and keeps every projected grid point inside it', () => {
+    const ring = miniFootprint(100, 0, false, true);
+    expect(ring).toHaveLength(6);
+    for (let i = 0; i < 6; i++) {
+      expect(Math.hypot(...ring[i])).toBeCloseTo(100);
+      expect(Math.hypot(ring[i][0] - ring[(i + 1) % 6][0], ring[i][1] - ring[(i + 1) % 6][1])).toBeCloseTo(100);
+    }
+    expect(miniBevelPoint(20, -30, 100, 0, false, true)).toEqual([20, -30]);
+    for (let x = -100; x <= 100; x += 5) for (let z = -100; z <= 100; z += 5) {
+      const p = miniBevelPoint(x, z, 100, 0, false, true);
+      expect(extent(...p)).toBeLessThanOrEqual(100 * Math.sqrt(3) / 2 + 1e-8);
+    }
+  });
+
+  it('builds six outward water faces and matching export walls and pedestal', () => {
+    const cut = buildMiniWaterCutGeometry(100, -40, 30, 0, 0, false, true);
+    expect(cut.index.count).toBe(36);
+    const water = buildMiniWaterVolume({ at: () => -10, res: 8, half: 100, seaLevel: 30, baseY: -40, hexagon: true });
+    const walls = buildMiniSectionWalls({ at: () => 10, res: 8, half: 100, seaLevel: 30, baseY: -40, hexagon: true,
+      cut: { topsoil: [0.1, 0.1, 0.1], bandA: [0.2, 0.2, 0.2], bandB: [0.3, 0.3, 0.3], deep: [0.1, 0.1, 0.1], sediment: [0.4, 0.4, 0.4], bands: 8, topsoilDepth: 4, reliefHeight: 100 } });
+    const socle = buildMiniSocle({ half: 100, margin: 0, height: 10, topY: -40, color: [0.5, 0.5, 0.5], hexagon: true });
+    for (const geometry of [cut, water, walls, socle.geometry]) {
+      expectChamferGeometry(geometry, 100, 0);
+      const p = geometry.getAttribute('position');
+      for (let i = 0; i < p.count; i++) expect(extent(p.getX(i), p.getZ(i))).toBeLessThanOrEqual(100 * Math.sqrt(3) / 2 + 1e-4);
+      geometry.dispose();
+    }
+    socle.material.dispose();
+    const stage = new MiniStudioStage(createTerrainUniforms());
+    stage.setLayout({ half: 100, baseY: -40, socleHeight: 10, socleMargin: 0, maxHeight: 100, hexagon: true });
+    expect(stage.shadowMaterial.uniforms.uHexagon.value).toBe(1);
+    stage.dispose();
+  });
+
+  it('keeps walking and underwater effects within the six sides', () => {
+    const mini = new MiniTerrainController({ worldMode: 'studio' });
+    mini.state = normalizeMiniTerrainState({ shape: 'hexagon' });
+    const ctrl = new UnderwaterController();
+    const input = { worldMode: 'studio', seaLevel: 30, waterActive: true, quality: 'high', volume: mini.underwaterVolume() };
+    ctrl.update(1, { ...input, cameraPos: new THREE.Vector3(0, 5, 0) });
+    expect(ctrl.isUnderwater).toBe(true);
+    ctrl.update(1, { ...input, cameraPos: new THREE.Vector3(490, 5, 490) });
+    expect(ctrl.isUnderwater).toBe(false);
+    const walker = { bounds: mini.walkBounds(), pos: new THREE.Vector3(490, 0, 490), vel: new THREE.Vector3(10, 0, 10) };
+    PlayerController.prototype._clampToBounds.call(walker);
+    expect(extent(walker.pos.x, walker.pos.z)).toBeLessThanOrEqual(walker.bounds.hexagonHalf * Math.sqrt(3) / 2 + 1e-8);
+  });
+});
+
 describe('Mini circle shape', () => {
   it('defaults to square and derives a full-radius rounded bevel for circles', () => {
     expect(createMiniTerrainState().shape).toBe('square');
-    expect(normalizeMiniTerrainState({ recipe: 'cove', shape: 'hexagon' }).shape).toBe('square');
+    expect(normalizeMiniTerrainState({ recipe: 'cove', shape: 'invalid' }).shape).toBe('square');
     const square = resolveMiniLayout(createMiniTerrainState());
     expect(square.terrainBevel).toBe(0);
     expect(square.rounded).toBe(false);
