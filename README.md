@@ -1,32 +1,50 @@
-# Procedural Terrains
+# Procedural Terrains 2.0.0
 
-GPU-driven terrain authoring for the browser, with native integrations for
-Unity and Blender.
+GPU-driven terrain authoring for the browser: build terrain boards, explore
+streamed landscapes, generate planets, and compose miniature dioramas. Native
+integrations bring your terrain into Unity and Blender.
 
-![Procedural Terrains home screen](output/playwright/landing-source-desktop.png)
+![Procedural Terrains studio in Tile mode](docs/images/readme-tile.png)
 
 Procedural Terrains is a React + Vite + Three.js terrain studio. Height,
 normals, and biome colors are evaluated on the GPU, so the live view stays
 editable without relying on a baked CPU heightmap.
 
-## What’s new
+## What’s new in 2.0.0
 
-- **Unity integration 0.4.0-alpha.1** — create seeded terrain directly in the
-  Unity Editor, generate tiled `TerrainData`, connect neighbors, and regenerate
-  saved recipes.
-  Version 0.4 adds fine detail, thermal erosion, procedural TerrainLayers and live
-  placeholder water for creation and import.
-- **Blender extension 0.4.0** — create editable procedural meshes in Blender
-  5.2, import validated export packages, preserve source metadata, and resize
-  imported assemblies.
-  Version 0.4 adds density-aware detail, thermal erosion, editable procedural
-  surface nodes and independently toggleable placeholder water.
-- **Real-world terrain mode** — search for a location, preview geographic
-  elevation and imagery, then load it into the editor.
-- **Production export presets** — prepare Unity, Unreal, Godot, Blender, and
-  Three.js packages with meshes, textures, masks, water data, and metadata.
-- **Local-first projects** — save versioned projects, thumbnails, templates,
-  and recent-project history in the browser without requiring an account.
+- **New water looks** — choose Realistic, Volumetric, Cinematic, or the new
+  Stylized / Diorama water alongside Legacy. Depending on the mode, water adds
+  depth-based absorption, refraction, sky or scene reflections, directional
+  waves, and shoreline foam. Tile and Infinite World offer flat-world water
+  rendering; Planet uses its spherical ocean shell.
+- **Caustics and underwater effects** — animated light patterns bring shallow
+  seabeds to life, with controls for strength and depth fading. Tile and
+  Infinite World also support camera-submersion fog and tint.
+- **Realistic volumetric clouds** — a new cloud renderer adds billowing forms,
+  erosion, towering formations, wind shear, sky-lit color, and silver linings.
+  Cloud shadows tie the sky to the terrain, with separate shape, lighting,
+  animation, and quality controls for Tile, Infinite World, and Planet.
+  Legacy rendering remains available.
+- **Performance improvements** — cloud rendering supports reduced-resolution
+  passes with depth-aware smoothing and ray-step budgets matched to the
+  performance preset. GPU quality presets, LOD budgets, energy saving, and the
+  optional spatial upscaler help tune the studio to your hardware. Mini Terrain
+  also reuses compiled height programs and cached height/climate fields for
+  prop placement, with targeted updates when its controls change.
+- **Real-world navigation** — automatic city markers, routes between selected
+  markers, coordinate formats, and a minimap distance scale make geographic
+  terrain easier to explore.
+- **French and English** — switch language from the shared header, with a
+  saved preference across the landing pages and editor.
+- **Mini Terrain** — build a complete diorama from a procedural preset or a
+  composed scene such as a cliff cove, islet, or mountain lake. Choose a square
+  or circular footprint, layered cutaway walls, terrain and water bevels, and a
+  studio backdrop. Relief, water level, vegetation, prop size, and cloud spread
+  have dedicated controls; projects preserve the composition and camera views.
+
+Unity `0.4.0-alpha.1` and Blender `0.4.0` integrations, production export
+presets, and local-first project storage remain available. Their versions are
+independent of the terrain studio's `2.0.0` release.
 
 ## Features at a glance
 
@@ -35,24 +53,78 @@ editable without relying on a baked CPU heightmap.
 | **Tile** | Paint, assemble, and export fixed terrain boards with per-chunk LOD. |
 | **Infinite World** | Explore a streamed chunk grid with walk and fly-through controls. |
 | **Planet** | Generate a cube-sphere planet with atmosphere, clouds, and orbit controls. |
+| **Mini Terrain** | Compose square or circular dioramas with cutaway bases, bounded water, vegetation, and clouds. |
 | **Noise Stack** | Compose typed, serializable noise layers that compile to GLSL. |
 | **Manual terrain** | Import real-world elevation or shape terrain with brushes. |
 | **Water and atmosphere** | Add water, shoreline effects, sky, clouds, fog, and underwater rendering. |
 | **Export** | Bake GLB/GLTF, OBJ, color, normal, height, splat, collision, water, and preset data. |
 
-## See it in action
+## Explore the studio
 
-### Terrain studio
+### Tile — author, shape, and export
 
-![Terrain studio with a generated mountain world](docs/images/readme-editor.png)
+Tile is the workspace for a finite terrain board. Assemble multi-tile layouts,
+edit the noise stack, sculpt height, paint biomes and props, and add roads or
+rivers. Live surface, water, lighting, and atmosphere settings let you develop
+the landscape before exporting meshes, maps, or an engine-ready package.
 
-The editor supports multiple world modes, live shader parameters, settings
-search, camera presets, performance controls, undo/redo, and project save/load.
+The opening screenshot shows the Tile editor. Per-chunk LOD keeps the board
+editable at different viewing distances; camera presets make it easy to move
+between an overview and close terrain work.
 
-![Procedural terrain at sunset](docs/images/terrain-sunset.png)
+### Infinite World — explore a streamed landscape
 
-Example terrain scene with reflective water, atmospheric lighting, clouds, and
-mountain silhouettes.
+![Infinite World with streamed terrain and exploration controls](docs/images/readme-infinite.png)
+
+Infinite World streams terrain chunks around the camera. Walk through the
+landscape in first person or explore by plane, with procedural terrain,
+biomes, water, sky, and clouds extending beyond a fixed board. View distance,
+LOD, and performance settings control the balance between reach and detail.
+
+### Planet — build a complete world
+
+![Planet mode with a spherical procedural world](docs/images/readme-planet.png)
+
+Planet wraps procedural terrain around a cube-sphere, with a spherical ocean,
+atmosphere, volumetric clouds, and orbit controls. Start with a planet preset,
+then adjust its terrain and visual style for anything from a habitable world
+to a more unusual landscape. Planet has its own rendering constraints: water
+uses a spherical shell, and flat-world underwater post-processing is disabled.
+
+### Several ways to create terrain
+
+**Procedural** templates and a typed Noise Stack let you build seeded terrain
+with live parameters. **Nodes** provides a graph-based authoring workflow.
+**Manual Terrain** provides shaping and painting tools, while **Real Terrain**
+imports geographic elevation and imagery, with city markers, coordinates,
+routes, and a distance scale for navigation.
+
+Across the editor, settings search, camera presets, undo/redo, local project
+storage, and production export tools support the full authoring workflow.
+
+### Water, clouds, and atmosphere
+
+The 2.0.0 rendering updates complement the different world modes. Realistic
+water adds depth-based color, waves, and shoreline foam; Volumetric adds scene
+refraction, while Cinematic Tile water adds displaced geometry and planar
+reflections. Animated caustics light shallow seabeds, and Tile and Infinite
+World support underwater fog and tint. Stylized water offers the diorama look
+in flat worlds; Planet retains its spherical ocean.
+
+Realistic volumetric clouds support formation, erosion, wind shear, lighting,
+and silver-lining controls in Tile, Infinite World, and Planet. Cloud shadows,
+sky lighting, fog, and the day/night cycle help connect the terrain to its
+surroundings. Quality settings let you adjust their rendering cost.
+
+### Mini Terrain — a new diorama workflow
+
+![Mini Terrain with a circular cutaway base, turquoise water, and clouds](docs/images/mini-terrain.png)
+
+Mini Terrain adds a composed presentation of the finite world: one square or
+circular footprint, a layered cutaway base, bounded transparent water, and a
+studio backdrop. Start with **Create terrain > Mini Terrain**, choose a
+procedural or composed template, then adjust relief, water level, vegetation,
+prop size, and cloud spread. The image above is the supplied release capture.
 
 ### Engine plugins
 
@@ -136,16 +208,19 @@ shared tile borders, and Blender undo support. Read the
 [Blender extension README](plugins/blender/procedural_terrains/README.md) for
 installation, coordinate mapping, and performance guidance.
 
-## World modes
+## Choosing a world mode
 
 | Mode | Best for | Details |
 | --- | --- | --- |
-| **Tile** | Authoring and export | Fixed terrain board, multi-tile layouts, paint brushes, and close-range detail. |
-| **Infinite World** | Exploration | Streamed chunks around the camera with FPS walking and plane exploration. |
-| **Planet** | Large-scale worlds | Cube-sphere terrain with atmosphere, volumetric clouds, and orbit camera. |
+| **Tile** | Authoring and export | Finite boards, multi-tile layouts, paint brushes, and close-range detail. |
+| **Infinite World** | Exploration | Streamed chunks around the camera with first-person walking and plane exploration. |
+| **Planet** | Whole-world creation | Cube-sphere terrain with a spherical ocean, atmosphere, clouds, and an orbit camera. |
+| **Mini Terrain** | Dioramas and presentation | One finite footprint with a studio stage, cutaway walls, and a bounded water volume. |
 
-Tile mode also includes square or circular layouts, radial walls, real-world
+Tile also supports square or circular layouts, radial walls, real-world
 heightmap import, biome painting, river tools, and procedural prop painting.
+Mini Terrain exports can include the water surface and cut faces with a
+glass-like glTF material.
 
 ## Export pipeline
 
@@ -202,6 +277,8 @@ communicate through Engine methods and a callbacks object.
 | **Planet** | [`src/engine/terrain/PlanetWorld.js`](src/engine/terrain/PlanetWorld.js) — cube-sphere world |
 | **Noise** | [`src/engine/terrain/noise/NoiseStack.js`](src/engine/terrain/noise/NoiseStack.js) — layered serializable noise |
 | **Shaders** | [`src/engine/terrain/terrainGLSL.js`](src/engine/terrain/terrainGLSL.js) and materials |
+| **Mini Terrain** | [`src/engine/mini/MiniTerrainController.js`](src/engine/mini/MiniTerrainController.js) — diorama composition, stage, cutaway base, and bounded water |
+| **Clouds** | [`src/engine/sky/realistic/RealisticCloudLayers.js`](src/engine/sky/realistic/RealisticCloudLayers.js) — realistic cloud layers for finite worlds and planets |
 | **Water** | [`src/engine/water/WaterSystem.js`](src/engine/water/WaterSystem.js) — water, reflections, and underwater effects |
 | **Paint** | [`src/paint/PaintModeManager.js`](src/paint/PaintModeManager.js) — height, biome, and prop layers |
 | **Export** | [`src/engine/terrain/TerrainExporter.js`](src/engine/terrain/TerrainExporter.js) — mesh and texture packages |
@@ -219,7 +296,10 @@ communicate through Engine methods and a callbacks object.
 
 Normals are finite-differenced per fragment to keep distant terrain crisp at low
 geometric LOD. On weaker GPUs, lower pixel ratio, reduce octaves or layer count,
-or choose a lighter water quality mode. More profiling notes are in
+or choose a lighter water quality mode. Cloud render scale and ray-step budgets
+let you trade detail for frame time; Mini Terrain quality profiles control its
+surface resolution. Energy saving and the optional spatial upscaler provide
+further controls over rendering cost. More profiling notes are in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
 
 ## Project structure
