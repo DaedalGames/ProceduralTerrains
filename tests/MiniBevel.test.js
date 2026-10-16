@@ -145,3 +145,31 @@ describe('Mini edges and bevels', () => {
     expect(controller.underwaterBlend).toBe(0);
   });
 });
+
+describe('Mini circle shape', () => {
+  it('defaults to square and derives a full-radius rounded bevel for circles', () => {
+    expect(createMiniTerrainState().shape).toBe('square');
+    expect(normalizeMiniTerrainState({ recipe: 'cove', shape: 'hexagon' }).shape).toBe('square');
+    const square = resolveMiniLayout(createMiniTerrainState());
+    expect(square.terrainBevel).toBe(0);
+    expect(square.rounded).toBe(false);
+    const L = resolveMiniLayout({ ...createMiniTerrainState(), shape: 'circle', terrainBevel: 4, bevelStyle: 'chamfer' });
+    expect(L.terrainBevel).toBe(L.half);
+    expect(L.waterBevel).toBe(L.half);
+    expect(L.rounded).toBe(true);
+  });
+
+  it('projects the footprint onto a circle', () => {
+    const [x, z] = miniBevelPoint(100, 100, 100, 100, true);
+    expect(Math.hypot(x, z)).toBeCloseTo(100, 6);
+    expect(miniBevelPoint(30, -40, 100, 100, true)).toEqual([30, -40]);
+    for (const [px, pz] of miniFootprint(100, 100, true)) expect(Math.hypot(px, pz)).toBeCloseTo(100, 6);
+  });
+
+  it('keeps the water cut on its inset circle', () => {
+    const geometry = buildMiniWaterCutGeometry(100, -40, 30, 0.5, 100, true);
+    const pos = geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) expect(Math.hypot(pos.getX(i), pos.getZ(i))).toBeCloseTo(99.5, 4);
+    geometry.dispose();
+  });
+});

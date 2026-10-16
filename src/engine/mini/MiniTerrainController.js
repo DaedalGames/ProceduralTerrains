@@ -35,6 +35,7 @@ import { miniStylePatch, miniWaterColors } from './MiniLook.js';
 const FIELD_SCOPES = Object.freeze({
   waterLevel: 'water',
   vegetation: 'props',
+  propScale: 'propScale',
   clouds: 'clouds',
   quality: 'quality',
 });
@@ -51,7 +52,8 @@ export class MiniTerrainController {
     this._surfaceEntry = null;
     this._presentationKey = '';
     this._homeKey = '';
-    this._ground = { texture: null, revision: -1 };
+    this._fieldKey = '';
+    this._fieldStructure = '';
   }
 
   get active() {
@@ -165,7 +167,7 @@ export class MiniTerrainController {
     u.uMiniDetail?.value.set(...c.detail);
     if (u.uMiniCut) u.uMiniCut.value = active ? 1 : 0;
     if (u.uMiniTerrainBevel) u.uMiniTerrainBevel.value = active ? this.layout.terrainBevel : 0;
-    if (u.uMiniBevelRounded) u.uMiniBevelRounded.value = active && this.state.bevelStyle === 'rounded' ? 1 : 0;
+    if (u.uMiniBevelRounded) u.uMiniBevelRounded.value = active && this.layout.rounded ? 1 : 0;
     if (!active) return;
     const style = MINI_CUT_STYLES[this.state.cutStyle] ?? MINI_CUT_STYLES.strata;
     const L = this.layout;
@@ -211,6 +213,7 @@ export class MiniTerrainController {
       socleMargin: L.socleMargin,
       maxHeight,
       socle: this.state.socle,
+      circle: L.shape === 'circle',
     });
     this.stage.setBackdrop(this.state.backdrop);
     this.stage.setSocleColor(MINI_CUT_STYLES[this.state.cutStyle]?.sediment ?? [0.7, 0.62, 0.5]);
@@ -221,7 +224,7 @@ export class MiniTerrainController {
       top: p.seaLevel,
       inset: Math.max(0.35, L.width * 0.0005),
       bevel: L.waterBevel,
-      rounded: this.state.bevelStyle === 'rounded',
+      rounded: L.rounded,
     });
     this.lightMap.setLayout({ half: L.half, segments: L.segments });
     this._applyWaterLook();
@@ -291,7 +294,7 @@ export class MiniTerrainController {
         const u = eng.uniforms;
         const key = [
           eng._terrainGen, programKey, u.uHeightScale.value,
-          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments, L.terrainBevel, this.state.bevelStyle,
+          sun.x.toFixed(3), sun.y.toFixed(3), sun.z.toFixed(3), L.half, L.segments, L.terrainBevel, L.rounded,
         ].join(':');
         const renderHeights = (grid) => baker.renderHeightGrid(grid, this._gridTransform(L));
         if (this.lightMap.update(eng.renderer, key, sun, renderHeights)) eng._needsRender = true;
@@ -300,6 +303,19 @@ export class MiniTerrainController {
       }
       lightValid = lightValid && this._lightStructure === structure;
       const lightTex = lightValid ? this.lightMap.texture : null;
+      // Props are placed from a CPU copy of the same height grid: request it
+      // whenever the heights changed (not on a sun-only re-bake).
+      if (lightValid) {
+        const u = eng.uniforms;
+        const fieldKey = [eng._terrainGen, programKey, u.uHeightScale.value, L.half, L.segments].join(':');
+        if (fieldKey !== this._fieldKey) {
+          this._fieldKey = fieldKey;
+          this.lightMap.requestHeightField(eng.renderer, eng._terrainGen, u.uHeightScale.value, () => {
+            this._fieldStructure = structure;
+            eng._needsRender = true;
+          });
+        }
+      }
       const p = eng.params;
       const anim = p.waterAnim ? (eng.uniforms.uTime?.value ?? 0) * (p.waterAnimSpeed ?? 1) * (p.waterWaveSpeed ?? 1) : 0;
       for (const material of [this.waterSurface, this.waterCut.material]) {
@@ -307,17 +323,15 @@ export class MiniTerrainController {
       }
       this.lightMap.decal.visible = !!lightTex && this.stage?.group.visible !== false;
       // Vegetation and rocks are regular props: they receive the diorama's
-      // cliff shadows / AO, and a live ground. Whenever the scatter is complete
-      // for the terrain the map describes, its heights are captured; a later
-      // edit keeps that scatter visible, re-seated on the live relief, while
-      // the props rebuild (no blinking, no floating trees mid-drag).
+      // cliff shadows / AO and stand on the live relief (light map B) on the
+      // GPU, so they follow a slider drag in the very frame it is drawn. While
+      // no valid map exists (structural recompile) they are hidden instead of
+      // floating over a relief they were not placed on.
       const pm = eng.propsManager;
-      if (pm && lightValid && pm.scatterSettled && pm.scatterRevision === eng._terrainGen
-          && this._ground.revision !== eng._terrainGen) {
-        this._ground.texture = this.lightMap.snapshot(eng.renderer);
-        this._ground.revision = this._ground.texture ? eng._terrainGen : -1;
+      if (pm) {
+        pm.setMiniLightMap(lightTex, L.half, true);
+        pm.suspended = !lightValid || (!!this.lightMap.field && this._fieldStructure !== structure);
       }
-      pm?.setMiniLightMap(lightTex, L.half, this._ground);
     }
     const visible = this.active && !!eng.water?.visible && eng.params.seaLevel > 0.5;
     this.waterCut.mesh.visible = visible;
@@ -329,9 +343,20 @@ export class MiniTerrainController {
         top: eng.params.seaLevel,
         inset: Math.max(0.35, L.width * 0.0005),
         bevel: L.waterBevel,
-        rounded: this.state.bevelStyle === 'rounded',
+        rounded: L.rounded,
       });
     }
+  }
+
+  /**
+   * Vertex-height grid read back for prop placement (see
+   * MiniLightMap.requestHeightField), or null when there is none for the
+   * current diorama yet (the classic analytic sampler is used meanwhile).
+   */
+  propField() {
+    if (!this.active || !this.lightMap?.field) return null;
+    const structure = [this.state.recipe, this.state.seed, this.state.preset ?? '', this.layout.half].join(':');
+    return this._fieldStructure === structure ? this.lightMap.field : null;
   }
 
   /**
@@ -365,7 +390,7 @@ export class MiniTerrainController {
   underwaterVolume() {
     if (!this.active) return null;
     const L = this.layout;
-    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth, bevel: L.waterBevel, rounded: this.state.bevelStyle === 'rounded' };
+    return { minX: -L.half, maxX: L.half, minZ: -L.half, maxZ: L.half, floorY: -L.baseDepth, bevel: L.waterBevel, rounded: L.rounded };
   }
 
   /** Walkable rectangle: the footprint, a step inside the cut faces. */
@@ -373,7 +398,9 @@ export class MiniTerrainController {
     if (!this.active) return null;
     const L = this.layout;
     const m = Math.max(1.5, L.width * 0.004);
-    return { minX: -L.half + m, maxX: L.half - m, minZ: -L.half + m, maxZ: L.half - m };
+    const bounds = { minX: -L.half + m, maxX: L.half - m, minZ: -L.half + m, maxZ: L.half - m };
+    if (L.shape === 'circle') bounds.radius = L.half - m;
+    return bounds;
   }
 
   framing() {
@@ -445,7 +472,7 @@ export class MiniTerrainController {
       baseDepth: L.baseDepth,
       terrainBevel: L.terrainBevel,
       waterBevel: L.waterBevel,
-      rounded: this.state.bevelStyle === 'rounded',
+      rounded: L.rounded,
       cut: {
         topsoil: miniCutColor(style.topsoil),
         bandA: miniCutColor(style.bandA),
@@ -458,7 +485,7 @@ export class MiniTerrainController {
       },
       water: { ...water, depthRange: L.reliefHeight * 0.32 },
       socle: this.state.socle
-        ? { height: L.socleHeight, margin: L.socleMargin, color: miniCutColor(style.sediment) }
+        ? { height: L.socleHeight, margin: L.socleMargin, color: miniCutColor(style.sediment), circle: L.shape === 'circle' }
         : null,
     };
   }
@@ -527,6 +554,8 @@ export class MiniTerrainController {
     if (this.stage) this.stage.setVisible(false);
     if (this.waterCut) this.waterCut.mesh.visible = false;
     eng.propsManager?.setMiniLightMap(null);
+    if (eng.propsManager) eng.propsManager.suspended = false;
+    this._fieldKey = '';
     if (eng.waterSystem?.studioOverride && eng.waterSystem.studioOverride === this.waterSurface) {
       eng.waterSystem.setStudioOverride(null);
     }

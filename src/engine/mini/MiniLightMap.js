@@ -211,13 +211,16 @@ export class MiniLightMap {
     this._key = '';
     this.ready = false;
 
-    // Snapshot of the map taken when the props scatter of a terrain revision
-    // was complete: props kept on screen during a later edit are re-seated by
-    // (B now - B then) under their root. Allocated on first use.
-    this.reference = null;
+    // CPU copy of the vertex-height grid for prop placement (see
+    // requestHeightField): the half-float grid is copied into a float target
+    // (always readable) and read back asynchronously, never stalling a frame.
+    this.field = null;
+    this._readTarget = null;
+    this._readPending = false;
+    this._readQueued = null;
     this._copyMaterial = new THREE.ShaderMaterial({
       name: 'MiniLightMapCopy',
-      uniforms: { uSource: { value: this.target.texture } },
+      uniforms: { uSource: { value: null } },
       vertexShader: BAKE_VERTEX,
       fragmentShader: COPY_FRAGMENT,
       depthTest: false,
@@ -225,30 +228,65 @@ export class MiniLightMap {
     });
   }
 
-  /** Copy the current map into `reference` (see constructor). */
-  snapshot(renderer) {
-    if (!renderer || !this.ready) return null;
-    if (!this.reference) {
-      this.reference = new THREE.WebGLRenderTarget(this.size, this.size, {
-        type: THREE.HalfFloatType,
+  /**
+   * Read the current vertex-height grid back to the CPU. Resolves into
+   * `this.field` = { revision, n, half, heights: Float32Array(n * n) } with
+   * heights[j * n + i] = world height of the vertex at
+   * (x, z) = (-half + i * step, -half + j * step), step = 2 * half / (n - 1).
+   * One read in flight at a time; a newer request replaces a queued one.
+   * `onReady(field)` runs when the data lands.
+   */
+  requestHeightField(renderer, revision, heightScale, onReady) {
+    if (!renderer || !this.grid || !renderer.readRenderTargetPixelsAsync) return;
+    const request = { revision, heightScale, half: this._heightUniforms.uHalf.value, onReady };
+    if (this._readPending) {
+      this._readQueued = request;
+      return;
+    }
+    const n = this.grid.width;
+    if (!this._readTarget || this._readTarget.width !== n) {
+      this._readTarget?.dispose();
+      this._readTarget = new THREE.WebGLRenderTarget(n, n, {
+        type: THREE.FloatType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
         depthBuffer: false,
         stencilBuffer: false,
+        generateMipmaps: false,
       });
-      this.reference.texture.minFilter = THREE.LinearFilter;
-      this.reference.texture.magFilter = THREE.LinearFilter;
-      this.reference.texture.generateMipmaps = false;
-      this.reference.texture.name = 'MiniLightMapReference';
+      this._readTarget.texture.name = 'MiniHeightFieldReadback';
     }
+    const target = this._readTarget;
     const previous = renderer.getRenderTarget();
     try {
+      this._copyMaterial.uniforms.uSource.value = this.grid.texture;
       this._quad.material = this._copyMaterial;
-      renderer.setRenderTarget(this.reference);
+      renderer.setRenderTarget(target);
       renderer.render(this.bakeScene, this.bakeCamera);
     } finally {
       this._quad.material = this.bakeMaterial;
       renderer.setRenderTarget(previous);
     }
-    return this.reference.texture;
+    this._readPending = true;
+    const rgba = new Float32Array(n * n * 4);
+    renderer.readRenderTargetPixelsAsync(target, 0, 0, n, n, rgba)
+      .then(() => {
+        if (this._readTarget !== target) return;
+        const heights = new Float32Array(n * n);
+        for (let i = 0; i < heights.length; i++) heights[i] = rgba[i * 4 + 3] * request.heightScale;
+        this.field = { revision: request.revision, n, half: request.half, heights };
+        request.onReady?.(this.field);
+      })
+      .catch(() => {})
+      .finally(() => {
+        this._readPending = false;
+        const next = this._readQueued;
+        this._readQueued = null;
+        if (next && this._readTarget === target) {
+          this.requestHeightField(renderer, next.revision, next.heightScale, next.onReady);
+        }
+      });
   }
 
   get texture() {
@@ -339,8 +377,9 @@ export class MiniLightMap {
     this.target.dispose();
     this.grid?.dispose();
     this.grid = null;
-    this.reference?.dispose();
-    this.reference = null;
+    this._readTarget?.dispose();
+    this._readTarget = null;
+    this.field = null;
     this._copyMaterial.dispose();
   }
 }

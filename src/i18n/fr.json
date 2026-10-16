@@ -2184,6 +2184,8 @@
   "Props": "Objets",
   "Props Asset Library": "Bibliothèque d’objets",
   "Props Mask": "Masque des objets",
+  "Props size": "Taille des objets",
+  "Size of trees, rocks and grass on the diorama. Rebuilds the props only, never the relief.": "Taille des arbres, rochers et herbes du diorama. Ne reconstruit que les objets, jamais le relief.",
   "Provide a status or role to update.": "Indiquez un état ou un rôle à modifier.",
   "Provide a valid cloud content revision.": "Fournissez une révision de contenu cloud valide.",
   "Provide a valid terrain project.": "Fournissez un projet de terrain valide.",
@@ -2891,7 +2893,9 @@
   "Terrain": "Terrain",
   "Terrain Base": "Base du terrain",
   "Terrain Creator": "Créateur de terrain",
+  "Terrain Detail": "Détail du terrain",
   "Terrain Detail Quality": "Qualité des détails du terrain",
+  "Amount of fine relief. Lower values fade out the smallest noise layers and round sharp ridge creases for smoother, more natural terrain; 1 keeps every detail. Live, no rebuild": "Quantité de relief fin. Les valeurs basses estompent les plus petites couches de bruit et arrondissent les arêtes vives pour un terrain plus doux et naturel ; 1 garde tous les détails. En direct, sans reconstruction",
   "Terrain Family": "Famille de terrain",
   "Terrain GameObjects": "GameObjects de terrain",
   "Terrain Gradient": "Dégradé du terrain",
@@ -3554,5 +3558,10 @@
   "The Mini Terrain diorama water: clear turquoise shallows, soft sky reflection, seabed caustics and a thin shore foam line. Tile and Infinite World; Planet keeps Legacy.": "L’eau des dioramas Mini Terrain : hauts-fonds turquoise limpides, reflet doux du ciel, caustiques sur le fond et fine ligne d’écume sur le rivage. Tuile et Monde infini ; la Planète garde l’eau Legacy.",
   "Include Water Block": "Inclure le bloc d’eau",
   "Exports the diorama water as a volume: the surface plus its cut faces, with a glass-like transmission material (glTF).": "Exporte l’eau du diorama comme un volume : la surface et ses faces de coupe, avec un matériau à transmission de type verre (glTF).",
-  "Building water volume...": "Construction du volume d’eau..."
+  "Building water volume...": "Construction du volume d’eau...",
+  "Outline of the diorama: a square board or a round one. Terrain, walls, water and socle follow.": "Contour du diorama : un plateau carré ou rond. Le terrain, les parois, l’eau et le socle suivent.",
+  "Mini Shape": "Forme du mini terrain",
+  "Clouds spread": "Étendue des nuages",
+  "Match to terrain": "Adapter au terrain",
+  "Width of the cloud generation zone relative to the terrain. 100% matches the terrain width; lower values keep clouds closer to the center.": "Largeur de la zone de génération des nuages par rapport au terrain. 100 % correspond à la largeur du terrain ; une valeur plus faible concentre les nuages vers le centre."
 }

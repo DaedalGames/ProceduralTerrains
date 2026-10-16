@@ -1312,6 +1312,7 @@ export function createTerrainUniforms() {
     uStackOutMin:    { value: 0.0 },
     uStackOutMax:    { value: 1.35 },
     uTerrainSmoothing: { value: 0.0 },
+    uTerrainDetailCut: { value: 0.0 },   // 1 - params.terrainDetail (0 = full detail)
     uPersistence:    { value: 0.5 },
     uLacunarity:     { value: 2.05 },
     uRidge:          { value: 0.65 },

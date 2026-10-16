@@ -78,6 +78,8 @@ export class MiniWaterCut {
 
   /** Update the box (half-width, section base, water level). */
   setBounds({ half, bottom, top, inset, bevel = 0, rounded = false }) {
+    // a round footprint's bevel is the whole half-width: keep it on the inset box
+    bevel = Math.min(bevel, half - inset);
     const key = `${half}:${bottom}:${top}:${inset}:${bevel}:${rounded}`;
     this.material.uniforms.uCutHalf.value = half - inset;
     this.material.uniforms.uCutBottom.value = bottom;

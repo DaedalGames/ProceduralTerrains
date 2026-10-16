@@ -2,6 +2,7 @@ import { translateText } from '../../i18n/language.js';
 
 const SETTINGS_INDEX = [
   // Mini Terrain (only offered while a Mini project is open)
+  { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.shape', label: 'Mini Shape', keywords: 'mini diorama shape outline square circle round disc board forme carre cercle rond' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelSync', label: 'Sync Bevels', keywords: 'mini water terrain bevel sync link synchronized corners coins lier synchroniser' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.bevelStyle', label: 'Bevel Style', keywords: 'mini water terrain bevel rounded round chamfer arrondi biseau coins' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.waterEdges', label: 'Water Edges', keywords: 'mini water edges outline highlight border corners aretes bords' },
@@ -12,7 +13,10 @@ const SETTINGS_INDEX = [
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.relief', label: 'Mini Relief', keywords: 'mini diorama relief height cliffs mountains' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.waterLevel', label: 'Mini Water Level', keywords: 'mini diorama water level sea lake flood' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.vegetation', label: 'Mini Vegetation', keywords: 'mini diorama vegetation trees forest plants density' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.propScale', label: 'Mini Props Size', keywords: 'mini diorama props size scale trees rocks grass bigger smaller', aliases: 'taille objets arbres' },
   { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.clouds', label: 'Mini Clouds', keywords: 'mini diorama clouds sky' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.cloudSpread', label: 'Clouds spread', keywords: 'mini diorama clouds spread width radius zone footprint circle narrow', aliases: 'etendue nuages largeur' },
+  { panelId: 'mini', sectionLabel: 'Mini Terrain', settingId: 'mini.matchCloudsToTerrain', label: 'Match to terrain', keywords: 'mini diorama clouds match terrain width circle footprint fit', aliases: 'adapter terrain nuages' },
   { panelId: 'mini', sectionLabel: 'Base & presentation', settingId: 'mini.cutStyle', label: 'Cut Style', keywords: 'mini diorama cut section strata layers walls base socle' },
   { panelId: 'mini', sectionLabel: 'Quality', settingId: 'mini.quality', label: 'Terrain Resolution', keywords: 'mini diorama quality resolution segments triangles capture' },
 
@@ -47,6 +51,7 @@ const SETTINGS_INDEX = [
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.noiseStrength', label: 'Noise Strength', keywords: 'height noise amplitude terrain' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.terrainSmoothing', label: 'Peak Smoothing', keywords: 'height noise smooth smoothing rounded round hills peaks pointy spike spiky realistic terrain' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.octaves', label: 'Octaves', keywords: 'height noise detail fbm terrain' },
+  { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.terrainDetail', label: 'Terrain Detail', keywords: 'terrain detail relief smooth smoother fine noise creases ridges natural sharp rough', aliases: 'détail relief lisse' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.persistence', label: 'Persistence', keywords: 'height noise roughness fbm' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.lacunarity', label: 'Lacunarity', keywords: 'height noise frequency fbm' },
   { panelId: 'terrain', tabId: 'noise', sectionLabel: 'Noise', settingId: 'terrain.ridge', label: 'Ridge Intensity', keywords: 'height noise ridge mountain alpine' },

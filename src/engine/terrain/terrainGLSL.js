@@ -4,7 +4,7 @@
 // every consumer evaluates the exact same deterministic height function.
 // ============================================================================
 
-import { NOISE_STACK_PRIMS2D_GLSL } from './noise/noisePrimsGLSL.js';
+import { NOISE_STACK_PRIMS2D_GLSL, TERRAIN_DETAIL_GLSL } from './noise/noisePrimsGLSL.js';
 import { NOISE_STACK_MASKS2D_GLSL } from './noise/masks.js';
 import { MINI_COMPOSITION_GLSL, MINI_COMPOSITION_UNIFORMS_GLSL } from '../mini/miniCompositionGLSL.js';
 
@@ -647,6 +647,7 @@ float vnoise(vec2 p) {
 }
 
 const mat2 ROT2 = mat2(0.80, -0.60, 0.60, 0.80);
+${TERRAIN_DETAIL_GLSL}
 
 // NOTE: OCTAVES is a #define injected by the material. Loop bounds add the
 // zero-valued uLoopGuard (see below) so they are not unrolled; never add a
@@ -668,8 +669,9 @@ float fbm(vec2 p) {
   float sum = 0.0;
   float norm = 0.0;
   for (int i = 0; i < OCTAVES + uLoopGuard; i++) {
-    sum += amp * vnoise(p);
-    norm += amp;
+    float keep = octaveKeep(float(i), float(OCTAVES));
+    sum += amp * keep * vnoise(p);
+    norm += amp * keep;
     amp *= uPersistence;
     p = ROT2 * p * uLacunarity;
   }
@@ -697,11 +699,12 @@ float ridgedFBM(vec2 p) {
   float norm = 0.0;
   float carry = 1.0;
   for (int i = 0; i < OCTAVES + uLoopGuard; i++) {
-    float v = 1.0 - abs(vnoise(p) * 2.0 - 1.0);
+    float keep = octaveKeep(float(i), float(OCTAVES));
+    float v = 1.0 - creaseAbs(vnoise(p) * 2.0 - 1.0);
     v = v * v;
-    sum += amp * v * carry;     // spectral weighting: detail follows ridges
+    sum += amp * keep * v * carry;     // spectral weighting: detail follows ridges
     carry = clamp(v * 1.4, 0.0, 1.0);
-    norm += amp;
+    norm += amp * keep;
     amp *= uPersistence;
     p = ROT2 * p * uLacunarity;
   }

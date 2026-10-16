@@ -16,7 +16,7 @@ import { EARTH_PALETTE } from './style/ColorPalette.js';
 
 export const TERRAIN_RESET_KEYS = [
   'preset', 'heightScale', 'seaLevel', 'falloff', 'edgeFalloffMode',
-  'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'persistence', 'lacunarity', 'ridge', 'warp',
+  'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'terrainDetail', 'persistence', 'lacunarity', 'ridge', 'warp',
   'noisePreset', 'normalStrength', 'aoStrength', 'aoRidge',
   'surfaceTextureSource', 'surfaceTextureMode', 'surfaceTextureAmount', 'surfaceTextureTint', 'surfaceTextureScale',
   'surfaceTextureBreakup', 'surfaceTextureBlend', 'surfaceTextureTransition', 'surfaceTextureRawColor', 'surfaceTexturePaletteInfluence',

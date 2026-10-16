@@ -14,7 +14,28 @@
 // PRIMS3D depends on: hash13, vnoise3, ROT3.
 // ============================================================================
 
+// Terrain Detail (params.terrainDetail): fades the finest octaves of every
+// fractal loop out continuously and rounds the sharp creases of ridged and
+// billow noise. The uniform is the CUT (1 - detail) so a material that never
+// binds it reads 0 = full detail = the historical field, bit for bit:
+// octaveKeep() is exactly 1.0 and creaseAbs() exactly abs() at cut 0.
+// Guarded: included by the 2D noise, planet noise and noise-stack chunks.
+export const TERRAIN_DETAIL_GLSL = /* glsl */ `
+#ifndef TERRAIN_DETAIL_FN
+#define TERRAIN_DETAIL_FN
+uniform float uTerrainDetailCut;
+float octaveKeep(float i, float n) {
+  return clamp(n - i - uTerrainDetailCut * (n - 1.0), 0.0, 1.0);
+}
+float creaseAbs(float x) {
+  float s = uTerrainDetailCut * uTerrainDetailCut * 0.04;
+  return s > 0.0 ? sqrt(x * x + s) - sqrt(s) : abs(x);
+}
+#endif
+`;
+
 export const NOISE_STACK_PRIMS2D_GLSL = /* glsl */ `
+${TERRAIN_DETAIL_GLSL}
 // value noise plus analytic derivatives. The .x channel intentionally matches
 // vnoise(p): same hash corners, same quintic interpolant, same mix order.
 vec3 vnoised2(vec2 p) {
@@ -125,6 +146,7 @@ float flow2(vec2 p, float flowDir, float width, float meander, float meanderScal
 `;
 
 export const NOISE_STACK_PRIMS3D_GLSL = /* glsl */ `
+${TERRAIN_DETAIL_GLSL}
 vec4 vnoised3(vec3 p) {
   vec3 i = floor(p), f = fract(p);
   vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);

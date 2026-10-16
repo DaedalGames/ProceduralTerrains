@@ -463,7 +463,7 @@ export class TerrainExporter {
           if (includeBase && mini.socle) {
             exportGroup.add(buildMiniSocle({
               half: cellSize / 2, margin: mini.socle.margin, height: mini.socle.height,
-              topY: baseHeight, color: mini.socle.color,
+              topY: baseHeight, color: mini.socle.color, circle: mini.socle.circle,
             }));
           }
         }

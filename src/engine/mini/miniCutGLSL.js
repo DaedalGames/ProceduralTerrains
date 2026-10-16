@@ -41,6 +41,8 @@ float miniCutNoise(vec2 p) {
 vec3 miniCutAlbedo(vec3 wp, float rimH, float seaLevel) {
   bool xFace = abs(wp.x) > abs(wp.z);
   float along = xFace ? wp.z : wp.x;
+  // round footprint (bevel = half-width): seamless noise around the wall
+  bool roundWall = uMiniBevelRounded > 0.5 && uMiniTerrainBevel > uBoardHalf - 0.5;
   float baseY = uMiniCutParams.y;
   float reliefH = max(uMiniCutParams.w, 1.0);
   float t = clamp((wp.y - baseY) / (reliefH * 1.15), 0.0, 1.0);
@@ -48,6 +50,12 @@ vec3 miniCutAlbedo(vec3 wp, float rimH, float seaLevel) {
   // gently undulating strata: low-frequency warp along the face
   float warp = (miniCutNoise(vec2(along * 0.010, 3.7)) - 0.5) * 0.9
              + sin(along * 0.0055 + 1.3) * 0.30;
+  if (roundWall) {
+    float lobes = max(1.0, floor(uBoardHalf * 0.0055 + 0.5));
+    warp = (miniCutNoise(wp.xz * 0.010 + 3.7) - 0.5) * 0.9
+         + sin(atan(wp.z, wp.x) * lobes + 1.3) * 0.30;
+    along = atan(wp.z, wp.x) * uBoardHalf;
+  }
   float band = fract(t * uMiniCutParams.x + warp * 0.22);
   float stripe = smoothstep(0.30, 0.46, band) - smoothstep(0.80, 0.97, band);
   vec3 col = mix(uMiniCutBandA, uMiniCutBandB, stripe);
@@ -59,7 +67,8 @@ vec3 miniCutAlbedo(vec3 wp, float rimH, float seaLevel) {
   float below = rimH - wp.y;
   float submerged = smoothstep(seaLevel + 1.5, seaLevel - 3.0, rimH);
   vec3 top = mix(uMiniCutTopsoil, uMiniCutSediment, submerged);
-  float topDepth = uMiniCutParams.z * (0.75 + 0.5 * miniCutNoise(vec2(along * 0.03, 9.1)));
+  float topNoise = roundWall ? miniCutNoise(wp.xz * 0.03 + 9.1) : miniCutNoise(vec2(along * 0.03, 9.1));
+  float topDepth = uMiniCutParams.z * (0.75 + 0.5 * topNoise);
   col = mix(col, top, 1.0 - smoothstep(topDepth * 0.55, topDepth, below));
 
   // fine grain so large faces never read as flat plastic

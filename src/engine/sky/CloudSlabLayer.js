@@ -160,7 +160,7 @@ export class CloudSlabLayer {
    * @param {number} maxHeight terrain height ceiling (unused — kept for API parity)
    * @param {number} boardSize world size of ONE cell (drives noise feature size)
    * @param {object} [perf] centralized performance settings
-   * @param {object} [layout] tile-assembly coverage: { extent, center:{x,z} }.
+   * @param {object} [layout] coverage: { extent, radius?, center:{x,z} }.
    *   extent = world span the clouds must cover (union of cells); center =
    *   world-space middle of that span. Defaults to a single origin-centred cell.
    */
@@ -190,7 +190,7 @@ export class CloudSlabLayer {
     u.uCloudBottom.value = bottom;
     u.uCloudTop.value = top;
 
-    const radius = extent * 0.62;
+    const radius = Math.max(1, layout.radius ?? extent * 0.62);
     u.uCloudRadius.value = radius;
     u.uCloudFar.value = extent * 4.0;   // bound horizon marching
     u.uCloudCenter.value.set(cx, 0, cz);

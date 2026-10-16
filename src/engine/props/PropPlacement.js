@@ -38,12 +38,13 @@ export function macroDensity(x, z, seed, salt = 0) {
 const forestDescCache = new Map();
 function forestDescriptor(desc, forest) {
   if (!(forest > 0) || (desc.id !== 'broadleaf' && desc.id !== 'conifer') || !desc.slopeRange) return desc;
-  const key = `${desc.id}:${forest.toFixed(3)}`;
-  let out = forestDescCache.get(key);
+  let byForest = forestDescCache.get(desc);
+  if (!byForest) forestDescCache.set(desc, (byForest = new Map()));
+  let out = byForest.get(forest);
   if (!out) {
     out = { ...desc, slopeRange: [desc.slopeRange[0], desc.slopeRange[1] * (1 + forest * 0.9)] };
-    if (forestDescCache.size > 64) forestDescCache.clear();
-    forestDescCache.set(key, out);
+    if (byForest.size > 64) byForest.clear();
+    byForest.set(forest, out);
   }
   return out;
 }

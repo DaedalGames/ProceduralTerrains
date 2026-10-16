@@ -27,6 +27,7 @@ export const DEFAULT_PARAMS = {
   noiseStrength: 1.0,
   terrainSmoothing: 0.0,    // 0 = crisp terrain, 1 = rounded low-pass hills
   octaves: 7,
+  terrainDetail: 1.0,       // 1 = every octave + sharp ridge creases, lower = smoother relief
   persistence: 0.5,
   lacunarity: 2.05,
   ridge: 0.65,             // ridged mountain intensity

@@ -111,7 +111,7 @@ import { PaintModeManager } from '../paint/PaintModeManager.js';
 import { ManualTerrainModeManager } from '../manual/ManualTerrainModeManager.js';
 import { normalizeManualTerrainDocument } from '../manual/ManualShapeCatalog.js';
 import { ProceduralPropsManager } from './props/ProceduralPropsManager.js';
-import { FlatPropSampler } from './props/TerrainPropSampler.js';
+import { FlatPropSampler, MiniFieldPropSampler } from './props/TerrainPropSampler.js';
 import { WaterSystem } from './water/WaterSystem.js';
 import { migrateWaterParams, resolveEffectiveWaterMode, resolveUnderwaterMode, underwaterModeFellBack, isRealisticWaterMode, isWaterActive } from './water/WaterSettings.js';
 import {
@@ -258,7 +258,7 @@ function readShaderColdRun(explicitToken = null) {
 // terrain input because full presets/new projects may replace it.
 const TERRAIN_FIELD_KEYS = new Set([
   'seed', 'terrainFormationSeaLevel', 'heightScale', 'noiseScale', 'noiseStrength', 'octaves',
-  'terrainSmoothing', 'persistence', 'lacunarity', 'ridge', 'warp', 'falloff', 'edgeFalloffMode',
+  'terrainSmoothing', 'terrainDetail', 'persistence', 'lacunarity', 'ridge', 'warp', 'falloff', 'edgeFalloffMode',
   'moistScale', 'moistBias', 'biomeScale', 'tempBias',
   'chunkCount', 'chunkSize',
 ]);
@@ -4720,6 +4720,7 @@ export class Engine {
     u.uTerrainFormationSeaLevel.value = p.terrainFormationSeaLevel;
     u.uAmplitude.value = p.noiseStrength;
     u.uTerrainSmoothing.value = p.terrainSmoothing ?? 0;
+    if (u.uTerrainDetailCut) u.uTerrainDetailCut.value = 1 - Math.min(1, Math.max(0, p.terrainDetail ?? 1));
     u.uPersistence.value = p.persistence;
     u.uLacunarity.value = p.lacunarity;
     u.uRidge.value = p.ridge;
@@ -6056,18 +6057,6 @@ export class Engine {
 
       yieldFrame().then(check);
     });
-  }
-
-  async _withStudioCloudDetached(task) {
-    const mesh = this.studioCloud?.mesh;
-    const parent = mesh?.parent || null;
-    if (parent) parent.remove(mesh);
-    try {
-      return await task();
-    } finally {
-      if (!this._disposed && this.worldMode === 'studio'
-          && this.studioCloud?.mesh === mesh && parent && !mesh.parent) parent.add(mesh);
-    }
   }
 
   async _withBootDeferredObjectsDetached(task) {
@@ -8117,51 +8106,63 @@ export class Engine {
       let instancedResult = { ready: true };
       let quadResult = null;
 
-      await this._withStudioCloudDetached(async () => {
-        const skipMaterials = new Set();
-
-        // Infinite terrain's live draw defines USE_INSTANCING. A plain warm
-        // mesh is a different program and was the source of first-dive stalls.
-        if (preparedMode === 'infinite' && preparedTerrain) {
-          const source = this.infiniteWorld?.batches?.meshes?.find(Boolean);
-          if (!source?.geometry) throw new Error('Infinite terrain geometry unavailable');
-          instancedResult = await this._compileInstancedMaterialVariant(
-            preparedTerrain,
-            source.geometry,
-            preparedCameraTarget.renderTarget,
-          );
-          skipMaterials.add(preparedTerrain);
-        }
-
-        // Planet chunks own distinct material objects but share one source and
-        // define set. Compile one representative instead of yielding hundreds
-        // of equivalent warm meshes.
-        if (preparedMode === 'planet') {
-          for (const material of this.planetWorld?.materials?.slice(1) ?? []) {
-            skipMaterials.add(material);
-          }
-        }
-
-        sceneResult = await this._compileSceneStaggered(preparedCameraTarget.renderTarget, {
-          skipMaterials,
-          timeoutMs: 120000,
+      // Cloud passes already use their own depth/composite targets. Exclude
+      // their materials from warmup without detaching live scene objects across
+      // asynchronous work: approaching water must not make the sky disappear.
+      const skipMaterials = new Set();
+      for (const root of [
+        this.studioCloud?.mesh,
+        this.infiniteCloud?.mesh,
+        this.planetCloudLayer?.mesh,
+        this.planetCloudChunks?.group,
+      ]) {
+        root?.traverse?.((object) => {
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          for (const material of materials) if (material) skipMaterials.add(material);
         });
-        if (instancedResult?.ready !== true || sceneResult?.ready !== true) {
-          throw new Error('Underwater scene shaders did not become ready');
-        }
+      }
 
-        const quad = this.underwater._quadScene?.children?.[0] ?? null;
-        quadResult = await this._compileExactPass({
-          scene: this.underwater._quadScene,
-          camera: this.underwater._quadCam,
-          mesh: quad,
-          material: this.underwater._material,
-          renderTarget: this.underwater._rt,
-        }, { timeoutMs: 120000 });
-        if (quadResult?.ready !== true) {
-          throw new Error('Underwater composite shader did not become ready');
+      // Infinite terrain's live draw defines USE_INSTANCING. A plain warm
+      // mesh is a different program and was the source of first-dive stalls.
+      if (preparedMode === 'infinite' && preparedTerrain) {
+        const source = this.infiniteWorld?.batches?.meshes?.find(Boolean);
+        if (!source?.geometry) throw new Error('Infinite terrain geometry unavailable');
+        instancedResult = await this._compileInstancedMaterialVariant(
+          preparedTerrain,
+          source.geometry,
+          preparedCameraTarget.renderTarget,
+        );
+        skipMaterials.add(preparedTerrain);
+      }
+
+      // Planet chunks own distinct material objects but share one source and
+      // define set. Compile one representative instead of yielding hundreds
+      // of equivalent warm meshes.
+      if (preparedMode === 'planet') {
+        for (const material of this.planetWorld?.materials?.slice(1) ?? []) {
+          skipMaterials.add(material);
         }
+      }
+
+      sceneResult = await this._compileSceneStaggered(preparedCameraTarget.renderTarget, {
+        skipMaterials,
+        timeoutMs: 120000,
       });
+      if (instancedResult?.ready !== true || sceneResult?.ready !== true) {
+        throw new Error('Underwater scene shaders did not become ready');
+      }
+
+      const quad = this.underwater._quadScene?.children?.[0] ?? null;
+      quadResult = await this._compileExactPass({
+        scene: this.underwater._quadScene,
+        camera: this.underwater._quadCam,
+        mesh: quad,
+        material: this.underwater._material,
+        renderTarget: this.underwater._rt,
+      }, { timeoutMs: 120000 });
+      if (quadResult?.ready !== true) {
+        throw new Error('Underwater composite shader did not become ready');
+      }
 
       const currentCameraTarget = this._resolveCameraCompileTarget();
       this._ensureUnderwaterWarmTarget(currentCameraTarget.renderTarget);
@@ -10562,6 +10563,23 @@ export class Engine {
     return this.propSampler;
   }
 
+  // Mini Terrain prop sampler: same masks as the classic one, heights and
+  // slopes from the read-back vertex grid (see MiniFieldPropSampler).
+  _getMiniPropSampler(field) {
+    const flat = this._getPropSampler();
+    if (this.miniPropSampler?.cpu !== this._propCpuSampler) {
+      this.miniPropSampler = new MiniFieldPropSampler({
+        cpu: this._propCpuSampler,
+        getWaterLevel: flat.getWaterLevel,
+        getPaintBiomeWeights: flat.getPaintBiomeWeights,
+        getPaintMask: flat.getPaintMask,
+        getPropExclusion: flat.getPropExclusion,
+      });
+    }
+    this.miniPropSampler.setField(field);
+    return this.miniPropSampler;
+  }
+
   // Rich prop-placement sampler for Planet mode (wraps PlanetHeightSampler).
   _getPlanetPropSampler() {
     if (!this.planetPropSampler) {
@@ -11575,15 +11593,27 @@ export class Engine {
       ? normalizeMiniTerrainState(json?.miniTerrain)
       : null);
     if (this.mini?.state) {
-      // The layout is derived from the document, never trusted from params;
-      // documents written by an older Mini version get their whole derived
-      // look re-applied (relief/height units and prop system changed).
+      // Keep authored params when reopening a Mini. Only the footprint is
+      // owned exclusively by the Mini document; height and water defaults
+      // must not overwrite edits made through the shared settings panels.
+      // v1 documents still need the full units/props migration, and v2
+      // documents need the v3 noise shaping and props scales.
       const storedVersion = Number(json?.miniTerrain?.version) || 1;
-      if (storedVersion < MINI_TERRAIN_VERSION) {
+      if (storedVersion < 2) {
         Object.assign(this.params, this.mini.paramsPatch('all'));
         miniStyleMigration = miniStylePatch(this.mini.state.recipe, this.mini.state.preset);
       } else {
-        Object.assign(this.params, this.mini.paramsPatch('structure'));
+        for (const [key, value] of Object.entries(this.mini.paramsPatch('structure'))) {
+          const saved = src[key];
+          if (key === 'chunkCount' || key === 'chunkSize'
+            || typeof saved !== typeof value
+            || (typeof value === 'number' && !Number.isFinite(saved))) {
+            this.params[key] = value;
+          }
+        }
+        if (storedVersion < MINI_TERRAIN_VERSION) {
+          Object.assign(this.params, this.mini.paramsPatch('shape'), this.mini.paramsPatch('propScale'));
+        }
       }
     }
     this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
@@ -12762,7 +12792,7 @@ export class Engine {
     const terrainDirty = plan.composition || keys.some((key) => TERRAIN_FIELD_KEYS.has(key));
     this._needsRender = true;
     this._afterParamChange(rebuild, terrainDirty);
-    if (plan.changed.some((key) => key === 'recipe' || key === 'width')) this.mini.frame({ blend: true });
+    if (plan.changed.some((key) => key === 'recipe' || key === 'width' || key === 'shape')) this.mini.frame({ blend: true });
     this.cb.onParams(this._paramsSnapshot());
     this.cb.onMiniTerrain?.(this.mini.serialize());
     return this.mini.serialize();
@@ -13031,19 +13061,29 @@ export class Engine {
     this.manualTerrain?.flushUploads();
     this.destructionField?.flushUploads();
     this.propsManager?.tickWind(now * 0.001, this.params);
+    // Mini Terrain places props from its read-back vertex-height grid: the
+    // scatter follows the revision of that grid, rebuilt in budgeted slices
+    // behind the shown one, over the footprint's sectors only.
+    const miniPropField = this.worldMode === 'studio' && this.params.propsEnabled
+      ? this.mini?.propField() : null;
     this.propsManager?.update({
       mode: this.worldMode,
       camera: this.camera,
       params: this.params,
       perf: this.perf,
       boardSize: this.boardSize,
-      sampler: this.worldMode === 'planet' ? null : this._getPropSampler(),
+      sampler: this.worldMode === 'planet' ? null
+        : miniPropField ? this._getMiniPropSampler(miniPropField) : this._getPropSampler(),
       planetSampler: this.worldMode === 'planet' ? this._getPlanetPropSampler() : null,
       paintLayers: this.worldMode === 'studio'
         ? (this.projectMode === 'manual' ? this.manualTerrain?.propField : this.paintMode?.layers)
         : null,
       splineRevision: this.worldMode === 'studio' ? this.splineManager?.baker?.revision : -1,
-      terrainRevision: this._terrainGen,
+      terrainRevision: miniPropField ? miniPropField.revision : this._terrainGen,
+      immediate: !!miniPropField,
+      bounds: miniPropField
+        ? { minX: -miniPropField.half, maxX: miniPropField.half, minZ: -miniPropField.half, maxZ: miniPropField.half }
+        : null,
       containsPoint: this.worldMode === 'studio' ? (x, z) => this._containsPropPoint(x, z) : null,
       centerOverride: this.worldMode === 'studio' && this.exploreMode === 'none'
         ? this.controls?.target : null,

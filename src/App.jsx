@@ -1966,6 +1966,7 @@ export default function App() {
     const palette = paramsStyle.palette ?? {};
 
     switch (id) {
+      case 'mini.shape': return miniTerrain?.shape === 'circle' ? 'Circle' : 'Square';
       case 'mini.waterEdges': return num(miniTerrain?.waterEdges ?? 1, 2);
       case 'mini.bevelSync': return yesNo(miniTerrain?.bevelSync ?? false);
       case 'mini.bevelStyle': return miniTerrain?.bevelStyle === 'rounded' ? 'Rounded' : 'Chamfer';
@@ -1977,6 +1978,7 @@ export default function App() {
       case 'terrain.noiseStrength': return num(params.noiseStrength, 2);
       case 'terrain.terrainSmoothing': return num(params.terrainSmoothing, 2);
       case 'terrain.octaves': return String(params.octaves);
+      case 'terrain.terrainDetail': return num(params.terrainDetail ?? 1, 2);
       case 'terrain.persistence': return num(params.persistence, 2);
       case 'terrain.lacunarity': return num(params.lacunarity, 2);
       case 'terrain.ridge': return num(params.ridge, 2);

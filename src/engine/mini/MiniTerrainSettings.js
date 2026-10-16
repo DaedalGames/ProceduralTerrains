@@ -22,7 +22,9 @@ import { DEFAULT_PARAMS, PRESETS } from '../presets.js';
 
 // v2: relief/height split, props through the shared prop system. Older
 // documents get their derived params re-applied on load.
-export const MINI_TERRAIN_VERSION = 2;
+// v3: diorama noise shaping (band-limited octaves, rounded relief) and the
+// props size control; v2 documents get the 'shape' scope re-applied.
+export const MINI_TERRAIN_VERSION = 3;
 
 // Reference footprint width in engine units. Large enough that the existing
 // absolute thresholds (water foam/shallow distances, caustic depth fade, wave
@@ -76,6 +78,11 @@ export const MINI_CUT_STYLES = Object.freeze({
   }),
 });
 export const MINI_CUT_STYLE_IDS = Object.freeze(Object.keys(MINI_CUT_STYLES));
+
+// Footprint outline. A circle is a rounded bevel whose radius is the
+// half-width, so terrain, walls, water, props, light map and export all share
+// the existing bevel path; only the socle and its ground shadow change shape.
+export const MINI_SHAPES = Object.freeze(['square', 'circle']);
 
 // Composition recipes. `shape` is the shader discriminant (uMiniShape).
 // Geometry is in normalized footprint coordinates (half-width = 1); heights in
@@ -166,8 +173,15 @@ export const DEFAULT_MINI_PRESET = 'archipelago';
 export const MINI_PROCEDURAL_PRESETS = Object.freeze(
   Object.entries(PRESETS).map(([id, preset]) => Object.freeze({ id, label: preset.label })),
 );
-// Dioramas exaggerate relief relative to a 2048-unit open board.
-const MINI_PROCEDURAL_RELIEF = 1.5;
+// Height of a procedural diorama relative to the same preset on a 2048-unit
+// open board (proportionally, before the Relief slider). Below 1: a diorama
+// reads as a landscape model, not as a cluster of needles.
+export const MINI_PROCEDURAL_RELIEF = 0.9;
+// Props size slider range (multiplier of the diorama's base prop scales).
+export const MINI_PROP_SCALE_LIMITS = Object.freeze({ min: 0.25, max: 3 });
+// Base prop scales of a diorama at Props size 1.
+const MINI_TREE_SCALE = 2.2;
+const MINI_ROCK_SCALE = 2.5;
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const finite = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
@@ -229,8 +243,11 @@ export function createMiniTerrainState({ recipe = DEFAULT_MINI_RECIPE, seed = 13
     relief: 1,
     waterLevel: 0.5,
     vegetation: r.vegetation,
+    propScale: 1,
     clouds: r.clouds,
+    cloudSpread: 100,
     cutStyle: r.cutStyle,
+    shape: 'square',
     socle: true,
     backdrop: [0.91, 0.89, 0.86],
     camera: null,
@@ -268,13 +285,17 @@ export function normalizeMiniTerrainState(input) {
     relief: clamp(finite(input.relief, 1), 0.4, 1.6),
     waterLevel: clamp(finite(input.waterLevel, 0.5), 0, 1),
     vegetation: clamp(finite(input.vegetation, r.vegetation), 0, 1),
+    propScale: clamp(finite(input.propScale, 1), MINI_PROP_SCALE_LIMITS.min, MINI_PROP_SCALE_LIMITS.max),
     clouds: clamp(finite(input.clouds, r.clouds), 0, 1),
+    // Older projects used a radius of width * 1.15 * 0.62.
+    cloudSpread: clamp(finite(input.cloudSpread, 142.6), 10, 200),
     cutStyle,
     waterEdges: clamp(finite(input.waterEdges, 1), 0, 2),
     waterBevel: clamp(finite(input.waterBevel, 0), 0, 10),
     terrainBevel: clamp(finite(input.bevelSync === true ? input.waterBevel : input.terrainBevel, 0), 0, 10),
     bevelSync: input.bevelSync === true,
     bevelStyle: input.bevelStyle === 'rounded' ? 'rounded' : 'chamfer',
+    shape: input.shape === 'circle' ? 'circle' : 'square',
     socle: input.socle !== false,
     backdrop,
     camera,
@@ -341,6 +362,7 @@ export function resolveMiniLayout(state) {
   const segments = MINI_QUALITY_PROFILES[s.quality].segments;
   // The section wall drops to this depth below y = 0; the socle sits under it.
   const baseDepth = Math.round(W * 0.07);
+  const circle = s.shape === 'circle';
   return {
     width: W,
     half: W / 2,
@@ -352,8 +374,10 @@ export function resolveMiniLayout(state) {
     seaLevel,
     segments,
     baseDepth,
-    waterBevel: W * s.waterBevel / 100,
-    terrainBevel: W * s.terrainBevel / 100,
+    shape: s.shape,
+    waterBevel: circle ? W / 2 : W * s.waterBevel / 100,
+    terrainBevel: circle ? W / 2 : W * s.terrainBevel / 100,
+    rounded: circle || s.bevelStyle === 'rounded',
     socleHeight: Math.round(W * 0.045),
     socleMargin: Math.round(W * 0.018),
     quadSize: W / segments,
@@ -469,13 +493,76 @@ const MINI_WATER_LOOKS = Object.freeze({
 });
 
 /**
+ * Octave count that keeps the noise band-limited to the Mini surface mesh.
+ * The legacy recipe's finest detail is its ridged layer (1.7× the base
+ * frequency, × lacunarity per octave); octaves whose lattice cells are
+ * narrower than ~3 surface quads cannot be represented by the vertices and
+ * alias into needle spikes and wrinkled shading. Lower noise scales leave
+ * room for more octaves.
+ */
+export function miniOctaveCap({ noiseScale, lacunarity }, segments) {
+  const baseCells = Math.max(0.5, Number(noiseScale) || DEFAULT_PARAMS.noiseScale) * 0.1 * 1.7;
+  const lac = Math.max(1.2, Number(lacunarity) || DEFAULT_PARAMS.lacunarity);
+  const maxCells = Math.max(1, segments) / 3;
+  return clamp(Math.floor(Math.log(maxCells / baseCells) / Math.log(lac)) + 1, 3, 8);
+}
+
+/**
+ * Terrain shape of a diorama. A composed recipe tunes the detail noise; a
+ * procedural diorama takes the complete preset (reset to defaults first, like
+ * applyPreset), softened into a landscape model: rounded peaks, gentler
+ * ridges, smoother falloff of detail and octaves band-limited to the mesh.
+ */
+function miniShapeParams(s, segments) {
+  const r = MINI_RECIPES[s.recipe];
+  let shape;
+  if (s.recipe === 'procedural') {
+    shape = {};
+    for (const key of [
+      'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'persistence', 'lacunarity',
+      'ridge', 'warp', 'falloff', 'moistScale', 'moistBias', 'biomeScale', 'tempBias', 'snowLine',
+      'normalStrength', 'aoStrength', 'aoRidge', 'rockSlopeLo', 'rockSlopeHi', 'snowSlopeMin', 'snowSlopeMax',
+    ]) shape[key] = DEFAULT_PARAMS[key];
+    const pp = { ...(PRESETS[s.preset]?.params ?? {}) };
+    delete pp.heightScale;
+    delete pp.seaLevel;
+    Object.assign(shape, pp, { preset: s.preset, edgeFalloffMode: 'island' });
+    shape.ridge = Math.round(shape.ridge * 0.62 * 1000) / 1000;
+    shape.terrainSmoothing = Math.max(shape.terrainSmoothing, 0.6);
+    shape.persistence = Math.min(shape.persistence, 0.46);
+  } else {
+    shape = {
+      // detail noise: few large features across the footprint, moderate ridges
+      noiseScale: 26,
+      noiseStrength: 1.0,
+      persistence: 0.46,
+      lacunarity: 2.05,
+      ridge: 0.4,
+      warp: 0.7,
+      terrainSmoothing: 0.3,
+      falloff: 0,
+      edgeFalloffMode: 'island',
+      tempBias: r.climate.tempBias,
+      moistBias: r.climate.moistBias,
+      biomeScale: 0.6,
+      snowLine: s.recipe === 'lake' ? 0.82 : 0.95,
+    };
+  }
+  shape.octaves = Math.min(shape.octaves ?? 8, miniOctaveCap(shape, segments));
+  return shape;
+}
+
+/**
  * Engine params that realise a Mini document. Applied when a Mini scene is
  * created, regenerated or its recipe changes. `scope` limits the patch:
- *   'all'      — new scene / recipe change (relief, water, clouds, props, look)
- *   'water'    — water level only (never touches the relief)
- *   'clouds'   — cloud amount only
- *   'props'    — vegetation only
- *   'quality'  — terrain resolution profile + water backend
+ *   'all'       — new scene / recipe change (relief, water, clouds, props, look)
+ *   'water'     — water level only (never touches the relief)
+ *   'clouds'    — cloud amount only
+ *   'props'     — vegetation only
+ *   'propScale' — props size only
+ *   'quality'   — terrain resolution profile + water backend
+ *   'structure' — layout defaults (load enforces the footprint, fills missing params)
+ *   'shape'     — terrain noise shaping (v2 → v3 migration)
  */
 export function miniParamsPatch(state, scope = 'all') {
   const s = normalizeMiniTerrainState(state) ?? createMiniTerrainState();
@@ -510,8 +597,13 @@ export function miniParamsPatch(state, scope = 'all') {
     propsGrassDensity: Math.round((0.3 + s.vegetation * 0.7) * 1000) / 1000,
     propsForest: Math.round(Math.min(1, s.vegetation * 1.1) * 1000) / 1000,
   };
-  // Derived from the document alone and re-applied on every load, so a Mini
-  // project can never render with a layout that disagrees with its relief.
+  const propScale = {
+    propsTreeScale: Math.round(MINI_TREE_SCALE * s.propScale * 1000) / 1000,
+    propsRockScale: Math.round(MINI_ROCK_SCALE * s.propScale * 1000) / 1000,
+    propsGrass: Math.round(s.propScale * 1000) / 1000,
+  };
+  // Defaults derived from the document. Load enforces the footprint but
+  // preserves saved height and water edits from the shared settings panels.
   const structure = {
     chunkCount: 1,
     chunkSize: W,
@@ -522,43 +614,11 @@ export function miniParamsPatch(state, scope = 'all') {
   if (scope === 'water') return water;
   if (scope === 'clouds') return clouds;
   if (scope === 'props') return props;
+  if (scope === 'propScale') return propScale;
   if (scope === 'quality') return quality;
   if (scope === 'structure') return structure;
-
-  // Terrain shape: a composed recipe tunes the detail noise; a procedural
-  // diorama takes the complete preset (reset to defaults first, like
-  // applyPreset), only its heights are scaled to the footprint.
-  let shape;
-  if (s.recipe === 'procedural') {
-    shape = {};
-    for (const key of [
-      'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'persistence', 'lacunarity',
-      'ridge', 'warp', 'falloff', 'moistScale', 'moistBias', 'biomeScale', 'tempBias', 'snowLine',
-      'normalStrength', 'aoStrength', 'aoRidge', 'rockSlopeLo', 'rockSlopeHi', 'snowSlopeMin', 'snowSlopeMax',
-    ]) shape[key] = DEFAULT_PARAMS[key];
-    const pp = { ...(PRESETS[s.preset]?.params ?? {}) };
-    delete pp.heightScale;
-    delete pp.seaLevel;
-    Object.assign(shape, pp, { preset: s.preset, edgeFalloffMode: 'island' });
-  } else {
-    shape = {
-      // detail noise: few large features across the footprint, moderate ridges
-      noiseScale: 26,
-      noiseStrength: 1.0,
-      octaves: 7,
-      persistence: 0.48,
-      lacunarity: 2.05,
-      ridge: 0.45,
-      warp: 0.7,
-      terrainSmoothing: 0.15,
-      falloff: 0,
-      edgeFalloffMode: 'island',
-      tempBias: r.climate.tempBias,
-      moistBias: r.climate.moistBias,
-      biomeScale: 0.6,
-      snowLine: s.recipe === 'lake' ? 0.82 : 0.95,
-    };
-  }
+  const shape = miniShapeParams(s, L.segments);
+  if (scope === 'shape') return shape;
 
   return {
     seed: seeds.noise,
@@ -591,23 +651,23 @@ export function miniParamsPatch(state, scope = 'all') {
     cloudShadowOpacity: 0.3,
     // vegetation: distances from W so the whole diorama stays populated
     ...props,
-    propsTreeScale: 2.2,
-    propsRockScale: 2.5,
+    ...propScale,
     propsCullDistance: Math.round(W * 3.2),
     propsLodDistance: Math.round(W * 1.4),
   };
 }
 
 /**
- * Cloud slab placement: centred on the footprint, its radial fade
- * (radius = extent × 0.62 in CloudSlabLayer) reaching the corners of the
- * diorama, so the formations always sit above the board, never beside it.
+ * Cloud slab placement centred on the diorama. Spread is the cloud diameter
+ * as a percentage of terrain width; 100% fits inside the circular footprint.
+ * Coverage extent stays fixed so narrowing clouds does not change cull distance.
  */
 export function resolveMiniCloudLayout(state) {
   const s = normalizeMiniTerrainState(state) ?? createMiniTerrainState();
   const L = resolveMiniLayout(s);
   return {
     extent: L.width * 1.15,
+    radius: L.width * s.cloudSpread / 200,
     center: { x: 0, z: 0 },
   };
 }
@@ -635,7 +695,7 @@ export function resolveMiniFraming(state, { fov = 45, aspect = 16 / 9 } = {}) {
   const vFov = fov * Math.PI / 180;
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.5, aspect));
   const fitFov = Math.min(vFov, hFov);
-  const extent = L.width * 0.76;
+  const extent = L.width * (s.shape === 'circle' ? 0.6 : 0.76);
   const radius = Math.round((extent / Math.tan(fitFov / 2)) * 100) / 100;
   return {
     theta: c.cameraAzimuth,

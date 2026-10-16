@@ -349,7 +349,7 @@ export default function PerfSettings({ perf, rendererInfo, onPerfPreset, onPerfS
   };
 
   const groupProps = { search, activeTab };
-  const body = renderSettings({ perf, rendererInfo, presetOptions, segments, distances, estTris, setLodDistance, onPerfPreset, onPerfSetting, onPerfReset, groupProps });
+  const body = renderSettings({ perf, rendererInfo, presetOptions, segments, distances, estTris, setLodDistance, onPerfPreset, onPerfSetting, onPerfReset, groupProps, miniActive });
 
   return (
     <div className="perf-settings">
@@ -397,7 +397,7 @@ export default function PerfSettings({ perf, rendererInfo, onPerfPreset, onPerfS
 
 function renderSettings({
   perf, rendererInfo, presetOptions, segments, distances, estTris,
-  setLodDistance, onPerfPreset, onPerfSetting, onPerfReset, groupProps,
+  setLodDistance, onPerfPreset, onPerfSetting, onPerfReset, groupProps, miniActive = false,
 }) {
   return (
     <>

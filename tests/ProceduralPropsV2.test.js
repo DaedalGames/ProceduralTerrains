@@ -248,56 +248,71 @@ describe('optimized prop performance architecture', () => {
     manager.dispose();
   });
 
-  it('drops props on a terrain edit unless a live ground is installed', () => {
+  it('swaps a Mini rebuild in only once it is complete', () => {
     const manager = new ProceduralPropsManager(new THREE.Scene());
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
     const sampler = makeSampler();
     const input = {
       mode: 'studio', camera, params: propParams(), perf: createPerfSettings('balanced'),
-      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 },
+      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 }, immediate: true,
+      bounds: { minX: -256, maxX: 256, minZ: -256, maxZ: 256 },
     };
-    do manager.update(input); while (manager.getDiagnostics().queuedSectors > 0);
+    const total = (d) => Object.values(d.instances).reduce((a, b) => a + b, 0);
     let t = 0;
     const clock = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
+    // nothing on screen yet: the first scatter is built in one go
+    manager.update(input);
+    expect(manager.scatterSettled).toBe(true);
+    expect(manager._sectors.size).toBe(4);   // only the footprint's sectors
+    const before = total(manager.getDiagnostics());
+    expect(before).toBeGreaterThan(0);
+    // a terrain edit: built in slices behind the shown scatter
     manager.update({ ...input, terrainRevision: 2 });
+    expect(manager.scatterSettled).toBe(false);
+    expect(total(manager.getDiagnostics())).toBe(before);
+    // another edit while rebuilding: the running build finishes, then again
+    manager.update({ ...input, terrainRevision: 3 });
+    let frames = 0;
+    while (!manager.scatterSettled && frames++ < 5000) manager.update({ ...input, terrainRevision: 3 });
     clock.mockRestore();
-    // historical behaviour (every mode but Mini): nothing kept from revision 1
-    expect(manager._staleSectors.size).toBe(0);
-    expect(manager.meshes.some((mesh) => mesh.name.endsWith('-stale'))).toBe(false);
+    expect(manager.scatterSettled).toBe(true);
+    expect(manager.scatterRevision).toBe(3);
+    expect(total(manager.getDiagnostics())).toBe(before);
     manager.dispose();
   });
 
-  it('keeps the previous props visible while a terrain edit rebuilds them', () => {
+  it('stands built-in props on the live Mini ground, custom models keep their height', () => {
     const manager = new ProceduralPropsManager(new THREE.Scene());
-    const ground = { texture: new THREE.Texture(), revision: 1 };
-    manager.setMiniLightMap(new THREE.Texture(), 256, ground);
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
     camera.position.set(0, 80, 120);
     const sampler = makeSampler();
     const input = {
       mode: 'studio', camera, params: propParams(), perf: createPerfSettings('balanced'),
-      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 },
+      boardSize: 512, sampler, terrainRevision: 1, centerOverride: { x: 0, z: 0 }, immediate: true,
     };
-    do manager.update(input); while (manager.getDiagnostics().queuedSectors > 0);
-    const total = (d) => Object.values(d.instances).reduce((a, b) => a + b, 0);
-    const before = total(manager.getDiagnostics());
-    expect(before).toBeGreaterThan(0);
-    // a terrain edit whose frame budget is spent after one sector: most
-    // sectors are not rebuilt yet, yet nothing disappears
-    let t = 0;
-    const clock = vi.spyOn(performance, 'now').mockImplementation(() => (t += 1000));
-    manager.update({ ...input, terrainRevision: 2 });
-    clock.mockRestore();
-    expect(manager.getDiagnostics().queuedSectors).toBeGreaterThan(0);
-    expect(total(manager.getDiagnostics())).toBeGreaterThan(before * 0.9);
-    // kept props render in their own batches, re-seated on the live ground
-    const stale = manager.meshes.filter((mesh) => mesh.name.endsWith('-stale') && mesh.count > 0);
-    expect(stale.length).toBeGreaterThan(0);
-    expect(manager._groundShiftActive()).toBe(1);
-    expect(manager.scatterSettled).toBe(false);
-    do manager.update({ ...input, terrainRevision: 2 }); while (manager.getDiagnostics().queuedSectors > 0);
-    expect(manager._staleSectors.size).toBe(0);
-    expect(total(manager.getDiagnostics())).toBe(before);
+    manager.update(input);
+    const live = manager.meshes.filter((mesh) => mesh.count > 0);
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.every((mesh) => mesh.userData.propGrounded === 0)).toBe(true);
+    const absolute = new THREE.Matrix4();
+    live[0].getMatrixAt(0, absolute);
+
+    manager.setMiniLightMap(new THREE.Texture(), 256, true);
+    manager.update(input);
+    const grounded = manager.meshes.filter((mesh) => mesh.count > 0);
+    expect(grounded.every((mesh) => mesh.userData.propGrounded === 1)).toBe(true);
+    const relative = new THREE.Matrix4();
+    live[0].getMatrixAt(0, relative);
+    const y = (m) => new THREE.Vector3().setFromMatrixPosition(m).y;
+    // the GPU adds the live ground height under the root back
+    expect(y(relative)).toBeLessThan(y(absolute));
+    expect(y(relative)).toBeLessThanOrEqual(0);
+
+    // no light map: no live ground, absolute heights again
+    manager.setMiniLightMap(null, 256, true);
+    manager.update(input);
+    live[0].getMatrixAt(0, relative);
+    expect(y(relative)).toBeCloseTo(y(absolute), 6);
     manager.dispose();
   });
 

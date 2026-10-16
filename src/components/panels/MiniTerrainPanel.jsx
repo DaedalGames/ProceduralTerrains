@@ -7,6 +7,7 @@ import CollapsibleGroup from '../ui/CollapsibleGroup.jsx';
 import {
   MINI_CUT_STYLES,
   MINI_PROCEDURAL_PRESETS,
+  MINI_PROP_SCALE_LIMITS,
   MINI_QUALITY_PROFILES,
   MINI_RECIPES,
   describeMiniTerrain,
@@ -20,6 +21,11 @@ import {
 const RELIEF = { label: 'Relief', min: 0.4, max: 1.6, step: 0.01, digits: 2, info: 'Height of the composed silhouette. Rebakes the relief only.' };
 const WATER = { label: 'Water level', min: 0, max: 1, step: 0.01, digits: 2, info: 'Moves the water, never the terrain.' };
 const VEGETATION = { label: 'Vegetation', min: 0, max: 1, step: 0.01, digits: 2, info: 'Tree and plant density. Never changes the relief.' };
+const PROP_SIZE = {
+  label: 'Props size', min: MINI_PROP_SCALE_LIMITS.min, max: MINI_PROP_SCALE_LIMITS.max, step: 0.05, digits: 2, unit: '×',
+  info: 'Size of trees, rocks and grass on the diorama. Rebuilds the props only, never the relief.',
+};
+const CLOUD_SPREAD = { label: 'Clouds spread', min: 10, max: 200, step: 1, digits: 1, unit: '%', info: 'Width of the cloud generation zone relative to the terrain. 100% matches the terrain width; lower values keep clouds closer to the center.' };
 const CLOUDS = { label: 'Clouds', min: 0, max: 1, step: 0.01, digits: 2, info: 'A few small formations sized to the diorama. 0 disables them.' };
 const WATER_EDGES = { label: 'Water Edges', min: 0, max: 2, step: 0.05, digits: 2, info: 'Brightness of the water block outline. 0 hides the edge highlight.' };
 const WATER_BEVEL = { label: 'Water Bevel', min: 0, max: 10, step: 0.25, digits: 2, unit: '%', info: 'Size of the water corner chamfer or rounding. Percentage of the footprint width; 0 keeps square corners.' };
@@ -30,7 +36,8 @@ const QUALITY_OPTIONS = Object.values(MINI_QUALITY_PROFILES).map((q) => ({
   value: q.id,
   label: `${q.label} · ${q.segments}×${q.segments}`,
 }));
-const CUT_OPTIONS = Object.values(MINI_CUT_STYLES).map((c) => ({ value: c.id, label: c.label }));
+const SHAPE_OPTIONS = [{ value: 'square', label: 'Square' }, { value: 'circle', label: 'Circle' }];
+const CUT_OPTIONS =Object.values(MINI_CUT_STYLES).map((c) => ({ value: c.id, label: c.label }));
 const BASE_OPTIONS = MINI_PROCEDURAL_PRESETS.map((p) => ({ value: p.id, label: p.label }));
 
 export default function MiniTerrainPanel({ ctx }) {
@@ -103,17 +110,28 @@ export default function MiniTerrainPanel({ ctx }) {
       <SliderCtl def={RELIEF} value={mini.relief} onChange={(relief) => set({ relief })} settingId="mini.relief" />
       <SliderCtl def={WATER} value={mini.waterLevel} onChange={(waterLevel) => set({ waterLevel })} settingId="mini.waterLevel" />
       <SliderCtl def={VEGETATION} value={mini.vegetation} onChange={(vegetation) => set({ vegetation })} settingId="mini.vegetation" />
+      <SliderCtl def={PROP_SIZE} value={mini.propScale ?? 1} onChange={(propScale) => set({ propScale })} settingId="mini.propScale" />
       <SliderCtl def={CLOUDS} value={mini.clouds} onChange={(clouds) => set({ clouds })} settingId="mini.clouds" />
+      <SliderCtl def={CLOUD_SPREAD} value={mini.cloudSpread ?? 142.6} onChange={(cloudSpread) => set({ cloudSpread })} settingId="mini.cloudSpread" />
+      <div className="mini-actions">
+        <button type="button" className="action-btn" onClick={() => set({ cloudSpread: 100 })} data-setting-id="mini.matchCloudsToTerrain">
+          <Focus size={14} aria-hidden /> {translateText('Match to terrain')}
+        </button>
+      </div>
 
       <CollapsibleGroup title="Base & presentation" defaultOpen settingId="mini.base">
         <SelectRow label="Cut style" value={mini.cutStyle} options={CUT_OPTIONS} onChange={(cutStyle) => set({ cutStyle })} settingId="mini.cutStyle" />
+        <SelectRow label="Shape" value={mini.shape ?? 'square'} options={SHAPE_OPTIONS} onChange={(shape) => set({ shape })} settingId="mini.shape"
+          info="Outline of the diorama: a square board or a round one. Terrain, walls, water and socle follow." />
         <SliderCtl def={WATER_EDGES} value={mini.waterEdges} onChange={(waterEdges) => set({ waterEdges })} settingId="mini.waterEdges" />
-        <ToggleRow label="Sync Bevels" value={mini.bevelSync} onChange={(bevelSync) => set({ bevelSync })} settingId="mini.bevelSync"
-          info="Link the water and terrain corner sizes. Enabling sync uses the current Water Bevel value." />
-        <SelectRow label="Bevel Style" value={mini.bevelStyle} options={[{ value: 'chamfer', label: 'Chamfer' }, { value: 'rounded', label: 'Rounded' }]}
-          onChange={(bevelStyle) => set({ bevelStyle })} settingId="mini.bevelStyle" />
-        <SliderCtl def={WATER_BEVEL} value={mini.waterBevel} onChange={(waterBevel) => set({ waterBevel })} settingId="mini.waterBevel" />
-        <SliderCtl def={TERRAIN_BEVEL} value={mini.terrainBevel} onChange={(terrainBevel) => set({ terrainBevel })} settingId="mini.terrainBevel" />
+        {mini.shape !== 'circle' && <>
+          <ToggleRow label="Sync Bevels" value={mini.bevelSync} onChange={(bevelSync) => set({ bevelSync })} settingId="mini.bevelSync"
+            info="Link the water and terrain corner sizes. Enabling sync uses the current Water Bevel value." />
+          <SelectRow label="Bevel Style" value={mini.bevelStyle} options={[{ value: 'chamfer', label: 'Chamfer' }, { value: 'rounded', label: 'Rounded' }]}
+            onChange={(bevelStyle) => set({ bevelStyle })} settingId="mini.bevelStyle" />
+          <SliderCtl def={WATER_BEVEL} value={mini.waterBevel} onChange={(waterBevel) => set({ waterBevel })} settingId="mini.waterBevel" />
+          <SliderCtl def={TERRAIN_BEVEL} value={mini.terrainBevel} onChange={(terrainBevel) => set({ terrainBevel })} settingId="mini.terrainBevel" />
+        </>}
         <ToggleRow label="Socle" value={mini.socle} onChange={(socle) => set({ socle })} settingId="mini.socle" />
       </CollapsibleGroup>
 

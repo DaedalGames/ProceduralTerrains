@@ -54,9 +54,11 @@ uniform float uHalf;        // socle half-width
 uniform float uLift;        // height of the diorama mass above the ground
 uniform float uStrength;
 uniform vec3 uShadowColor;  // display colour of full shadow
+uniform float uCircle;      // 1 = round footprint
 varying vec3 vWorldPos;
 
 float sdBox(vec2 p, vec2 b) {
+  if (uCircle > 0.5) return length(p) - b.x;
   vec2 d = abs(p) - b;
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
 }
@@ -120,6 +122,19 @@ function chamferedBoxGeometry(width, height, depth, chamfer) {
   return merged;
 }
 
+// Round pedestal: the same two-tier read as the box, as two cylinders.
+function chamferedDiscGeometry(radius, height, chamfer) {
+  const c = Math.min(chamfer, height * 0.45, radius * 0.2);
+  const lower = new THREE.CylinderGeometry(radius, radius, height - c, 128, 1);
+  lower.translate(0, -c / 2, 0);
+  const upper = new THREE.CylinderGeometry(radius - c, radius - c, c, 128, 1);
+  upper.translate(0, height / 2 - c / 2, 0);
+  const merged = mergeGeometries([lower, upper]);
+  lower.dispose();
+  upper.dispose();
+  return merged;
+}
+
 function mergeGeometries(geometries) {
   const positions = [];
   const normals = [];
@@ -171,6 +186,7 @@ export class MiniStudioStage {
         uLift: { value: 300 },
         uStrength: { value: 0.42 },
         uShadowColor: { value: new THREE.Vector3(0.36, 0.33, 0.30) },
+        uCircle: { value: 0 },
       },
       vertexShader: SHADOW_VERTEX,
       fragmentShader: SHADOW_FRAGMENT,
@@ -211,10 +227,11 @@ export class MiniStudioStage {
   }
 
   /**
-   * @param {object} layout  { half, baseY, socleHeight, socleMargin, maxHeight, socle }
+   * @param {object} layout  { half, baseY, socleHeight, socleMargin, maxHeight, socle, circle }
    */
-  setLayout({ half, baseY, socleHeight, socleMargin, maxHeight, socle = true }) {
-    const key = `${half}:${baseY}:${socleHeight}:${socleMargin}:${socle}`;
+  setLayout({ half, baseY, socleHeight, socleMargin, maxHeight, socle = true, circle = false }) {
+    const key = `${half}:${baseY}:${socleHeight}:${socleMargin}:${socle}:${circle}`;
+    this.shadowMaterial.uniforms.uCircle.value = circle ? 1 : 0;
     const bottom = socle ? baseY - socleHeight : baseY;
     this.shadow.position.set(0, bottom - 0.5, 0);
     this.shadow.scale.set(half * 9, 1, half * 9);
@@ -228,7 +245,9 @@ export class MiniStudioStage {
     if (socle) {
       const width = (half + socleMargin) * 2;
       this.socle.geometry.dispose();
-      this.socle.geometry = chamferedBoxGeometry(width, socleHeight, width, socleMargin * 0.9);
+      this.socle.geometry = circle
+        ? chamferedDiscGeometry(width / 2, socleHeight, socleMargin * 0.9)
+        : chamferedBoxGeometry(width, socleHeight, width, socleMargin * 0.9);
       this.socle.position.set(0, baseY - socleHeight / 2, 0);
     }
   }

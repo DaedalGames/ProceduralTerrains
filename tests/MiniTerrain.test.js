@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
   MINI_FORMATION_SEA01,
+  MINI_PROCEDURAL_RELIEF,
   MINI_RECIPE_IDS,
   MINI_TERRAIN_VERSION,
   createMiniTerrainState,
   deriveMiniSeeds,
   miniCompositionUniformValues,
   miniLodSegments,
+  miniOctaveCap,
   miniParamsPatch,
   normalizeMiniTerrainState,
   resolveMiniComposition,
@@ -117,9 +119,12 @@ describe('Mini Terrain seeds and composition', () => {
     const p = miniParamsPatch(s, 'all');
     const L = resolveMiniLayout(s);
     expect(p.preset).toBe('alpine');
-    expect(p.ridge).toBe(0.92);                       // preset shape kept
-    expect(p.heightScale).toBe(Math.round(640 * 0.5 * 1.5));   // 2048 → 1024 footprint, x1.5 relief
-    expect(p.terrainFormationSeaLevel).toBeCloseTo(24 * 0.75, 1);
+    expect(p.snowLine).toBe(0.48);                    // preset look kept
+    // softened into a landscape model: gentler ridges, rounded peaks
+    expect(p.ridge).toBeCloseTo(0.92 * 0.62, 3);
+    expect(p.terrainSmoothing).toBeGreaterThanOrEqual(0.6);
+    expect(p.heightScale).toBe(Math.round(640 * 0.5 * MINI_PROCEDURAL_RELIEF));   // 2048 → 1024 footprint
+    expect(p.terrainFormationSeaLevel).toBeCloseTo(24 * 0.5 * MINI_PROCEDURAL_RELIEF, 1);
     expect(p.chunkCount).toBe(1);
     expect(L.seaLevel).toBeGreaterThan(0.5);
     expect(miniParamsPatch(s, 'structure')).toEqual({
@@ -159,6 +164,37 @@ describe('Mini Terrain params and invalidation scopes', () => {
     expect(Object.keys(miniParamsPatch(state, 'quality'))).toEqual(['waterMode', 'waterQualityPreset']);
     expect(miniLodSegments({ ...state, quality: 'balanced' })).toEqual([128, 128, 128, 128]);
     expect(miniLodSegments({ ...state, quality: 'high' })).toEqual([256, 256, 256, 256]);
+  });
+
+  it('band-limits the noise octaves to the surface mesh', () => {
+    // finest ridge octave keeps >= 3 surface quads per lattice cell
+    for (const quality of ['balanced', 'high', 'capture']) {
+      for (const recipe of MINI_RECIPE_IDS) {
+        const s = { ...createMiniTerrainState({ recipe, preset: 'alpine' }), quality };
+        const p = miniParamsPatch(s, 'all');
+        const segments = resolveMiniLayout(s).segments;
+        expect(p.octaves).toBe(miniOctaveCap(p, segments));
+        const finestCells = p.noiseScale * 0.1 * 1.7 * p.lacunarity ** (p.octaves - 1);
+        if (p.octaves > 3) expect(finestCells).toBeLessThanOrEqual(segments / 3);
+      }
+    }
+    // lower noise scales (broader features) leave room for more detail
+    expect(miniOctaveCap({ noiseScale: 15, lacunarity: 2.05 }, 256))
+      .toBeGreaterThan(miniOctaveCap({ noiseScale: 60, lacunarity: 2.05 }, 256));
+    expect(Object.keys(miniParamsPatch(state, 'shape'))).toContain('octaves');
+  });
+
+  it('scales trees, rocks and grass with Props size only', () => {
+    const ctrl = new MiniTerrainController({ worldMode: 'studio' });
+    ctrl.state = state;
+    const base = miniParamsPatch(state, 'all');
+    expect(state.propScale).toBe(1);
+    const bigger = ctrl.planChange({ propScale: 2 });
+    expect(bigger.composition).toBe(false);
+    expect(Object.keys(bigger.params).sort()).toEqual(['propsGrass', 'propsRockScale', 'propsTreeScale']);
+    expect(bigger.params.propsTreeScale).toBeCloseTo(base.propsTreeScale * 2, 3);
+    expect(bigger.params.propsRockScale).toBeCloseTo(base.propsRockScale * 2, 3);
+    expect(normalizeMiniTerrainState({ ...state, propScale: 99 }).propScale).toBe(3);
   });
 
   it('plans controller changes per category', () => {
@@ -352,14 +388,14 @@ describe('Mini Terrain keeps a single footprint', () => {
 });
 
 describe('Mini clouds', () => {
-  it('centres the cloud slab above the footprint and covers its corners', async () => {
+  it('centres the cloud slab and matches the terrain width by default', async () => {
     const { resolveMiniCloudLayout } = await import('../src/engine/mini/MiniTerrainSettings.js');
     for (const recipe of MINI_RECIPE_IDS) {
       const state = createMiniTerrainState({ recipe, seed: 99 });
       const L = resolveMiniLayout(state);
       const c = resolveMiniCloudLayout(state);
       expect(c.center).toEqual({ x: 0, z: 0 });
-      expect(c.extent * 0.62).toBeGreaterThanOrEqual(L.half * Math.SQRT2);
+      expect(c.radius).toBe(L.half);
     }
   });
 });

@@ -14,7 +14,7 @@
 // hard constant — dynamic trip counts hang ANGLE's D3D11 shader compiler.
 // ============================================================================
 
-import { NOISE_STACK_PRIMS3D_GLSL } from './noise/noisePrimsGLSL.js';
+import { NOISE_STACK_PRIMS3D_GLSL, TERRAIN_DETAIL_GLSL } from './noise/noisePrimsGLSL.js';
 import { NOISE_STACK_MASKS3D_GLSL } from './noise/masks.js';
 
 export const PLANET_UNIFORMS_GLSL = /* glsl */ `
@@ -77,11 +77,14 @@ const mat3 ROT3 = mat3(
 uniform int uLoopGuard;
 #endif
 
+${TERRAIN_DETAIL_GLSL}
+
 float fbm3D(vec3 p) {
   float amp = 0.5, sum = 0.0, norm = 0.0;
   for (int i = 0; i < OCTAVES + uLoopGuard; i++) {
-    sum += amp * vnoise3(p);
-    norm += amp;
+    float keep = octaveKeep(float(i), float(OCTAVES));
+    sum += amp * keep * vnoise3(p);
+    norm += amp * keep;
     amp *= uPersistence;
     p = ROT3 * p * uLacunarity;
   }
@@ -114,11 +117,12 @@ float fbm3Dc(vec3 p) {
 float ridgedFBM3D(vec3 p) {
   float amp = 0.5, sum = 0.0, norm = 0.0, carry = 1.0;
   for (int i = 0; i < OCTAVES + uLoopGuard; i++) {
-    float v = 1.0 - abs(vnoise3(p) * 2.0 - 1.0);
+    float keep = octaveKeep(float(i), float(OCTAVES));
+    float v = 1.0 - creaseAbs(vnoise3(p) * 2.0 - 1.0);
     v = v * v;
-    sum += amp * v * carry;
+    sum += amp * keep * v * carry;
     carry = clamp(v * 1.4, 0.0, 1.0);
-    norm += amp;
+    norm += amp * keep;
     amp *= uPersistence;
     p = ROT3 * p * uLacunarity;
   }

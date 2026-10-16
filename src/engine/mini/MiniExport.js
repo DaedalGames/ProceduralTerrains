@@ -232,9 +232,11 @@ export function createMiniWaterMaterial({ shallow, mid, deep, depthRange = 80 })
 }
 
 /** Pedestal under the section base. color: linear triplet. */
-export function buildMiniSocle({ half, margin, height, topY, color }) {
+export function buildMiniSocle({ half, margin, height, topY, color, circle = false }) {
   const size = 2 * (half + margin);
-  const geo = new THREE.BoxGeometry(size, height, size);
+  const geo = circle
+    ? new THREE.CylinderGeometry(size / 2, size / 2, height, 128, 1)
+    : new THREE.BoxGeometry(size, height, size);
   geo.translate(0, topY - height / 2, 0);
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     name: 'Mini_Socle_Material', color: new THREE.Color().setRGB(...color), roughness: 0.8, metalness: 0,

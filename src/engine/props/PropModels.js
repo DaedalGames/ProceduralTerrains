@@ -125,13 +125,16 @@ export function makeBroadleafGeometry({ far = false } = {}) {
     : [lobe(0.44, 0, 0.98, 0, 0.88, 0.0, 1), lobe(0.31, 0.30, 0.86, 0.06, 0.9, 1.3, 0),
       lobe(0.29, -0.17, 0.84, 0.27, 0.9, 2.6, 0), lobe(0.30, -0.13, 0.88, -0.29, 0.9, 3.9, 0),
       lobe(0.27, 0.05, 1.30, -0.02, 0.92, 5.2, 1)];
-  for (const g of lobes) {
+  // each lobe a slightly different value: the crown reads as leaf clumps
+  const clump = [1, 0.9, 1.04, 0.94, 1.08];
+  for (const [index, g] of lobes.entries()) {
+    const value = clump[index % clump.length];
     b.add(g, {
       tintMix: 1,
       shade: (x, y, z) => {
         const under = 0.62 + 0.38 * smoothstep(0.55, 1.35, y);
         const core = Math.hypot(x, y - 0.98, z);
-        return under * (0.82 + 0.18 * smoothstep(0.15, 0.55, core));
+        return value * under * (0.82 + 0.18 * smoothstep(0.15, 0.55, core));
       },
       bend: (x, y) => 0.25 + 0.75 * smoothstep(0.5, 1.5, y),
     });
@@ -139,42 +142,55 @@ export function makeBroadleafGeometry({ far = false } = {}) {
   return b.finish(far ? 'prop-broadleaf-far' : 'prop-broadleaf', { normalizeHeight: 1 });
 }
 
-/** Conifer: trunk + three ragged, slightly drooping tiers. */
+/**
+ * Conifer: a slender spire of overlapping branch whorls. Each whorl is a
+ * shallow cone whose rim alternates long drooping branch tips and short
+ * notches, rotated by the golden angle so the branches never line up; the
+ * middle ring bulges slightly so whorls read full rather than as lampshades.
+ */
 export function makeConiferGeometry({ far = false } = {}) {
   const b = new PropBuilder();
-  b.add(trunk(0.42, 0.07, 0.04, far ? 5 : 6), { color: TRUNK, tintMix: 0, bend: (x, y) => y * 0.1 });
-  // four tiers whose rims are star-shaped: alternate rim vertices reach
-  // further out, so the silhouette reads as branches, not a smooth cone
-  const tiers = [
-    { r: 0.50, h: 0.62, y: 0.26 },
-    { r: 0.42, h: 0.56, y: 0.58 },
-    { r: 0.32, h: 0.50, y: 0.88 },
-    { r: 0.21, h: 0.46, y: 1.15 },
-  ];
-  const radial = far ? 7 : 12;
-  tiers.forEach((tier, k) => {
-    const cone = new THREE.ConeGeometry(tier.r, tier.h, radial, far ? 1 : 2, true);
+  b.add(trunk(0.3, 0.06, 0.035, far ? 5 : 7), { color: TRUNK, tintMix: 0, bend: (x, y) => y * 0.1 });
+  const count = far ? 4 : 6;
+  const radial = far ? 8 : 10;   // even: tips and notches alternate all round
+  const rand = seeded(far ? 41 : 17);
+  for (let k = 0; k < count; k++) {
+    const t = k / (count - 1);
+    const r = (0.44 - 0.3 * t) * (0.94 + rand() * 0.12);
+    const h = 0.4 - 0.12 * t;
+    const base = 0.16 + t * 0.8;
+    const cone = new THREE.ConeGeometry(r, h, radial, far ? 1 : 2, true);
     const pos = cone.getAttribute('position');
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i); const y = pos.getY(i); const z = pos.getZ(i);
+      const radius = Math.hypot(x, z);
+      if (radius < 1e-5) continue;
       const a = Math.atan2(z, x);
-      const rim = smoothstep(0.1, -tier.h * 0.5, y);
+      const rim = y < -h * 0.49 ? 1 : 0;
+      const mid = !rim && y < h * 0.4 ? 1 : 0;
       const seg = Math.round(((a + Math.PI) / (Math.PI * 2)) * radial);
-      const star = far ? 1 : (seg % 2 === 0 ? 1.22 : 0.86);
-      const jag = (1 + (star - 1) * rim) * (1 + 0.06 * Math.sin(a * 5 + k * 1.7) * rim);
-      pos.setXYZ(i, x * jag, y - rim * 0.07, z * jag);
+      const tip = seg % 2 === 0;
+      const spread = rim ? (tip ? 1.3 : 0.8) : mid ? 1.1 : 1;
+      const wobble = 1 + 0.07 * Math.sin(a * 3 + k * 1.9);
+      const droop = rim ? (tip ? -0.07 : 0.035) : 0;
+      pos.setXYZ(i, x * spread * wobble, y + droop, z * spread * wobble);
     }
+    cone.rotateY(k * 2.39996);
     cone.computeVertexNormals();
-    cone.translate(0, tier.y + tier.h * 0.5, 0);
-    const base = tier.y;
-    const tierShade = 0.9 + 0.1 * (k / (tiers.length - 1));
+    cone.translate(0, base + h * 0.5, 0);
+    const top = 0.9 + 0.1 * t;
     b.add(cone, {
       tintMix: 1,
-      // dark under each tier, lighter needle tips toward the top
-      shade: (x, y) => tierShade * (0.48 + 0.52 * smoothstep(base, base + tier.h * 0.85, y)),
-      bend: (x, y) => 0.2 + 0.8 * smoothstep(0.3, 1.61, y),
+      // shaded under each whorl, sunlit branch tips, lighter toward the crown
+      shade: (x, y, z) => top * (0.6 + 0.4 * smoothstep(base, base + h * 0.8, y))
+        * (0.93 + 0.07 * smoothstep(0.05, 0.35, Math.hypot(x, z))),
+      bend: (x, y) => 0.2 + 0.8 * smoothstep(0.3, 1.3, y),
     });
-  });
+  }
+  // leader shoot at the crown
+  const leader = new THREE.ConeGeometry(0.035, 0.16, far ? 3 : 4, 1, true);
+  leader.translate(0, 1.32, 0);
+  b.add(leader, { tintMix: 1, shade: () => 1, bend: () => 1 });
   return b.finish(far ? 'prop-conifer-far' : 'prop-conifer', { normalizeHeight: 1 });
 }
 
@@ -277,10 +293,10 @@ uniform float uWindSpeed;
 uniform float uGustScale;
 uniform float uGustIntensity;
 uniform float uWindStrengthMul;
-// Mini diorama: a batch placed on an older relief follows the live one by
-// the height change under its root (light map B now - B when it was placed)
+// Mini diorama live ground: instances are placed relative to the ground and
+// stand on the live terrain height under their root (light map B), so they
+// follow every relief edit in the frame it is drawn
 uniform sampler2D uMiniLightTex;
-uniform sampler2D uMiniGroundRef;
 uniform float uMiniHalf;
 uniform float uMiniGroundShift;
 uniform float uMiniTerrainBevel;
@@ -305,7 +321,7 @@ ${WIND_VERT_BODY}
     if (uMiniGroundShift > 0.5) {
       vec3 root = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
       vec2 groundUv = clamp(root.xz / (uMiniHalf * 2.0) + 0.5, 0.0, 1.0);
-      wp.y += textureLod(uMiniLightTex, groundUv, 0.0).b - textureLod(uMiniGroundRef, groundUv, 0.0).b;
+      wp.y += textureLod(uMiniLightTex, groundUv, 0.0).b;
     }
   #endif
   vWorldPos = wp.xyz;
@@ -434,7 +450,6 @@ export function createPropLitMaterial({ shared = null, wind = null, windStrength
       uMiniLightTex: miniLight?.tex ?? { value: null },
       uMiniLightEnabled: miniLight?.enabled ?? { value: 0 },
       uMiniHalf: miniLight?.half ?? { value: 512 },
-      uMiniGroundRef: miniLight?.groundRef ?? { value: null },
       uMiniGroundShift: fade.groundShift,
       uMiniTerrainBevel: shared?.uMiniTerrainBevel ?? { value: 0 },
       uMiniBevelRounded: shared?.uMiniBevelRounded ?? { value: 0 },

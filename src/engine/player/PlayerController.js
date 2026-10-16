@@ -95,6 +95,16 @@ export class PlayerController {
     if (this.pos.x > b.maxX) { this.pos.x = b.maxX; this.vel.x = Math.min(0, this.vel.x); }
     if (this.pos.z < b.minZ) { this.pos.z = b.minZ; this.vel.z = Math.max(0, this.vel.z); }
     if (this.pos.z > b.maxZ) { this.pos.z = b.maxZ; this.vel.z = Math.min(0, this.vel.z); }
+    const r = Math.hypot(this.pos.x, this.pos.z);
+    if (b.radius && r > b.radius) {
+      // round footprint: project back onto the rim, drop the outward speed
+      const nx = this.pos.x / r;
+      const nz = this.pos.z / r;
+      this.pos.x = nx * b.radius;
+      this.pos.z = nz * b.radius;
+      const out = this.vel.x * nx + this.vel.z * nz;
+      if (out > 0) { this.vel.x -= out * nx; this.vel.z -= out * nz; }
+    }
   }
 
   update(dt) {
