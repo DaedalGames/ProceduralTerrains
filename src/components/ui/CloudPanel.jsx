@@ -5,7 +5,9 @@ import { FlatPanelContext } from '../panels/PanelContext.js';
 import { shouldForceSectionOpen } from '../panels/sectionUtils.js';
 import { SliderCtl, ToggleRow, SelectRow, ColorInput } from '../controls.jsx';
 import { colorToHex, parseColor } from '../../engine/style/ColorPalette.js';
-import { CLOUD_DEFAULT_PARAMS } from '../../engine/sky/CloudSettings.js';
+import { CLOUD_DEFAULT_PARAMS, CLOUD_NOISE_TYPES } from '../../engine/sky/CloudSettings.js';
+
+const NOISE_TYPE_OPTIONS = CLOUD_NOISE_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
 
 const SHAPE_SLIDERS = [
   { key: 'cloudNoiseSeed', label: 'Noise Variation', min: 0, max: 1000, step: 1, info: 'Choose a different cloud noise pattern without changing the terrain seed. Shared by realistic and legacy clouds.' },
@@ -140,6 +142,16 @@ export default function CloudPanel({
   };
 
   const realistic = params.cloudRenderMode === 'realistic';
+  const noiseTypeControl = (
+    <SelectRow
+      label={translateText('Noise Type')}
+      value={CLOUD_NOISE_TYPES.includes(params.cloudNoiseVariant) ? params.cloudNoiseVariant : 'soft'}
+      options={NOISE_TYPE_OPTIONS}
+      onChange={(v) => onParam('cloudNoiseVariant', v)}
+      info={translateText('Soft: smooth cloud masses. Billowy: rounded, puffy formations. Wispy: thin, feathered clouds. Works with Noise Variation in both renderers.')}
+      settingId="clouds.cloudNoiseVariant"
+    />
+  );
   const sliders = (defs) => defs.map((def) => (
     <SliderCtl key={def.key} def={def} value={val(params, def.key)} onChange={(v) => onParam(def.key, v)} settingId={`clouds.${def.key}`} />
   ));
@@ -151,8 +163,9 @@ export default function CloudPanel({
         title={translateText("Shape")}
         defaultOpen
         settingId="clouds.section.shape"
-        forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+        forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseVariant', 'clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
       >
+        {noiseTypeControl}
         {sliders(SHAPE_SLIDERS)}
       </ControlSection>
 
@@ -278,8 +291,9 @@ export default function CloudPanel({
             title={translateText("Shape")}
             defaultOpen
             settingId="clouds.section.shape"
-            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseVariant', 'clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
           >
+            {noiseTypeControl}
             {SHAPE_SLIDERS.map((def) => (
               <SliderCtl key={def.key} def={def} value={val(params, def.key)} onChange={(v) => onParam(def.key, v)} settingId={`clouds.${def.key}`} />
             ))}

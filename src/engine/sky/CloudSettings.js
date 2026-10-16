@@ -31,8 +31,7 @@ export const CLOUD_DEFAULT_PARAMS = {
   cloudCoverage: 0.50,        // 0..1 — fraction of sky covered (higher = more)
   cloudDensity: 1.0,          // overall opacity / optical thickness multiplier
   cloudSoftness: 0.16,        // edge softness of the coverage threshold
-  // Kept in serialized params for backwards compatibility. The renderer now
-  // compiles one soft formation only; legacy values are normalized on load.
+  // Shared noise character for both renderers; changes without recompilation.
   cloudNoiseVariant: 'soft',
   cloudNoiseSeed: 0,         // independent cloud pattern variation (both renderers)
 
@@ -82,6 +81,11 @@ export const CLOUD_DEFAULT_PARAMS = {
 };
 
 export const CLOUD_RENDER_MODES = ['legacy', 'realistic'];
+export const CLOUD_NOISE_TYPES = ['soft', 'billowy', 'wispy'];
+
+export function resolveCloudNoiseType(params) {
+  return Math.max(0, CLOUD_NOISE_TYPES.indexOf(params?.cloudNoiseVariant));
+}
 
 export function cloudNoiseOffset(seed = 0) {
   let s = Number(seed) >>> 0;
@@ -103,7 +107,7 @@ export const CLOUD_LEGACY_PERF_KEYS = [
 ];
 
 export function normalizeCloudFormation(params) {
-  if (!params || params.cloudNoiseVariant === 'soft') return params;
+  if (!params || CLOUD_NOISE_TYPES.includes(params.cloudNoiseVariant)) return params;
   return { ...params, cloudNoiseVariant: 'soft' };
 }
 

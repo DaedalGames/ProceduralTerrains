@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createCloudMaterial } from './CloudVolumeShader.js';
-import { resolveCloudQuality, cloudNoiseOffset } from './CloudSettings.js';
+import { resolveCloudQuality, cloudNoiseOffset, resolveCloudNoiseType } from './CloudSettings.js';
 import { cloudCoverageAt } from './cloudFieldCPU.js';
 import { CloudShadowPass } from './CloudShadowPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
@@ -45,7 +45,7 @@ const SHARED_KEYS = [
   'uCloudColor', 'uCloudShadowColor', 'uCloudDirectLight', 'uCloudAmbientTop',
   'uCloudAmbientBottom', 'uCloudGroundBounce', 'uCloudAtmosphereInfluence',
   'uCloudSunResponse', 'uCloudAmbientResponse', 'uCloudSilverLining',
-  'uCloudWind', 'uCloudNoiseOffset', 'uCloudDomainOrigin', 'uCloudVariationOffset',
+  'uCloudWind', 'uCloudNoiseOffset', 'uCloudDomainOrigin', 'uCloudVariationOffset', 'uCloudNoiseType',
   'uCloudRotation', 'uCloudTime', 'uCloudEvolve',
   'uCloudSelfShadow', 'uCloudSunDir', 'uCloudStepScale',
   'tSceneDepth', 'uDepthResolution', 'uProjectionMatrixInverse', 'uViewMatrixInverse',
@@ -251,6 +251,7 @@ export class PlanetCloudChunks {
     u.uCloudDetailScale.value = (params.cloudDetailScale ?? 7.0) * fScale;
     u.uCloudErosionScale.value = (params.cloudErosionScale ?? 15.0) * fScale;
     u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+    u.uCloudNoiseType.value = resolveCloudNoiseType(params);
     u.uCloudDetailStrength.value = params.cloudDetailStrength ?? 0.35;
     u.uCloudErosionStrength.value = params.cloudErosionStrength ?? 0.30;
 
@@ -395,6 +396,7 @@ export class PlanetCloudChunks {
     if (now - this._coverEvalAt > 180) { this._coverEvalAt = now; evalCover = true; }
     const field = evalCover ? {
       scale: u.uCloudScale.value,
+      noiseType: u.uCloudNoiseType.value,
       offsetX: u.uCloudVariationOffset.value.x,
       offsetY: u.uCloudVariationOffset.value.y,
       offsetZ: u.uCloudVariationOffset.value.z,

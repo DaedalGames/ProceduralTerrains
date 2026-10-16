@@ -2118,7 +2118,7 @@ export default function App() {
       case 'clouds.cloudSunResponse': return num(params.cloudSunResponse ?? 1, 2);
       case 'clouds.cloudAmbientResponse': return num(params.cloudAmbientResponse ?? 1, 2);
       case 'clouds.cloudSilverLining': return num(params.cloudSilverLining ?? 0.25, 2);
-      case 'clouds.cloudNoiseVariant': return String(params.cloudNoiseVariant ?? 'default');
+      case 'clouds.cloudNoiseVariant': return String(params.cloudNoiseVariant ?? 'soft');
       case 'clouds.cloudColor': return hex(params.cloudColor);
       case 'clouds.cloudShadowColor': return hex(params.cloudShadowColor);
 

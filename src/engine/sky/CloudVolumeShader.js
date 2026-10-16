@@ -300,6 +300,7 @@ export function createCloudMaterial(steps = 24, lightSteps = 6, octaves = 5, det
       uCloudWind:            { value: new THREE.Vector3() },
       uCloudNoiseOffset:     { value: new THREE.Vector3() },
       uCloudVariationOffset: { value: new THREE.Vector3() },
+      uCloudNoiseType: { value: 0 },
       uCloudDomainOrigin:    { value: new THREE.Vector3() },
       uCloudRotation:        { value: 0.0 },
       uCloudTime:            { value: 0.0 },

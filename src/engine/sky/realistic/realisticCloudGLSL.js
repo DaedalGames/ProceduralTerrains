@@ -258,6 +258,7 @@ uniform float uCloudDetailFreq;
 uniform float uCloudCellFreq;
 uniform vec3  uCloudWind;
 uniform vec3  uCloudVariationOffset;
+uniform float uCloudNoiseType; // 0 = soft, 1 = billowy, 2 = wispy
 uniform float uCloudCoverage;
 uniform float uCloudSoftness;
 uniform float uCloudDensity;
@@ -316,6 +317,8 @@ float cloudCover(vec4 w) {
 vec4 cloudGradient(float type, float cov) {
   float tt = sat(type * (0.4 + 1.2 * uCloudTowering));
   float top = mix(0.3, 1.0, sat(tt * 0.75 + cov * 0.45));
+  if (uCloudNoiseType > 1.5) top *= 0.6;
+  else if (uCloudNoiseType > 0.5) top = mix(top, 1.0, 0.25);
   return vec4(0.0, 0.07, top * mix(0.3, 0.15, tt), top);
 }
 
@@ -484,7 +487,10 @@ vec3 skyIrradiance(vec3 p, float hf) {
 // Density at height fraction hf of column g / cover cov; pr = billow position.
 float cloudShape(vec3 pr, float hf, vec4 g, float cov, float detail) {
   if (hf <= 0.0 || hf >= 1.0 || hf >= g.w + 1.1 * TOP_JITTER) return 0.0;
-  vec2 n = textureLod(uCloudNoise, pr * uCloudShapeFreq + uCloudWind * 0.35 + uCloudVariationOffset, 0.0).rg;
+  vec3 noisePoint = pr * uCloudShapeFreq + uCloudWind * 0.35 + uCloudVariationOffset;
+  if (uCloudNoiseType > 1.5) noisePoint *= vec3(0.55, 1.7, 1.4);
+  else if (uCloudNoiseType > 0.5) noisePoint *= 0.75;
+  vec2 n = textureLod(uCloudNoise, noisePoint, 0.0).rg;
   // The billows move the top ramp: per-column top heights alone have no
   // vertical structure, and seen from the side they read as vertical
   // streaks running down the whole body. The flat bases stay flat.
@@ -492,10 +498,13 @@ float cloudShape(vec3 pr, float hf, vec4 g, float cov, float detail) {
   float prof = smoothstep(g.x, max(g.y, 0.12), hf) * (1.0 - smoothstep(max(g.z, g.w * 0.4), g.w, hTop));
   if (prof <= 0.0) return 0.0;
   float base = sat(remap(n.y, mix(0.24, 0.38, n.x), 0.82, 0.0, 1.0));
+  if (uCloudNoiseType > 1.5) base = pow(base, 1.35);
+  else if (uCloudNoiseType > 0.5) base = mix(base, 0.35 + 0.65 * smoothstep(0.25, 0.75, n.x), 0.55);
   // profile BEFORE the coverage remap: each column gets its own top height
   // (cauliflower tops); coverage thresholds the billows so system fringes
   // break into cumulus fields and turn translucent
   float dens = sat(remap(base * prof, 1.0 - cov, 1.0, 0.0, 1.0)) * cov;
+  if (uCloudNoiseType > 1.5) dens *= 0.62;
   if (detail <= 0.0 || dens <= 0.0) return dens;
   // erosion: wispy bottoms, billowy tops
   float hfb = textureLod(uCloudErosion, pr * uCloudDetailFreq + uCloudWind + uCloudVariationOffset, 0.0).r;

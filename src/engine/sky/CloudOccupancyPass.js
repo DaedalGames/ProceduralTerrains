@@ -45,7 +45,8 @@ float occShape(vec3 p) {
     + uCloudVariationOffset
     + drift
     + vec3(0.0, uCloudTime * uCloudEvolve, 0.0);
-  float base = cl_fbm_base(q);
+  q = cl_formationPoint(q);
+  float base = cl_formationBase(q, cl_fbm_base(q));
   // A generous margin replaces the old CPU dilation/boost and deliberately
   // over-estimates occupancy so the visible raymarch never clips wisps.
   float threshold = 1.0 - uCloudCoverage

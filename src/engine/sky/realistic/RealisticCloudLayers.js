@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CloudSlabLayer } from '../CloudSlabLayer.js';
 import { PlanetCloudLayer } from '../PlanetCloudLayer.js';
-import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS, cloudNoiseOffset } from '../CloudSettings.js';
+import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS, cloudNoiseOffset, resolveCloudNoiseType } from '../CloudSettings.js';
 import { REALISTIC_CLOUD_VERTEX, REALISTIC_CLOUD_FRAGMENT, REALISTIC_MAX_STEPS } from './realisticCloudGLSL.js';
 import {
   getRealisticNoiseVolumes,
@@ -54,6 +54,7 @@ export function createRealisticCloudMaterial({ planet = false } = {}) {
     uCloudCellFreq:    { value: 3e-4 },
     uCloudWind:        { value: new THREE.Vector3() },
     uCloudVariationOffset: { value: new THREE.Vector3() },
+    uCloudNoiseType: { value: 0 },
     uCloudCoverage:    { value: 0.5 },
     uCloudSoftness:    { value: 0.18 },
     uCloudDensity:     { value: 0.8 },
@@ -121,6 +122,7 @@ function applyRealisticLighting(u, state) {
 /** Uniforms shared by both geometries (shape, look, quality). */
 function applySharedParams(u, params, config, q) {
   u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+  u.uCloudNoiseType.value = resolveCloudNoiseType(params);
   u.uCloudCoverage.value = param(params, 'cloudCoverage');
   u.uCloudSoftness.value = Math.max(0.01, param(params, 'cloudSoftness'));
   u.uCloudDensity.value = param(params, 'cloudDensity');
