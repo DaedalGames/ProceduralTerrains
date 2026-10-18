@@ -86,7 +86,7 @@ version and registry credentials, using the prepared prepublish checks.
 
 ## Validation recorded for this extraction
 
-- 879 Vitest tests across 110 files, including 31 public runtime/studio contract tests.
+- 880 Vitest tests across 110 files, including 32 public runtime/studio contract tests.
 - 52 renderer Node tests.
 - Strict TypeScript consumers covering all public subpaths.
 - Actual npm tarball installation and import of every entry point without DOM;

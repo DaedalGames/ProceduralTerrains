@@ -122,6 +122,8 @@ export const planetAdapter = {
     t._runtime.sampler.setStack(t._stack);
     t._runtime.world.materials = t._runtime.world.materials.map(() => t._material);
     for (const b of t._runtime.world.batches) b.material = t._material;
+    // Folded patches keep a material reference for future batch allocations.
+    if (t._runtime.world._patchMaterial) t._runtime.world._patchMaterial = t._material;
     if (sourceChanged)
       await this.prepare(t, t._viewCamera ?? new THREE.PerspectiveCamera(), signal, check);
   },

@@ -192,6 +192,23 @@ describe('independent sources and world contracts', () => {
     expect(() => planet.sampleHeight(0, 0)).toThrow('sampleHeight3D');
     planet.dispose();
   });
+  it('publishes the current planet shader to future folded-patch batches', async () => {
+    const t = await createPlanetTerrain({
+      renderer: renderer(),
+      configuration: { ...config, layout: { radius: 500, faceGrid: 1, bakeResolution: 16 } },
+    });
+    const old = t._runtime.world._ensurePatchMaterial();
+    const prepare = vi.spyOn(t._world, 'prepare').mockResolvedValue();
+    try {
+      await t.configure({ source: { octaves: 3 } });
+      expect(t._material).not.toBe(old);
+      expect(t._runtime.world._ensurePatchMaterial()).toBe(t._material);
+      expect(t._runtime.world._patchMaterial.defines.OCTAVES).toBe(3);
+    } finally {
+      prepare.mockRestore();
+      t.dispose();
+    }
+  });
   it('creates Mini presentation without camera controls, DOM or an animation loop', async () => {
     const t = await createMiniTerrain({
       renderer: renderer(),
