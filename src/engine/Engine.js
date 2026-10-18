@@ -21,7 +21,8 @@ import { createTerrainUniforms, createTerrainMaterial, createInfiniteTerrainMate
 import { syncSurfaceMaterialBackend } from './terrain/surface/SurfaceArrayGLSL.js';
 import { GpuFramePacer } from './render/GpuFramePacer.js';
 import { createWaterMaterial, createInfiniteWaterMaterial, rebuildWaterShaderSource } from './terrain/WaterMaterial.js';
-import { TerrainBoard } from './terrain/TerrainBoard.js';
+import { FiniteTerrainRuntime, updateFiniteTerrainView } from '../runtime/FiniteTerrainRuntime.js';
+import { applyTerrainShapeUniforms, applyTerrainShadingUniforms } from '../runtime/TerrainParameters.js';
 import { InfiniteWorld } from './terrain/InfiniteWorld.js';
 import { InfiniteTerrainClipmap } from './terrain/InfiniteTerrainClipmap.js';
 import { CloudSlabLayer } from './sky/CloudSlabLayer.js';
@@ -198,17 +199,6 @@ const NODE_NEUTRAL_PALETTE = Object.fromEntries(PALETTE_KEYS.map((key) => [
 //   onModeError(error)          target failed; previous mode was restored
 //   onModeComplete(result)      target final frame has been presented
 // ============================================================================
-
-// Deterministic PRNG used ONLY to derive noise-domain offsets from the seed.
-// Terrain itself is a pure GPU function of (worldXZ, uniforms).
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function yieldTask() {
   if (typeof MessageChannel !== 'undefined') {
@@ -845,7 +835,8 @@ export class Engine {
       this._stackGLSL,
       { variant: this._targetTerrainVariant(), worldMode: 'studio' },
     );
-    this.board = new TerrainBoard(this.scene, this.terrainMaterial);
+    this.finiteTerrain = new FiniteTerrainRuntime(this.scene, this.terrainMaterial);
+    this.board = this.finiteTerrain.board;
 
     // water plane at sea level
     this.waterMaterial = createWaterMaterial(this.uniforms, oct, this._stackGLSL);
@@ -4507,9 +4498,7 @@ export class Engine {
   }
 
   _refreshStudioChunkView(now = performance.now()) {
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._lastLodUpdate = now;
   }
 
@@ -4636,9 +4625,7 @@ export class Engine {
     const created = this.board.processBuildQueue(this._studioChunkBuildBudget());
     if (!created) return 0;
 
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._needsRender = true;
     this._lastLodUpdate = now;
     this.cb.onLod(
@@ -4755,24 +4742,7 @@ export class Engine {
     this._syncImportedMapUniforms();
     const size = this.boardSize;
 
-    const rng = mulberry32(p.seed >>> 0);
-    u.uSeedOffset.value.set(rng() * 2048 - 1024, rng() * 2048 - 1024);
-
-    u.uFrequency.value = (p.noiseScale * 0.1) / size;
-    u.uHeightScale.value = p.heightScale;
-    u.uSeaLevel.value = p.seaLevel;
-    u.uTerrainFormationSeaLevel.value = p.terrainFormationSeaLevel;
-    u.uAmplitude.value = p.noiseStrength;
-    u.uTerrainSmoothing.value = p.terrainSmoothing ?? 0;
-    if (u.uTerrainDetailCut) u.uTerrainDetailCut.value = 1 - Math.min(1, Math.max(0, p.terrainDetail ?? 1));
-    u.uPersistence.value = p.persistence;
-    u.uLacunarity.value = p.lacunarity;
-    u.uRidge.value = p.ridge;
-    u.uWarp.value = p.warp;
-    u.uFalloff.value = p.falloff;
-    u.uEdgeFalloffMode.value = p.edgeFalloffMode === 'mountains' ? 1 : 0;
-    u.uBoardHalf.value = size / 2;
-    u.uChunkSize.value = p.chunkSize;
+    applyTerrainShapeUniforms(u, p, size);
     this.mini?.applyUniforms(u);
     this._applyTileUniforms();
     if (this.destructionField) {
@@ -4780,31 +4750,9 @@ export class Engine {
       this.destructionField.setRegion(bounds.origin, bounds.span);
       this.destructionField.applyTo(u, this.worldMode === 'studio');
     }
-    u.uMoistScale.value = p.moistScale;
-    u.uMoistBias.value = p.moistBias;
-    u.uBiomeScale.value = p.biomeScale;
-    u.uTempBias.value = p.tempBias;
-    u.uBiomeDebug.value = p.biomeDebug ? 1 : 0;
-    u.uSnowLine.value = p.snowLine;
-    u.uNormalStrength.value = p.normalStrength;
-    u.uAO.value = p.aoStrength;
-    u.uAORidge.value = p.aoRidge ?? 0;
-    // Slope gates — keep each pair ordered so the smoothstep edges stay valid
-    // whatever the two sliders are set to.
-    {
-      const rockLo = p.rockSlopeLo ?? 0.42;
-      const snowMin = p.snowSlopeMin ?? 0.30;
-      u.uRockSlopeLo.value = rockLo;
-      u.uRockSlopeHi.value = Math.max(p.rockSlopeHi ?? 0.72, rockLo + 0.01);
-      u.uSnowSlopeMin.value = snowMin;
-      u.uSnowSlopeMax.value = Math.max(p.snowSlopeMax ?? 0.62, snowMin + 0.01);
-    }
-    u.uGrid.value = p.chunkGrid ? 1 : 0;
-    u.uLodDebug.value = p.lodDebug ? 1 : 0;
-    u.uEps.value = Math.max(0.35, size / 4096);
-    u.uSkirtDepth.value = this._skirtDepth();
-    u.uPlinthBaseY.value = -this._skirtDepth();   // perimeter wall drops to plinth base
-    u.uWallThickness.value = this._wallThickness();
+    applyTerrainShadingUniforms(u, p, {
+      size, skirtDepth: this._skirtDepth(), wallThickness: this._wallThickness(),
+    });
     u.uPlanetRadius.value = p.planetRadius;
     // angular epsilon for analytic planet normals ≈ one finest-LOD quad
     u.uPlanetEps.value = 2.0 / (this._planetFaceGrid() * 64);
@@ -8256,9 +8204,7 @@ export class Engine {
     const t0 = performance.now();
 
     this.controls.update(frozen ? 0 : 0.016);
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._lastLodUpdate = performance.now();
     this.cb.onLod(
       [...this.board.lodCounts],
@@ -13405,14 +13351,14 @@ export class Engine {
       // fly the camera out and inspect the frozen frustum from outside).
       this.camera.updateMatrixWorld(true);
       this.profiler.begin('culling');
-      if (!this._debug.freezeCulling) this.board.cull(this.camera);
+      if (!this._debug.freezeCulling) updateFiniteTerrainView(this.board, this.camera, { lod: false });
       this.profiler.end('culling');
 
       // LOD selection: throttled, distance-based, internal to the fixed board
       if (now - this._lastLodUpdate > 150 && !this._debug.freezeLod) {
         this._lastLodUpdate = now;
         this.profiler.begin('lod');
-        this.board.updateLOD(this.camera.position);
+        updateFiniteTerrainView(this.board, this.camera, { cull: false });
         this.profiler.end('lod');
         this.cb.onLod(
           [...this.board.lodCounts],
@@ -13995,7 +13941,8 @@ export class Engine {
     this._nearHeightCache?.dispose();
     this._nearHeightCache = null;
     if (this.proceduralSky) { this.proceduralSky.dispose(); this.proceduralSky = null; }
-    this.board.dispose();
+    if (this.finiteTerrain) this.finiteTerrain.dispose();
+    else this.board.dispose();
     this.minimap.dispose();
     this.underwater.dispose();
     this.visualPost?.dispose();

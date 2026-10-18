@@ -1210,7 +1210,7 @@ function surfFallbackTexture() {
   return _surfFallbackTex;
 }
 
-export function createTerrainUniforms() {
+export function createTerrainUniforms({ surfaceFallback = null } = {}) {
   const paletteUniforms = createPaletteUniforms();
   const defaults = {
     ...DEFAULT_PLANET_STYLE,
@@ -1512,8 +1512,8 @@ export function createTerrainUniforms() {
     uSurfaceRoleMap: { value: Array.from({length:13},()=>new THREE.Vector4(0,-1,0,1)) },
     uSurfaceRoleTint: { value: Array.from({length:13},()=>new THREE.Vector3(1,1,1)) },
     uSurfaceAssetSize: { value: new Array(64).fill(2) },
-    uSurfDiffuse:    { value: surfFallbackTexture() },
-    uSurfProps:      { value: surfFallbackTexture() },
+    uSurfDiffuse:    { value: surfaceFallback ?? surfFallbackTexture() },
+    uSurfProps:      { value: surfaceFallback ?? surfFallbackTexture() },
     uSurfMode:       { value: 0.0 },
     uSurfAmount:     { value: 1.0 },
     uSurfReveal:     { value: 0.0 },

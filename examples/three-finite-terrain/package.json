@@ -1,0 +1,11 @@
+{
+  "name": "three-finite-terrain-example",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build" },
+  "dependencies": {
+    "procedural-terrains": "file:../../packages/procedural-terrains",
+    "three": "0.185.1"
+  },
+  "devDependencies": { "vite": "^5.4.11" }
+}

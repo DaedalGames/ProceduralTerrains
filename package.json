@@ -21,7 +21,13 @@
     "migrate:api": "npm --prefix api run migrate",
     "materials:fetch": "node tools/materials.mjs fetch",
     "materials:build": "node tools/materials.mjs build",
-    "materials:verify": "node tools/materials.mjs verify"
+    "materials:verify": "node tools/materials.mjs verify",
+    "build:lib": "node tools/build-terrain-package.mjs",
+    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js",
+    "typecheck:lib": "tsc -p tests/types/tsconfig.json",
+    "test:package": "node tools/check-terrain-package.mjs",
+    "check:lib": "npm run test:lib && npm run build:lib && npm run typecheck:lib && npm run test:package",
+    "test:lib:browser": "node tools/check-terrain-browser.mjs"
   },
   "config": {
     "forge": "./forge.config.cjs"
@@ -39,6 +45,7 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
@@ -46,8 +53,12 @@
     "playwright": "^1.63.0",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.4",
+    "typescript": "~5.8.3",
     "vite": "^5.4.11",
     "vitest": "^3.2.6",
     "wait-on": "^9.1.0"
-  }
+  },
+  "workspaces": [
+    "packages/procedural-terrains"
+  ]
 }

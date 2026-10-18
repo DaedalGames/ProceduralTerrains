@@ -1,0 +1,32 @@
+{
+  "name": "procedural-terrains",
+  "version": "0.1.0-alpha.0",
+  "description": "Procedural finite terrains for a caller-owned Three.js scene and renderer.",
+  "type": "module",
+  "license": "MIT",
+  "author": "ZyFou",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZyFou/ProceduralTerrains.git",
+    "directory": "packages/procedural-terrains"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "types", "README.md", "LICENSE"],
+  "scripts": {
+    "prepack": "node ../../tools/build-terrain-package.mjs",
+    "prepublishOnly": "npm --prefix ../.. run check:lib"
+  },
+  "peerDependencies": {
+    "three": "~0.185.1"
+  }
+}
