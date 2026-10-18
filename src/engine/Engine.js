@@ -593,7 +593,7 @@ export class Engine {
         }
       }
       import('./terrain/surface/SurfacePreparationClient.js')
-        .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations());
+        .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations(this));
       console.warn('[graphics] context lost; aborting boot generation');
       if (this._modeTransitionRequest) {
         const request = this._modeTransitionRequest;
@@ -12814,7 +12814,7 @@ export class Engine {
     const revision=(this._surfaceBuildRevision||0)+1;this._surfaceBuildRevision=revision;
     const buildKey = this._surfaceBuildKey(source);
     const { prepareSurfaceInBackground, cancelSurfacePreparations } = await import('./terrain/surface/SurfacePreparationClient.js');
-    cancelSurfacePreparations();
+    cancelSurfacePreparations(this);
     this._bgWorkStart('surface-preparation', 'Preparing terrain materials…');
     const layersField = this.manualTerrain?.surfaceField?.layersField;
     let atlas;
@@ -12822,7 +12822,7 @@ export class Engine {
       atlas = await prepareSurfaceInBackground({
         source, document: this.params.surfaceDocument, graph: this.terrainGraph,
         paint: layersField ? { layers: layersField.layers } : null,
-      });
+      }, {owner:this});
     } catch (error) {
       if (error.code !== 'SURFACE_ATLAS_SUPERSEDED') {
         this.cb.onStatus?.('Terrain materials could not be prepared; base terrain remains available', false);
@@ -13836,6 +13836,8 @@ export class Engine {
   }
 
   dispose() {
+    import('./terrain/surface/SurfacePreparationClient.js')
+      .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations(this));
     this._cityAbort?.abort();
     this._gpuFramePacer?.dispose();
     for (const entry of Object.values(this.importedMaps || {})) entry?.texture?.dispose();

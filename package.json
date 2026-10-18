@@ -23,11 +23,12 @@
     "materials:build": "node tools/materials.mjs build",
     "materials:verify": "node tools/materials.mjs verify",
     "build:lib": "node tools/build-terrain-package.mjs",
-    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js",
+    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js tests/TerrainPackage.test.js",
     "typecheck:lib": "tsc -p tests/types/tsconfig.json",
     "test:package": "node tools/check-terrain-package.mjs",
     "check:lib": "npm run test:lib && npm run build:lib && npm run typecheck:lib && npm run test:package",
-    "test:lib:browser": "node tools/check-terrain-browser.mjs"
+    "test:lib:browser": "node tools/check-terrain-browser.mjs",
+    "test:lib:worlds": "node tools/check-terrain-worlds-browser.mjs"
   },
   "config": {
     "forge": "./forge.config.cjs"

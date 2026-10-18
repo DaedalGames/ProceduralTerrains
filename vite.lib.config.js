@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 const forbidden = /(?:^|\/)(?:react(?:-dom)?|electron|leaflet)(?:\/|$)|\/(?:platform|auth|project|components)\//;
 
 export default defineConfig({
+  base: './',
   publicDir: false,
   plugins: [{
     name: 'terrain-runtime-boundary',
@@ -13,13 +14,14 @@ export default defineConfig({
       }
     },
   }],
+  worker: { format: 'es' },
   build: {
     outDir: 'packages/procedural-terrains/dist',
     emptyOutDir: true,
     sourcemap: true,
     minify: false,
     target: 'es2020',
-    lib: { entry: fileURLToPath(new URL('./packages/procedural-terrains/index.js', import.meta.url)), formats: ['es'], fileName: () => 'index.js' },
-    rollupOptions: { external: [/^three(?:$|\/)/] },
+    lib: { entry: Object.fromEntries(["index", "infinite", "planet", "mini", "water", "clouds", "render", "assets", "export", "real-world", "documents", "viewer", "generation"].map(name => [name, fileURLToPath(new URL(`./packages/procedural-terrains/${name}.js`, import.meta.url))])), formats: ['es'], fileName: (_format,name) => `${name}.js` },
+    rollupOptions: { external: [/^three(?:$|\/)/, 'fflate'] },
   },
 });

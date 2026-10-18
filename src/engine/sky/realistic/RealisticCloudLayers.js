@@ -5,6 +5,7 @@ import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS, cloudNoiseOffset, resolveClo
 import { REALISTIC_CLOUD_VERTEX, REALISTIC_CLOUD_FRAGMENT, REALISTIC_MAX_STEPS } from './realisticCloudGLSL.js';
 import {
   getRealisticNoiseVolumes,
+  retainRealisticNoiseVolumes,
   seedOffset,
   WEATHER_SIZE,
   CubeWeatherField,
@@ -144,6 +145,7 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
   constructor(scene, opts = {}) {
     super(scene, opts);
     this.renderMode = 'realistic';
+    this._releaseNoiseVolumes = retainRealisticNoiseVolumes(opts.renderer);
     this._lowResPass.smooth = true;
     this._weather = new FlatWeatherField();
     this._fieldShift = new THREE.Vector2();
@@ -280,6 +282,7 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
   }
 
   dispose() {
+    this._releaseNoiseVolumes?.();
     this._weather?.dispose();
     this._weather = null;
     super.dispose();
@@ -335,6 +338,7 @@ export class RealisticPlanetCloudLayer extends PlanetCloudLayer {
   constructor(scene, opts = {}) {
     super(scene, opts);
     this.renderMode = 'realistic';
+    this._releaseNoiseVolumes = retainRealisticNoiseVolumes(opts.renderer);
     this._lowResPass.smooth = true;
     this._weather = new CubeWeatherField();
     this._noiseWind = new THREE.Vector3();
@@ -424,6 +428,7 @@ export class RealisticPlanetCloudLayer extends PlanetCloudLayer {
   }
 
   dispose() {
+    this._releaseNoiseVolumes?.();
     this._weather?.dispose();
     this._weather = null;
     super.dispose();

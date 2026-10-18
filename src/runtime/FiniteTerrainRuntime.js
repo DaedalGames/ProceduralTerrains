@@ -15,6 +15,10 @@ export class FiniteTerrainRuntime {
     this.board = new TerrainBoard(parent, material);
   }
 
+  get group() {
+    return this.board.group;
+  }
+
   update(camera, budget) {
     if (budget && this.board.isBuilding) this.board.processBuildQueue(budget);
     updateFiniteTerrainView(this.board, camera);

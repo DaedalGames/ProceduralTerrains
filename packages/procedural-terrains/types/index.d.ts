@@ -1,38 +1,174 @@
-import type { Camera, Group, WebGLRenderer } from 'three';
+import type { Camera, Group, WebGLRenderer, Texture } from 'three';
+
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
+export interface NoiseParameters {
+  readonly seed: number;
+  readonly octaves: number;
+  readonly scale: number;
+  readonly strength: number;
+  readonly smoothing: number;
+  readonly detail: number;
+  readonly persistence: number;
+  readonly lacunarity: number;
+  readonly ridge: number;
+  readonly warp: number;
+  readonly falloff: number;
+  readonly edgeFalloffMode: 'island' | 'mountains';
+}
+export interface NoiseLayer {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  blendMode: string;
+  strength: number;
+  opacity: number;
+  seedOffset: number;
+  params: Record<string, number>;
+  masks?: JsonObject[];
+}
+export interface NoiseStack {
+  version: number;
+  layers: NoiseLayer[];
+  normalizeOutput?: boolean;
+  outputMin?: number;
+  outputMax?: number;
+}
+export interface GraphNode {
+  id: string;
+  type: string;
+  params?: JsonObject;
+  position?: { x: number; y: number };
+  label?: string;
+}
+export interface GraphDocument {
+  version: number;
+  nodes: GraphNode[];
+  edges: {
+    id?: string;
+    source: string;
+    target: string;
+    sourceHandle?: string;
+    targetHandle?: string;
+    type?: 'analytic-height' | 'analytic-color';
+  }[];
+  [key: string]: unknown;
+}
+export interface ManualDocument {
+  version?: number;
+  baseSource?: 'flat' | 'procedural' | 'nodes';
+  shapes?: JsonObject[];
+  sculpt?: JsonObject | null;
+  surfacePaint?: JsonObject | null;
+}
+export type TerrainSourcePatch =
+  | (Partial<NoiseParameters> & { kind?: 'noise'; stack?: NoiseStack })
+  | (Partial<NoiseParameters> & { kind: 'graph'; graph: GraphDocument })
+  | (Partial<NoiseParameters> & {
+      kind: 'manual';
+      document?: ManualDocument;
+      resolution?: number;
+      stack?: NoiseStack;
+      graph?: GraphDocument;
+    })
+  | (Partial<NoiseParameters> & {
+      kind: 'heightmap';
+      data: ArrayLike<number>;
+      width: number;
+      height: number;
+    });
+export interface TerrainExtension {
+  type: string;
+  [key: string]: unknown;
+}
+export interface TerrainLayer {
+  prepare?(camera: Camera, options?: { signal?: AbortSignal }): Promise<void>;
+  onTerrainChanged?(options?: { signal?: AbortSignal }): void | Promise<void>;
+  update?(deltaSeconds: number, frame: { camera: Camera }): void;
+  beforeRender?(): void;
+  serialize?(): TerrainExtension;
+  dispose(): void;
+}
 
 /** Linear RGB components in [0, 1]. */
 export type TerrainColor = readonly [number, number, number];
-export type TerrainPaletteKey = 'deep' | 'shallow' | 'sand' | 'dune' | 'dryGrass'
-  | 'grass' | 'forest' | 'jungle' | 'swamp' | 'tundra' | 'redRock' | 'redRock2'
-  | 'rock' | 'rockHi' | 'snow' | 'foam';
+export type TerrainPaletteKey =
+  | 'deep'
+  | 'shallow'
+  | 'sand'
+  | 'dune'
+  | 'dryGrass'
+  | 'grass'
+  | 'forest'
+  | 'jungle'
+  | 'swamp'
+  | 'tundra'
+  | 'redRock'
+  | 'redRock2'
+  | 'rock'
+  | 'rockHi'
+  | 'snow'
+  | 'foam';
 export type TerrainPalette = Readonly<Record<TerrainPaletteKey, TerrainColor>>;
 
 export interface TerrainConfiguration {
   readonly heightScale: number;
-  /** Shoreline used for terrain colouring; this release does not create water. */
+  /** Shoreline in world units; optional water is a separate layer. */
   readonly seaLevel: number;
-  readonly layout: { readonly chunkCount: number; readonly chunkSize: number };
-  readonly source: {
-    readonly kind: 'noise'; readonly seed: number; readonly octaves: number;
-    readonly scale: number; readonly strength: number; readonly smoothing: number;
-    readonly detail: number; readonly persistence: number; readonly lacunarity: number;
-    readonly ridge: number; readonly warp: number; readonly falloff: number;
-    readonly edgeFalloffMode: 'island' | 'mountains';
+  readonly layout: {
+    readonly chunkCount: number;
+    readonly chunkSize: number;
+    readonly viewRadius?: number;
+    readonly triangleBudget?: number;
+    readonly maxCreatesPerFrame?: number;
+    readonly streamBudgetMs?: number;
+    readonly cacheResolution?: number;
+    readonly radius?: number;
+    readonly faceGrid?: number;
+    readonly bakeResolution?: number;
   };
+  readonly source: Readonly<
+    NoiseParameters &
+      (
+        | { kind: 'noise'; stack?: NoiseStack }
+        | { kind: 'graph'; graph: GraphDocument }
+        | {
+            kind: 'manual';
+            document: ManualDocument;
+            resolution: number;
+            graph?: GraphDocument;
+            stack?: NoiseStack;
+          }
+        | { kind: 'heightmap'; data: readonly number[]; width: number; height: number }
+      )
+  >;
   readonly quality: {
     readonly lodSegments: readonly [number, number, number, number];
-    readonly lodDistanceScale: number; readonly morphEnabled: boolean;
-    readonly mergeEnabled: boolean; readonly cullingEnabled: boolean;
+    readonly lodDistanceScale: number;
+    readonly morphEnabled: boolean;
+    readonly mergeEnabled: boolean;
+    readonly cullingEnabled: boolean;
   };
   readonly lighting: {
-    readonly sunAzimuth: number; readonly sunElevation: number; readonly fogDensity: number;
+    readonly sunAzimuth: number;
+    readonly sunElevation: number;
+    readonly fogDensity: number;
   };
   readonly palette: TerrainPalette;
 }
 
-export type TerrainConfigurationPatch = Partial<Pick<TerrainConfiguration, 'heightScale' | 'seaLevel'>> & {
+export type TerrainConfigurationPatch = Partial<
+  Pick<TerrainConfiguration, 'heightScale' | 'seaLevel'>
+> & {
   layout?: Partial<TerrainConfiguration['layout']>;
-  source?: Partial<TerrainConfiguration['source']>;
+  source?: TerrainSourcePatch;
   quality?: Partial<TerrainConfiguration['quality']>;
   lighting?: Partial<TerrainConfiguration['lighting']>;
   palette?: Partial<Record<TerrainPaletteKey, TerrainColor>>;
@@ -43,16 +179,27 @@ export interface TerrainOptions {
   renderer: WebGLRenderer;
   configuration?: TerrainConfigurationPatch;
   signal?: AbortSignal;
+  resources?: import('./assets.js').TerrainResources;
 }
 
 export interface TerrainDiagnostics {
-  disposed: boolean; prepared: boolean; revision: number;
-  chunks: number; visible: number; culled: number; lodCounts: number[];
-  mergedGroups: number; savedDrawCalls: number;
+  disposed: boolean;
+  prepared: boolean;
+  revision: number;
+  chunks: number;
+  visible: number;
+  culled: number;
+  lodCounts: number[];
+  mergedGroups?: number;
+  savedDrawCalls?: number;
+  mode?: 'finite' | 'infinite' | 'planet';
 }
 
 export interface TerrainDocument {
-  format: 'procedural-terrains'; schemaVersion: 1; kind: 'finite';
+  format: 'procedural-terrains';
+  schemaVersion: 1;
+  kind: 'finite' | 'infinite' | 'planet';
+  extensions?: TerrainExtension[];
   configuration: TerrainConfiguration;
 }
 
@@ -60,7 +207,10 @@ export declare class FiniteTerrain {
   constructor(options: TerrainOptions);
   /** Caller may attach this group to an identity-transformed scene/root. */
   readonly object: Group;
+  readonly mode: 'finite' | 'infinite' | 'planet';
   readonly configuration: TerrainConfiguration;
+  mini?: import('./mini.js').MiniPresentation;
+  attribution?: string;
   /** Explicitly warm and validate the initial shader before first rendering. */
   prepare(camera: Camera, options?: { signal?: AbortSignal }): Promise<void>;
   /** Live uniform edits preserve geometry. Shader edits publish after compilation. */
@@ -69,6 +219,14 @@ export declare class FiniteTerrain {
   update(deltaSeconds: number, frame: { camera: Camera }): void;
   /** CPU approximation in world XZ units; null outside the finite board. */
   sampleHeight(x: number, z: number): number | null;
+  sampleHeight3D(x: number, y: number, z: number): number;
+  /** Borrowed textures/resources are never disposed by the terrain. */
+  setImagery(texture: Texture | null, options?: { blend?: number }): void;
+  setSurface(
+    surface: import('./assets.js').SurfaceResources | null,
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
+  addLayer(layer: TerrainLayer): () => void;
   serialize(): TerrainDocument;
   getDiagnostics(): TerrainDiagnostics;
   /** Idempotent. Cancels pending operations and releases only owned resources. */

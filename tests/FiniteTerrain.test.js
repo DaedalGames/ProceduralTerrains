@@ -68,7 +68,7 @@ describe('finite terrain public runtime', () => {
   it('rejects unsupported and invalid input without changing the current terrain', async () => {
     const t = await createTerrain({ renderer: renderer(), configuration });
     const original = t.configuration;
-    await expect(t.configure({ source: { kind: 'graph' } })).rejects.toThrow('source.kind');
+    await expect(t.configure({ source: { kind: 'unknown' } })).rejects.toThrow('source.kind');
     await expect(t.configure({ layout: { chunkCount: NaN } })).rejects.toThrow('chunkCount');
     await expect(t.configure({ quality: { lodSegments: [32, 10, 4, 2] } })).rejects.toThrow('halve');
     await expect(t.configure({ water: true })).rejects.toThrow('Unsupported');

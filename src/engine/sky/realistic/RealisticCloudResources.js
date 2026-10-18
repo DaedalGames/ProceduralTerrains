@@ -90,6 +90,21 @@ function withBakeState(renderer, fn) {
 }
 
 const _shared = new WeakMap();
+const _owners = new WeakMap();
+
+export function retainRealisticNoiseVolumes(renderer) {
+  if (!renderer) return () => {};
+  _owners.set(renderer, (_owners.get(renderer) || 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return; released = true;
+    const count = (_owners.get(renderer) || 1) - 1;
+    if (count > 0) { _owners.set(renderer, count); return; }
+    _owners.delete(renderer);
+    const entry = _shared.get(renderer);
+    if (entry) { entry.noiseRT.dispose(); entry.erosionRT.dispose(); entry.blitter.dispose(); _shared.delete(renderer); }
+  };
+}
 
 /**
  * Shared noise volumes for a renderer (baked on first use). Returns

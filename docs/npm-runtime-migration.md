@@ -1,63 +1,104 @@
-# npm runtime extraction — milestone 1
+# npm runtime migration
 
-## Delivered boundary
+The runtime is extracted around the existing algorithms and rendering classes,
+without copying a second terrain engine or exposing EngineProxy as a public API.
+The private Electron/Vite studio remains the repository's application; the public
+workspace package has its own ESM build, declarations and dependency boundary.
 
-The root `terrain-studio` application remains private with its Electron entry
-point and existing studio build. A separately versioned workspace,
-`packages/procedural-terrains`, contains the package manifest, public entry,
-types and generated library output. Its build uses the existing source graph,
-with Three.js external, and rejects React, Electron, Leaflet and studio project,
-platform/auth/component imports. No public directory is copied into the package.
+| Milestone | Delivered |
+| --- | --- |
+| Finite runtime | Caller-owned renderer/scene/camera/loop; shared TerrainBoard and parameter application; configuration, sampling, disposal |
+| Sources/resources | Noise Stack, 2D graph, manual/sculpt/paint and heightmap sources; explicit material providers; owned caches and cancellable workers |
+| Worlds | InfiniteWorld + clipmaps; PlanetWorld + cubemap height/climate baker; Mini controller/stage through a narrow context |
+| Environment | Existing WaterSystem and both cloud engines behind explicit layers; whole-scene render pipeline and composer pass |
+| Interchange | Detached JSON documents; GLB/OBJ/map artifacts; ZIP helper; explicit real-world height/imagery providers |
+| Distribution | Typed ESM subpaths, external Three.js peer, portable bundled workers, npm tarball consumer, browser matrix, studio regression CI |
 
-`src/runtime/FiniteTerrainRuntime.js` owns the existing `TerrainBoard` without
-owning its material or renderer. Both `Engine` and the public `FiniteTerrain`
-use it. The studio retains its board alias for existing tools and transitions.
-`TerrainParameters.js` contains the original shape/shading uniform mapping,
-including the deterministic seed offset. The studio retains its original order
-around Mini, tile occupancy, destruction, graph uniforms and lighting updates.
+## Ownership and boundaries
 
-The public facade owns its uniforms, one classic-noise material and geometries,
-has explicit frame updates, and cannot start a canvas loop or access storage.
-Uniform edits reuse geometry. Octave edits compile isolated materials and use
-revision checks before publication. Destruction and AbortSignal cancellation
-invalidate pending work. Per-instance fallback textures avoid cross-instance
-GPU lifetime coupling.
+- `src/runtime/FiniteTerrain.js` orchestrates terrain resources; world adapters
+  supply geometry streaming, probes, bakes and samplers. It does not instantiate
+  Engine, EngineProxy, controls, DOM listeners, storage or a render loop.
+- `src/runtime/TerrainSources.js` owns CPU documents, manual fields and uploaded
+  height textures. Source-kind restrictions match existing evaluator capabilities;
+  the 2D graph compiler is not silently used on a spherical world.
+- `src/runtime/effects` borrows narrow terrain state and reuses WaterSystem,
+  cloud layers, TerrainHeightBaker and DetailPageCache. Optional passes use
+  exception-safe renderer state restoration. Compositing reads opaque depth from
+  a target distinct from the output colour target.
+- `src/runtime/resources` supplies explicit resource scopes, providers, workers,
+  shader validation and state restoration. Caller buffers are copied before
+  transfer. Cancellation/destruction is scoped to the owner or individual job.
+- The studio's SurfacePreparationClient now has an engine-owned worker scope.
+  Two studios cannot cancel each other's material work. A legacy default scope
+  remains for callers that do not provide an owner.
+- `TerrainExportBuilder`, `PlanetExportBuilder` and `WaterMaskArtifacts` return
+  data. Existing studio exporter files remain compatibility adapters that ZIP
+  and invoke DesktopBridge. The npm entry graph cannot import that bridge.
+- GPU cloud noise volumes remain shared per renderer, with explicit layer leases
+  so destroying one cloud layer does not invalidate another or leak the last one.
+- SurfaceResources receives catalog/fetch/user-asset providers. The studio injects
+  SurfaceAssetStore from its adapter; the library never imports project storage.
+- Real-world fetch helpers accept URL/fetch injection while their studio defaults
+  stay compatible. The npm provider requires explicit endpoints and attribution.
+- Only `/viewer` creates a DOM canvas, OrbitControls, ResizeObserver and a loop,
+  and only when its factory is called. It is a convenience application adapter.
 
-The legacy EngineProxy and its render Worker remain studio-only. Their DOM/input,
-save-dialog and performance-persistence behavior is not part of the npm API.
+## Performance and maintenance decisions
 
-## Scope and validation
+This is a layered extraction, not an EngineProxy wrapper or a full rewrite.
+Instancing, LOD, merging rules, streaming budgets, shader generation and GPU
+bakers retain their existing implementations. Continuous edits retain geometry;
+only structural/program/surface changes require a new terrain material.
+Uniform-only lighting/palette edits do not rebuild world caches. Finite height
+and detail caches are explicit; the simple default does not force their memory
+or worker cost on every consumer. Specialized world caches remain available.
 
-Milestone 1 covers one finite square board, classic noise, palette, four-level
-LOD/geomorphing, merging/culling, CPU height queries, serialization and disposal.
-It deliberately retains the existing geometry/shader algorithms. Public root
-transforms must be identity until every shader, sampler and culling path uses
-the same local/world-space contract.
+Workers perform CPU erosion, detail and material preparation. Rendering stays on
+the host renderer, avoiding a second WebGL context, scene serialization or transfer
+of live Three.js objects. No blanket offscreen-renderer abstraction or backend
+rewrite is introduced. Three.js stays a narrow, tested peer range because shaders
+and compressed array uploads depend on r185 behavior.
 
-Contract tests cover renderer ownership, live edits, immutable/invalid input,
-independent instances, superseded shader work, abort, failed compilation and
-late completion after destruction. Studio tests cover shared LOD/culling and
-seed/uniform semantics. `test:package` installs the actual tarball into a
-temporary consumer and checks ESM import without DOM, one Three.js instance,
-sampling, configuration and disposal. The example has no React/Electron imports.
+Public documents are independent of the editor's projects and proxy RPC. They
+record supported generation/configuration/effect state, not editor history,
+selection, account metadata or owned UI. Applications reattach borrowed surface
+and imagery resources through explicit APIs. Geographic acquisition is optional;
+building/city/marker services and maps remain provider/application concerns.
 
-## Subsequent migrations
+## Compatibility and release
 
-1. Extract a targeted water context from `WaterSystem(engine)`, then expose
-   optional reflection/refraction passes with renderer-state preservation.
-2. Expose cloud layers and renderer-scoped resource leases. Keep quality
-   adaptations observable rather than persisting studio preferences.
-3. Add infinite and planet factories with their existing batching, baking,
-   streaming budgets and mode-specific water limitations.
-4. Split Mini geometry/composition from studio stage/camera framing.
-5. Add graph/manual/heightmap sources as validated discriminated documents;
-   keep pointer-driven authoring managers in studio/browser adapters.
-6. Inject asset and geographic providers. Replace absolute asset URLs,
-   SurfaceAssetStore imports and globally cancelled preparation Workers.
-7. Separate export bytes/artifacts from DesktopBridge downloads and dialogs.
+The studio still imports Engine and its compatibility exporters. The finite
+terrain path continues to use the shared runtime from milestone 1; optional
+systems reuse the same lower-level classes rather than forcing the studio to
+adopt the public API in one large rewrite. Existing tests and the studio build
+remain required checks alongside package tests.
 
-Each feature gets a typed subpath export only when its lifecycle and dependency
-boundary are implemented and tested. No placeholder subpath exports are shipped.
-Extend Three.js compatibility beyond r185 only after testing its shader and
-texture-array paths. Publishing to npm and merging into develop are separate
-release actions.
+The alpha supports identity-transformed worlds and a caller-managed WebGL2
+renderer. It does not promise arbitrary Three.js material conventions or exact
+CPU/GPU collision equality. Mini's footprint/composition is configured via its
+presentation API. A configuration's optional GPU cache/effect warm-up may fail
+after the configuration commit; consumers can retry prepare and inspect state.
+
+Package builds are local and reproducible. This migration does not merge its PR
+or publish to npm. Publishing can follow review with a chosen package namespace,
+version and registry credentials, using the prepared prepublish checks.
+
+## Validation recorded for this extraction
+
+- 879 Vitest tests across 110 files, including 31 public runtime/studio contract tests.
+- 52 renderer Node tests.
+- Strict TypeScript consumers covering all public subpaths.
+- Actual npm tarball installation and import of every entry point without DOM;
+  one shared Three.js instance in the consumer.
+- Studio production build, including verification of 22 local PBR materials and
+  nine recipes; independent example production build.
+- 27 production WebGL scenarios: all world/source families, water modes,
+  legacy/realistic clouds, combined world effects, underwater composition,
+  erosion/detail/material Workers, PBR arrays, finite/infinite/planet exports.
+  Every scenario returned GL error zero and a nonuniform rendered image.
+- Separate finite integration verifies visible seed changes, octave replacement,
+  renderer reuse after disposal and GL error zero.
+
+Browser validation ran in Chromium with ANGLE/SwiftShader. It establishes shader
+and lifecycle integration, not hardware performance parity or a GPU benchmark.

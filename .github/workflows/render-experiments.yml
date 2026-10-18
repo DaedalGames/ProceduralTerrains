@@ -26,7 +26,7 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - name: Test frontend
         run: npm test
-      - name: Check finite terrain package
+      - name: Check terrain package
         run: npm run check:lib
       - name: Build independent Three.js example
         run: |
@@ -34,7 +34,9 @@ jobs:
           npm run build --prefix examples/three-finite-terrain
       - name: Install WebGL test browser
         run: npx playwright install --with-deps chromium
-      - name: Check finite terrain WebGL integration
-        run: npm run test:lib:browser
+      - name: Check terrain WebGL integration
+        run: |
+          npm run test:lib:browser
+          npm run test:lib:worlds
       - name: Build frontend
         run: npm run build

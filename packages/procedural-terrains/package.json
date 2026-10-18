@@ -1,7 +1,7 @@
 {
   "name": "procedural-terrains",
   "version": "0.1.0-alpha.0",
-  "description": "Procedural finite terrains for a caller-owned Three.js scene and renderer.",
+  "description": "Procedural terrain worlds, water and clouds for caller-owned Three.js scenes.",
   "type": "module",
   "license": "MIT",
   "author": "ZyFou",
@@ -19,14 +19,70 @@
       "types": "./types/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./infinite": {
+      "types": "./types/infinite.d.ts",
+      "import": "./dist/infinite.js"
+    },
+    "./planet": {
+      "types": "./types/planet.d.ts",
+      "import": "./dist/planet.js"
+    },
+    "./mini": {
+      "types": "./types/mini.d.ts",
+      "import": "./dist/mini.js"
+    },
+    "./water": {
+      "types": "./types/water.d.ts",
+      "import": "./dist/water.js"
+    },
+    "./clouds": {
+      "types": "./types/clouds.d.ts",
+      "import": "./dist/clouds.js"
+    },
+    "./render": {
+      "types": "./types/render.d.ts",
+      "import": "./dist/render.js"
+    },
+    "./assets": {
+      "types": "./types/assets.d.ts",
+      "import": "./dist/assets.js"
+    },
+    "./export": {
+      "types": "./types/export.d.ts",
+      "import": "./dist/export.js"
+    },
+    "./real-world": {
+      "types": "./types/real-world.d.ts",
+      "import": "./dist/real-world.js"
+    },
+    "./documents": {
+      "types": "./types/documents.d.ts",
+      "import": "./dist/documents.js"
+    },
+    "./viewer": {
+      "types": "./types/viewer.d.ts",
+      "import": "./dist/viewer.js"
+    },
+    "./generation": {
+      "types": "./types/generation.d.ts",
+      "import": "./dist/generation.js"
+    }
   },
-  "files": ["dist", "types", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "prepack": "node ../../tools/build-terrain-package.mjs",
     "prepublishOnly": "npm --prefix ../.. run check:lib"
   },
   "peerDependencies": {
     "three": "~0.185.1"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
   }
 }

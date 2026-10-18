@@ -11,8 +11,9 @@ normals, and biome colors are evaluated on the GPU, so the live view stays
 editable without relying on a baked CPU heightmap.
 
 An experimental [Three.js library](packages/procedural-terrains/README.md) now
-extracts the finite terrain runtime as a separate ESM package with TypeScript
-declarations. It uses your own scene, renderer and loop; see the
+extracts finite, infinite, planet and Mini runtimes into a typed ESM package,
+with optional water, clouds, material providers, Workers and exports. It uses
+your own scene, renderer and loop; see the
 [plain Three.js example](examples/three-finite-terrain) and
 [migration scope](docs/npm-runtime-migration.md). Build locally with
 `npm run build:lib`; this preview is not yet published to npm.

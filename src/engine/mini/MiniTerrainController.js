@@ -308,7 +308,7 @@ export class MiniTerrainController {
       const lightTex = lightValid ? this.lightMap.texture : null;
       // Props are placed from a CPU copy of the same height grid: request it
       // whenever the heights changed (not on a sun-only re-bake).
-      if (lightValid) {
+      if (lightValid && eng._miniReadbackEnabled !== false) {
         const u = eng.uniforms;
         const fieldKey = [eng._terrainGen, programKey, u.uHeightScale.value, L.half, L.segments].join(':');
         if (fieldKey !== this._fieldKey) {

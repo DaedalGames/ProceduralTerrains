@@ -1,10 +1,12 @@
-# Procedural Terrains — finite runtime preview
+# Procedural Terrains — Three.js runtime
 
-An ESM library for adding a procedural finite terrain to your own Three.js
-scene. This is the first extraction milestone (`0.1.0-alpha.0`), developed
-alongside Terrain Studio 2.0.0. It has not been published to npm by this change.
+An ESM library extracted from Terrain Studio 2.0.0. Finite, infinite, planetary
+and Mini worlds reuse the studio's terrain geometry, noise, shaders and caches.
+The package has no React, Electron, account, stylesheet or backend dependency.
+Three.js `~0.185.1` is a peer dependency; `fflate` handles packed materials,
+paint documents and ZIP exports. This change prepares an unpublished alpha.
 
-## Try it from this repository
+## Install the preview
 
 ```sh
 npm ci
@@ -12,99 +14,223 @@ npm run build:lib
 npm pack --workspace=procedural-terrains
 ```
 
-Install the generated `.tgz` in your application along with `three@~0.185.1`.
-The package includes its ESM build and TypeScript declarations. There are no
-React, Electron, account, API, network-asset or stylesheet dependencies.
+Install that archive and `three@~0.185.1` in your application. The archive
+contains ESM entry points, declarations, bundled Workers and the MIT license.
+No studio files or material packs are copied into the package.
+
+## Use your own renderer and loop
 
 ```js
-import * as THREE from 'three';
 import { createTerrain } from 'procedural-terrains';
 
-// Use your existing renderer, scene and camera.
-const terrain = await createTerrain({
-  renderer,
-  configuration: {
-    layout: { chunkCount: 8, chunkSize: 128 },
-    source: { kind: 'noise', seed: 1337, octaves: 7 },
-    heightScale: 560,
-    palette: { grass: [0.13, 0.26, 0.085] },
-  },
-});
+const terrain = await createTerrain({ renderer, configuration: {
+  layout: { chunkCount: 8, chunkSize: 128 },
+  source: { kind: 'noise', seed: 1337, octaves: 7 },
+  heightScale: 560,
+} });
 scene.add(terrain.object);
 await terrain.prepare(camera);
 
-// Call from your existing loop. The terrain never starts a loop or renders.
 function frame(deltaSeconds) {
   terrain.update(deltaSeconds, { camera });
   renderer.render(scene, camera);
 }
-
 await terrain.configure({ source: { seed: 42 } });
 const height = terrain.sampleHeight(0, 0);
 const document = terrain.serialize();
 terrain.dispose();
 ```
 
-Run the plain Three.js example:
+The host owns the renderer, camera, scene, resize policy and animation loop.
+Use an identity world transform for each terrain and its ancestors. Rendering
+requires browser WebGL2; importing the modules and using data models does not
+require DOM globals. CPU height samples approximate the GPU field and are not
+exact triangle collision queries. Heights and dimensions are in world units.
+The built-in shaders use their own sun/ambient lighting and display-encoded
+colour; arbitrary scene lights and renderer tone mapping are not adopted.
 
-```sh
-npm run build:lib
-cd examples/three-finite-terrain
-npm install
-npm run dev
+## Entry points
+
+| Import | Public components |
+| --- | --- |
+| `procedural-terrains` | `createTerrain`, `FiniteTerrain` |
+| `/infinite` | `createInfiniteTerrain` with camera-centred streaming and clipmaps |
+| `/planet` | `createPlanetTerrain` with cube-sphere patches and height/climate bakes |
+| `/mini` | `createMiniTerrain`, Mini state/layout/framing helpers |
+| `/generation` | Noise Stack builders, graph compiler/document builders, manual document normalization |
+| `/water` | `createWater`, `TerrainWater`, defaults/modes |
+| `/clouds` | `createClouds`, `TerrainClouds`, defaults |
+| `/render` | `TerrainRenderPipeline`, `TerrainPass`, optional height/detail caches |
+| `/assets` | Explicit resource scopes, material providers, erosion/surface Workers |
+| `/real-world` | `TerrariumProvider`, `createRealWorldTerrain` |
+| `/export` | `exportTerrain`, `zipTerrainExport` |
+| `/documents` | `loadTerrainDocument` |
+| `/viewer` | Explicit DOM viewer with its own renderer, controls and loop |
+
+All runtime instances implement `prepare`, `configure`, `update`, `serialize`,
+`getDiagnostics` and idempotent `dispose`. Destruction releases owned resources
+and detaches the group. It never destroys a borrowed renderer, imagery texture,
+surface resource or `TerrainResources` scope. Shared resources remain alive
+until their last lease is released. Dispose effects individually or with their
+terrain; dispose pipelines separately.
+
+## World modes and sources
+
+```js
+import { createInfiniteTerrain } from 'procedural-terrains/infinite';
+import { createPlanetTerrain } from 'procedural-terrains/planet';
+import { createMiniTerrain } from 'procedural-terrains/mini';
+
+const infinite = await createInfiniteTerrain({ renderer, configuration: {
+  layout: { chunkSize: 128, viewRadius: 8, cacheResolution: 256 },
+} });
+const planet = await createPlanetTerrain({ renderer, configuration: {
+  layout: { radius: 16000, faceGrid: 8, bakeResolution: 256 },
+} });
+const mini = await createMiniTerrain({ renderer,
+  mini: { recipe: 'cove', seed: 1337, width: 1024, quality: 'balanced' },
+  backdrop: false,
+});
+await mini.mini.configure({ waterLevel: 0.6 });
+const framing = mini.mini.framing(); // suggestion; does not move your camera
 ```
 
-## Contract
+Choose a world at construction. Create another instance when switching world
+modes. Mini is a finite presentation: configure its managed relief, composition,
+resolution and footprint through `terrain.mini.configure`. Water/cloud layers
+are explicit opt-ins. Mini does not install editor controls, vegetation or a
+studio background; `backdrop: true` enables its background.
 
-- The caller owns the renderer, scene, camera, resize policy and animation loop.
-- `prepare(camera, { signal })` warms and validates shaders before the first
-  render. Check its rejection before displaying the terrain.
-- `configure(patch, { signal })` accepts a validated partial configuration.
-  Seed, height and palette edits preserve geometry. Octave changes compile a
-  candidate material before publishing it; the previous terrain stays usable.
-- New configurations supersede pending operations. Cancellation rejects with
-  `TERRAIN_CANCELLED`, replacement with `TERRAIN_SUPERSEDED`, and destruction
-  with `TERRAIN_DISPOSED`. A superseded/aborted job cannot publish later.
-  An in-progress GPU driver compile cannot be interrupted; its candidate is
-  disposed when compilation settles. Catch operation rejections in your UI.
-- `configuration` is deeply frozen. `serialize()` returns a detached document;
-  reconstruct with `createTerrain({ renderer, configuration: doc.configuration })`
-  after validating the document's format/schema in your application.
-- `sampleHeight(x, z)` returns the CPU height approximation, or `null` outside
-  the board. Floating-point GPU results can differ; this is not an exact mesh
-  collision or baked-height API.
-- `dispose()` is idempotent, detaches the group and frees its geometries,
-  materials and fallback textures. It never disposes the caller's renderer.
-- Use an identity world transform for the terrain and its ancestors. Translation,
-  rotation and scaling are rejected by `update`, `prepare` and `sampleHeight`.
-- The built-in terrain shader uses its own sun/ambient shading and encoded
-  colour output. It does not automatically adopt arbitrary scene lights,
-  clipping, custom shader modifications or post-processing conventions.
+Finite sources support `noise` (optional Noise Stack), `graph` (validated graph
+document), `manual` (shapes/sculpt with flat, procedural or graph base) and
+`heightmap` (`data`, `width`, `height`). Heightmaps cover the board, row zero at
+negative Z, contain world-unit heights, and are uploaded as filtered half floats.
+Infinite worlds support unbounded noise/2D graphs; planets require a Noise Stack
+with 3D evaluation. Unsupported combinations fail explicitly. Source documents
+are detached and frozen with the normalized configuration.
 
-The declared configuration types list the supported settings and ranges are
-validated at runtime. `seaLevel` affects terrain colouring; the classic terrain
-formation baseline stays at the studio's default 100 units when sea level moves.
-This preview does not create water, clouds, a diorama bottom, props, imports,
-graph/manual sources, tiles beyond the initial board, infinite/planet worlds,
-or exports. Those systems remain available in Terrain Studio.
+```js
+await terrain.configure({ source: {
+  kind: 'heightmap', width: 2, height: 2,
+  data: new Float32Array([0, 50, 120, 30]),
+} });
+```
 
-## Maintainer checks
+`sampleHeight` returns null outside finite boards; use `sampleHeight3D` with a
+nonzero direction for planets. Planet samples return relief above the radius.
+LOD resolutions must be four even values halving at each step. Mini uses the
+studio's fixed 128/256/512 segment profiles instead. World-specific layout
+options control streaming/triangle budgets and bake resolutions.
+
+## Water, clouds and scene composition
+
+```js
+import { createWater } from 'procedural-terrains/water';
+import { createClouds } from 'procedural-terrains/clouds';
+import { TerrainRenderPipeline } from 'procedural-terrains/render';
+
+const water = await createWater({ terrain, mode: 'volumetric' });
+const clouds = await createClouds({ terrain, mode: 'realistic' });
+const pipeline = new TerrainRenderPipeline({ renderer, terrains: [terrain] });
+await terrain.prepare(camera);
+function frame(dt) {
+  terrain.update(dt, { camera });
+  pipeline.render(scene, camera);
+}
+```
+
+The pipeline renders the **whole host scene** into its own colour/depth target,
+captures water reflection/refraction when needed, composites clouds against
+opaque depth in a distinct target, then applies underwater effects. This avoids
+sampling an attached depth texture. It restores target, viewport, scissor,
+clear state and XR/shadow flags. `TerrainPass` replaces `RenderPass` in an
+EffectComposer; it is not an extra full-scene overlay after another RenderPass.
+
+Water modes: `off`, `legacy`, `realistic`, `volumetric`, `cinematic`, `stylized`.
+The existing world/quality fallback rules apply: inspect requested/effective
+modes with `water.getDiagnostics()`. Clouds support `legacy` and `realistic` in
+all world modes. Each terrain should have one water and one cloud layer.
+
+Finite terrain rendering can run directly with `renderer.render`. Add
+`createHeightCache({ terrain, resolution: 512 })` or
+`createDetailCache({ terrain, quality: 2 })` when needed. Height caches retain
+the studio's double buffering; detail caches own their worker and GPU pages.
+Mini, planet and infinite adapters retain their existing specialized caches.
+
+## Materials and external data
+
+```js
+import { TerrainSurfaceProvider, createSurfaceResources } from 'procedural-terrains/assets';
+const provider = new TerrainSurfaceProvider({ baseUrl: 'https://your-host/material-pack/' });
+const surface = await createSurfaceResources({ provider, document: surfaceDocument });
+await terrain.setSurface(surface);
+// After detaching from every terrain:
+await terrain.setSurface(null);
+surface.dispose();
+provider.dispose();
+```
+
+Host `catalog.json` and its `.pbr` files yourself. Catalog hashes and material
+budgets are checked. Local assets use an injected `loadUserAsset`; historical
+maps require an explicit `legacyBaseUrl`. `TerrainSurfaceWorker.prepare` accepts
+serializable pack URLs/documents; `TerrainCompute.erode` uses a dedicated worker
+per job, preserves caller buffers and returns additive `delta` plus erosion
+maps. Inject worker factories for CSP/custom hosting. There is no implicit
+request to the studio's `/textures`, storage, account or API.
+
+`createRealWorldTerrain` accepts your provider's `loadHeightmap` and optional
+`loadImagery`. The `TerrariumProvider` adapter requires explicit tile URL
+functions, optionally injected fetch, and attribution. Its ordered bbox uses
+`west/east/south/north`, Web Mercator latitude limits and at most 6×6 tiles.
+Antimeridian bboxes must be split by the caller. No Leaflet or Overpass service
+is loaded. City/building queries remain application/provider responsibilities.
+
+## Documents and exports
+
+```js
+import { loadTerrainDocument } from 'procedural-terrains/documents';
+import { exportTerrain, zipTerrainExport } from 'procedural-terrains/export';
+const restored = await loadTerrainDocument(terrain.serialize(), { renderer });
+const result = await exportTerrain(terrain, {
+  format: 'glb', meshRes: 128, texRes: 512,
+  bakeColor: true, exportHeightmap: true,
+});
+const zipBytes = zipTerrainExport(result); // caller chooses how/where to save
+```
+
+Exports return named byte arrays, filename and diagnostics without a download
+or filesystem side effect. GLB/OBJ and map baking share the studio's builders.
+Infinite exports require a bounded square `region: { cx, cz, size }` in world
+units. Planet exports cover all six faces. A detached terrain document is
+included; Mini presentation, water and clouds serialize as extensions. Borrowed
+GPU material/imagery assets must be reattached by the application after loading.
+Await GPU operations before starting another export or disposing borrowed assets.
+
+Configuration revisions supersede pending work. Cancellation rejects with
+`TERRAIN_CANCELLED`, replacement with `TERRAIN_SUPERSEDED`, destruction with
+`TERRAIN_DISPOSED`. GPU driver compilation itself cannot be interrupted; its
+retired candidates are disposed when it settles. Shader candidates publish only
+after validation. Cache/effect warm-up follows the synchronous configuration
+commit; if it fails, the committed configuration remains available and
+`prepare(camera)` can be retried. Do not assume a rejected warm-up rolls back
+a configuration already committed. `configuration` is immutable.
+
+## Validation
 
 ```sh
 npm run check:lib
 npm test
+node --test tests/*.node.mjs
 npm run build
+npm ci --prefix examples/three-finite-terrain
+npm run build --prefix examples/three-finite-terrain
+npx playwright install chromium
+npm run test:lib:browser
+npm run test:lib:worlds
 ```
 
-After installing the example's dependencies, `npm run test:lib:browser` checks
-the real WebGL2 shader, seed/octave updates, pixels and renderer reuse with
-Playwright Chromium. Run `npx playwright install chromium` first, or set
-`TERRAIN_BROWSER_PATH` to an existing Chromium executable. The default headless
-check uses SwiftShader; it does not measure hardware GPU performance.
-
-The library build follows shared sources in `src/runtime` and `src/engine` and
-bundles them into this package's `dist`. This avoids copying engine algorithms
-during migration. The built JavaScript has no runtime imports of repository
-source files outside the tarball; sourcemaps retain source locations for debugging.
-Studio keeps its renderer, Worker path, shader warm-up policy and progressive
-build cadence, while sharing finite geometry, LOD/culling and parameter mapping.
+The checks install the actual npm tarball in a clean consumer, import every ESM
+entry without DOM, compile strict TypeScript consumers, and exercise actual
+WebGL shaders, worlds, sources, effects, workers, PBR resources and exports.
+Browser checks can use `TERRAIN_BROWSER_PATH` for an installed Chromium binary.
+See `docs/npm-runtime-migration.md` in the repository for boundaries and migration.

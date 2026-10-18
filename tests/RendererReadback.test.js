@@ -1,20 +1,60 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readRenderTargetPixelsAsync, withExportRenderTarget } from '../src/engine/render/RendererReadback.js';
+import {
+  readRenderTargetPixelsAsync,
+  withExportRenderTarget,
+} from '../src/engine/render/RendererReadback.js';
 
 describe('renderer readback adapter', () => {
   it('normalizes message-less GPU failures and rejects an already lost context', async () => {
-    const renderer = { isWebGLRenderer: true, readRenderTargetPixelsAsync: vi.fn(() => Promise.reject(undefined)) };
-    await expect(readRenderTargetPixelsAsync(renderer, {}, 0, 0, 1, 1)).rejects.toMatchObject({ code: 'GPU_READBACK_FAILED' });
+    const renderer = {
+      isWebGLRenderer: true,
+      readRenderTargetPixelsAsync: vi.fn(() => Promise.reject(undefined)),
+    };
+    await expect(readRenderTargetPixelsAsync(renderer, {}, 0, 0, 1, 1)).rejects.toMatchObject({
+      code: 'GPU_READBACK_FAILED',
+    });
     renderer.getContext = () => ({ isContextLost: () => true });
-    await expect(readRenderTargetPixelsAsync(renderer, {}, 0, 0, 1, 1)).rejects.toThrow('context is lost');
+    await expect(readRenderTargetPixelsAsync(renderer, {}, 0, 0, 1, 1)).rejects.toThrow(
+      'context is lost',
+    );
     expect(renderer.readRenderTargetPixelsAsync).toHaveBeenCalledTimes(1);
   });
   it('restores the original target and disposes temporary GPU resources after failure', async () => {
     const original = {};
     const renderer = { getRenderTarget: () => original, setRenderTarget: vi.fn() };
     const target = { dispose: vi.fn() };
-    await expect(withExportRenderTarget(renderer, target, () => Promise.reject(new Error('GPU failed')))).rejects.toThrow('GPU failed');
+    await expect(
+      withExportRenderTarget(renderer, target, () => Promise.reject(new Error('GPU failed'))),
+    ).rejects.toThrow('GPU failed');
     expect(renderer.setRenderTarget).toHaveBeenLastCalledWith(original);
+    expect(target.dispose).toHaveBeenCalledOnce();
+  });
+  it('releases the export target before waiting and does not overwrite a later host frame', async () => {
+    const original = { name: 'host' },
+      next = { name: 'next frame' },
+      target = { dispose: vi.fn() };
+    let current = original,
+      finish;
+    const renderer = {
+      getRenderTarget: () => current,
+      setRenderTarget: (value) => {
+        current = value;
+      },
+    };
+    const pending = withExportRenderTarget(
+      renderer,
+      target,
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    expect(current).toBe(original);
+    expect(target.dispose).not.toHaveBeenCalled();
+    current = next;
+    finish();
+    await pending;
+    expect(current).toBe(next);
     expect(target.dispose).toHaveBeenCalledOnce();
   });
   it('uses the caller-owned buffer for WebGL2 asynchronous readback', async () => {
