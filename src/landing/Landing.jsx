@@ -1,7 +1,7 @@
 import { matchesTranslatedSearch } from '../i18n/language.js';
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
 import SurfacePackCredits from '../components/ui/SurfacePackCredits.jsx';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Box, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
 import { FaDiscord, FaGithub, FaXTwitter } from 'react-icons/fa6';
 import { SiKofi } from 'react-icons/si';
@@ -28,6 +28,8 @@ import PluginsPage from './plugins/PluginsPage.jsx';
 import LanguageSwitch from '../i18n/LanguageSwitch.jsx';
 import { formatRelativeTime } from '../i18n/language.js';
 
+const DocsPage = lazy(() => import('../docs/DocsPage.jsx'));
+
 const NODE_TEMPLATE_ICONS = { boxes: Boxes, mountain: Mountain, layers: Layers3, waves: Waves, orbit: Orbit, route: Route };
 const MINI_TEMPLATES = [
   ...PROJECT_TEMPLATES.map((template) => ({ ...template, name: template.id === 'blank' ? 'Procedural' : template.name })),
@@ -45,7 +47,7 @@ const MINI_TEMPLATES = [
 const templateCatalog = (kind) => kind === 'mini' ? MINI_TEMPLATES : kind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
 const VISIBILITY_ICONS = { private: Lock, unlisted: Eye, public: Globe2 };
 const AUTH_VIEWS = new Set(['login', 'register']);
-const HASH_VIEWS = new Set(['login', 'register', 'profile', 'community', 'plugins', 'unity', 'blender', 'admin', 'confidentiality']);
+const HASH_VIEWS = new Set(['login', 'register', 'profile', 'community', 'plugins', 'unity', 'blender', 'admin', 'confidentiality', 'docs']);
 const PLUGIN_VIEWS = new Set(['plugins', 'unity', 'blender']);
 const BOOT_READY_HOLD_MS = 320;
 const BOOT_REVEAL_MS = 680;
@@ -94,6 +96,7 @@ function BootTerrainProgress({ bootProgress, complete = false }) {
 
 function viewFromHash() {
   const value = window.location.hash.replace(/^#\/?/, '').split('?')[0].toLowerCase();
+  if (value.split('/')[0] === 'docs') return 'docs';
   return HASH_VIEWS.has(value) ? value : null;
 }
 
@@ -112,7 +115,7 @@ function initialTemplateThumbs() {
 
 const relTime = formatRelativeTime;
 
-export default function Landing({ exiting, bootReady, bootError, bootProgress, onRetryBoot, onLaunch }) {
+export default function Landing({ exiting, bootReady, bootError, bootProgress, onRetryBoot, onLaunch, onRequestEditor }) {
   useLanguage();
   const { user, status: authStatus, logout } = useAuth();
   const { showPrompt, showPopup } = usePopup();
@@ -285,6 +288,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
   const template = templateCatalog(templateKind).find((item) => item.id === selectedTemplateId) ?? templateCatalog(templateKind)[0];
   const dispatch = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
   const showView = (nextView) => {
+    if (nextView !== 'docs') onRequestEditor?.();
     setMobileMenuOpen(false);
     if (HASH_VIEWS.has(nextView)) {
       const nextHash = `#/${nextView}`;
@@ -474,7 +478,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
   return (
     <div
-      className={`landing landing-overlay lp boot-${visualBootStage}${AUTH_VIEWS.has(view) ? ' lp--auth' : ''}${view === 'profile' ? ' lp--profile' : ''}${view === 'community' ? ' lp--community' : ''}${PLUGIN_VIEWS.has(view) ? ' lp--unity' : ''}${view === 'admin' ? ' lp--admin' : ''}${view === 'confidentiality' ? ' lp--legal' : ''}${exiting ? ' exiting' : ''}`}
+      className={`landing landing-overlay lp boot-${visualBootStage}${AUTH_VIEWS.has(view) ? ' lp--auth' : ''}${view === 'profile' ? ' lp--profile' : ''}${view === 'community' ? ' lp--community' : ''}${PLUGIN_VIEWS.has(view) ? ' lp--unity' : ''}${view === 'admin' ? ' lp--admin' : ''}${view === 'confidentiality' ? ' lp--legal' : ''}${view === 'docs' ? ' lp--docs' : ''}${exiting ? ' exiting' : ''}`}
       onDragEnter={onFileDragEnter}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
@@ -508,7 +512,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
           <button type="button" className={view === 'templates' ? 'active' : ''} onClick={() => openTemplates()}>{translateText("Templates")}</button>
           <button type="button" className={view === 'community' ? 'active' : ''} onClick={() => showView('community')}>{translateText("Community")}</button>
           <button type="button" className={PLUGIN_VIEWS.has(view) ? 'active' : ''} onClick={() => showView('plugins')}>{translateText("Plugins")}</button>
-          <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer">{translateText("Docs")}</a>
+          <a href="#/docs/overview" className={view === 'docs' ? 'active' : ''} aria-current={view === 'docs' ? 'page' : undefined}>{translateText("Docs")}</a>
           <a href="https://procedural-planets.com" target="_blank" rel="noopener noreferrer">Procedural Planets</a>
         </nav>
         <div className="lp-nav-actions">
@@ -533,7 +537,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
       <div className="lp-scroll" inert={mobileMenuOpen ? '' : undefined}>
         <main className="lp-content">
-          <div key={view} className="lp-content-scroll">
+          <div key={view} className={`lp-content-scroll${view === 'docs' ? ' lp-docs-scroll' : ''}`}>
+          {view === 'docs' && <Suspense fallback={<p role="status">{translateText("Loading documentation…")}</p>}><DocsPage /></Suspense>}
           {AUTH_VIEWS.has(view) && (
             <AuthPage
               key={view}

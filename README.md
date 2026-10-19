@@ -17,6 +17,15 @@ your own scene, renderer and loop; see the
 [plain Three.js example](examples/three-finite-terrain) and
 [migration scope](docs/npm-runtime-migration.md). Build locally with
 `npm run build:lib`; this preview is not yet published to npm.
+The studio's **Docs** tab serves the [API reference](docs/api.md), guides and
+code examples in English and French. **Include Terrain Code (npm)** in the
+Export panel adds a runnable Three.js example to the export ZIP.
+The **Playground** lets you edit and run terrain code inside the docs, with
+six examples, a console, share links and an offline HTML download. It runs
+the local npm runtime in an isolated iframe without a CDN dependency.
+
+`npm run build` builds the library and the studio, then writes an installable
+npm archive to `dist/npm/`. Use `npm run build:app` for the studio alone.
 
 ## What’s new in 2.0.0
 

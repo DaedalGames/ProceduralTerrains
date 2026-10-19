@@ -12535,6 +12535,7 @@ export class Engine {
       // Water masks are folded into the single export zip (not downloaded
       // separately) via extraZipFiles, so the user gets one .zip with everything.
       const exportOptions = { ...options };
+      const projectPayload = this.createProjectPayload();
       let extraZipFiles = createProductionFiles(exportOptions, {
         seed: this.params.seed,
         boardSize: this.boardSize,
@@ -12544,8 +12545,19 @@ export class Engine {
         projectMode: this.projectMode,
         tileAssemblyShape: this.tileAssemblyShape,
         tiles: this.tiles.map((tile) => ({ ...tile })),
-        projectPayload: this.createProjectPayload(),
+        projectPayload,
       });
+      if (options.exportCode) {
+        onMsg('Generating terrain JavaScript (npm)...');
+        const { createTerrainCodeFiles } = await import('../export/TerrainCodeExporter.js');
+        Object.assign(extraZipFiles, createTerrainCodeFiles(projectPayload, {
+          quality: this.perf,
+          camera: {
+            position: this.camera.position.toArray(),
+            target: this.controls.target.toArray(),
+          },
+        }));
+      }
       let tileWaterMaskFiles = null;
       if (options.exportWaterMask || options.exportDepthMap || options.exportShorelineMask
         || options.exportFoamMask || options.exportWaterMetadata) {

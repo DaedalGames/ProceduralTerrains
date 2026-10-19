@@ -921,7 +921,7 @@ function ExportPanel({ ctx }) {
     exportWater: !!ctx.miniTerrain, exportPreset: true,
     exportWaterMask: false, exportDepthMap: false, exportShorelineMask: false, exportFoamMask: false,
     excludeWaterFromExport: false, exportWaterMetadata: false,
-    exportTileMode: 'merged', exportSplineMasks: false,
+    exportTileMode: 'merged', exportSplineMasks: false, exportCode: false,
   });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setOpt((p) => ({ ...p, [k]: v }));
@@ -992,6 +992,8 @@ function ExportPanel({ ctx }) {
       )}
 
       <ControlSection id="export-format" title={translateText("Format & Resolution")} defaultOpen settingId="export.section.format">
+        <ToggleRow label={translateText("Include Terrain Code (npm)")} value={opt.exportCode} onChange={(v) => set('exportCode', v)} />
+        {opt.exportCode && <div className="settings-hint">{translateText("Adds JavaScript, a runtime document and a Three.js example in the ZIP’s code folder. Some studio features require manual integration.")} <a href="#/docs/code-export" target="_blank" rel="noopener noreferrer">{translateText("Documentation")}</a></div>}
         <SelectRow label={translateText("Format")} value={opt.format} options={FORMAT_OPTIONS} onChange={(v) => set('format', v)} />
         <ToggleRow label={translateText("Include Terrain Mesh")} value={opt.includeMesh} onChange={(v) => set('includeMesh', v)} />
         {opt.includeMesh && (
