@@ -2,23 +2,24 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'terrain-package-'));
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+if (!process.env.npm_execpath) throw new Error('Run this script through npm run test:package.');
 const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+const npm = (args, cwd) => run(process.execPath, [process.env.npm_execpath, ...args], cwd);
 try {
   process.stdout.write(run(process.execPath, ['tools/build-terrain-package.mjs']));
-  const result = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--workspace=procedural-terrains', '--pack-destination', directory, '--json']));
+  const result = JSON.parse(npm(['pack', '--ignore-scripts', '--workspace=procedural-terrains', '--pack-destination', directory, '--json']));
   const [pack] = result;
   assert(pack.files.some(f => f.path === 'dist/index.js'));
   assert(pack.files.some(f => f.path === 'types/index.d.ts'));
   assert(pack.files.some(f => f.path === 'LICENSE'));
   assert(pack.files.every(f => /^(dist\/|types\/|README.md$|LICENSE$|package.json$)/.test(f.path)));
   await writeFile(join(directory, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
-  run(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', join(directory, pack.filename), 'three@0.185.1'], directory);
+  npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', join(directory, pack.filename), 'three@0.185.1'], directory);
   const manifest = JSON.parse(await readFile(join(directory, 'node_modules/procedural-terrains/package.json'), 'utf8'));
   for(const entry of Object.values(manifest.exports)){if(entry.types)assert(pack.files.some(f=>f.path===entry.types.slice(2)));}
   assert.deepEqual(manifest.peerDependencies, { three: '~0.185.1' });
@@ -43,5 +44,7 @@ try {
   process.stdout.write(run(process.execPath, [join(directory, 'consumer.mjs')], directory));
   console.log(`Package verified: ${pack.filename} (${pack.size} bytes, ${pack.files.length} files)`);
 } finally {
+  assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
+  assert(basename(directory).startsWith('terrain-package-'));
   await rm(directory, { recursive: true, force: true });
 }

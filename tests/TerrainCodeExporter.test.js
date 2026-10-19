@@ -5,6 +5,7 @@ import { loadTerrainDocument } from '../src/runtime/TerrainDocument.js';
 import { readEditableProjectDocument } from '../src/project/ProjectDocument.js';
 import { createBlankGraph, makeGraphNode } from '../src/engine/terrain/graph/GraphDocument.js';
 import { createMiniTerrainState } from '../src/engine/mini/MiniTerrainSettings.js';
+import packageInfo from '../packages/procedural-terrains/package.json';
 
 const project = (patch = {}) => ({
   worldMode: 'studio', editorMode: 'procedural', generationSource: 'classic',
@@ -81,6 +82,10 @@ describe('npm terrain code export', () => {
     expect(decode(files['code/README.md'])).toContain('Studio paint, erosion and destruction');
     expect(decode(files['code/README.md'])).toContain('npm install /path/to/dist/npm/');
     expect(JSON.parse(decode(files['code/package.json'])).scripts.build).toBe('vite build');
+    expect(JSON.parse(decode(files['code/package.json'])).dependencies).toEqual({
+      'procedural-terrains': packageInfo.version,
+      three: packageInfo.peerDependencies.three,
+    });
   });
 
   it('reports unsupported studio layouts instead of silently claiming parity', () => {

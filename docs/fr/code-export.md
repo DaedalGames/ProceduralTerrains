@@ -20,15 +20,14 @@ Le code inclut la seed, les sources bruit, graphe ou manuelles prises en charge,
 
 ## Exécuter le code exporté
 
-Compilez ce dépôt avec `npm run build`, extrayez le ZIP puis ouvrez un terminal dans son dossier `code/` :
+Extrayez le ZIP puis ouvrez un terminal dans son dossier `code/` :
 
 ```sh
 npm install
-npm install /chemin/vers/dist/npm/procedural-terrains-0.1.0-alpha.0.tgz
 npm run dev
 ```
 
-Le package est une alpha locale. Installez l’archive générée ; l’exemple ne suppose pas une publication sur le registre public npm.
+Le projet généré dépend de la version alpha disponible sur npm. `npm install` installe le runtime et Three.js. Pour un runtime local modifié, remplacez la dépendance par l’archive générée dans `dist/npm/`.
 
 ## Intégrer dans votre scène
 

@@ -15,8 +15,9 @@ extracts finite, infinite, planet and Mini runtimes into a typed ESM package,
 with optional water, clouds, material providers, Workers and exports. It uses
 your own scene, renderer and loop; see the
 [plain Three.js example](examples/three-finite-terrain) and
-[migration scope](docs/npm-runtime-migration.md). Build locally with
-`npm run build:lib`; this preview is not yet published to npm.
+[migration scope](docs/npm-runtime-migration.md). Install with
+`npm install procedural-terrains` (currently alpha), or build locally with
+`npm run build:lib`. See [package publishing](docs/package-publishing.md) for release automation.
 The studio's **Docs** tab serves the [API reference](docs/api.md), guides and
 code examples in English and French. **Include Terrain Code (npm)** in the
 Export panel adds a runnable Three.js example to the export ZIP.

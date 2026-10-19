@@ -166,17 +166,17 @@ start().catch((error) => {
   const readme = `# Exported Procedural Terrain
 
 This example uses procedural-terrains ${packageInfo.version} and Three.js ${packageInfo.peerDependencies.three}.
-The runtime package is a local alpha, not yet published to the public npm registry.
+The runtime package is an alpha available on npm.
 
 ## Run
 
-1. In the studio repository, run: npm run build
-2. Extract this ZIP and open a terminal in this code folder.
-3. Run: npm install
-4. Install the built archive (replace the path):
-   npm install /path/to/dist/npm/procedural-terrains-${packageInfo.version}.tgz
-5. Run: npm run dev
-6. For a production build: npm run build
+1. Extract this ZIP and open a terminal in this code folder.
+2. Run: npm install
+3. Run: npm run dev
+4. For a production build: npm run build
+
+For a locally modified runtime, build the studio repository and override the dependency:
+npm install /path/to/dist/npm/procedural-terrains-${packageInfo.version}.tgz
 
 Serve the application through a web server, not file://.
 
@@ -204,7 +204,7 @@ Use the baked meshes and maps for the studio's exported appearance.
     'package.json': json({
       name: 'exported-procedural-terrain', private: true, type: 'module',
       scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
-      dependencies: { three: packageInfo.peerDependencies.three },
+      dependencies: { 'procedural-terrains': packageInfo.version, three: packageInfo.peerDependencies.three },
       devDependencies: { vite: '^5.4.11' },
     }) + '\n',
     'studio-project.ptrterrain': json(createEditableProjectDocument({ terrain: project })) + '\n',

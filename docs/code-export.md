@@ -20,15 +20,14 @@ The code includes seed, supported noise or graph/manual source, palette, layout,
 
 ## Run the exported code
 
-Compile this repository with `npm run build`, extract the ZIP and open a terminal in its `code/` folder:
+Extract the ZIP and open a terminal in its `code/` folder:
 
 ```sh
 npm install
-npm install /path/to/dist/npm/procedural-terrains-0.1.0-alpha.0.tgz
 npm run dev
 ```
 
-The package is still a local alpha. Install the generated archive; an install from the public npm registry is not assumed.
+The generated project depends on the alpha package from npm. `npm install` installs the runtime and Three.js. For a modified local runtime, override the dependency with the archive generated in `dist/npm/`.
 
 ## Integrate into your own scene
 

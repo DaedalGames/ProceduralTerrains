@@ -2,16 +2,15 @@
 
 The `procedural-terrains` package brings the studio's terrain runtime into your own Three.js application. It is an ESM alpha with TypeScript declarations. Rendering requires browser WebGL2.
 
-## Build and install
+## Install
 
-The preview is not yet published on npm. From the repository:
+Install the alpha from npm:
 
 ```sh
-npm ci
-npm run build
+npm install procedural-terrains
 ```
 
-This builds both the library and the studio. The installable package is written to `dist/npm/procedural-terrains-0.1.0-alpha.0.tgz`. Install it in your application:
+Three.js `~0.185.1` is a peer dependency, installed automatically by npm when needed. To build from source, run `npm ci` then `npm run build` in the repository. This builds the library and studio, and writes an installable archive to `dist/npm/`. You can install that archive in your application instead:
 
 ```sh
 npm install /path/to/procedural-terrains-0.1.0-alpha.0.tgz three@~0.185.1

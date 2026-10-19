@@ -5,6 +5,12 @@
   "type": "module",
   "license": "MIT",
   "author": "ZyFou",
+  "homepage": "https://procedural-terrains.com/#/docs",
+  "bugs": "https://github.com/ZyFou/ProceduralTerrains/issues",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ZyFou/ProceduralTerrains.git",
