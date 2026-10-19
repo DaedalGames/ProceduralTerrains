@@ -53,6 +53,10 @@ Le workflow utilise Node 24 et `id-token: write`. Il n’a pas besoin de secret
 avec la permission `packages: write`. GitHub impose un nom avec scope ; le nom
 sur le registre public npm reste `procedural-terrains`.
 
+Une nouvelle autorisation Trusted Publisher doit réussir sa première publication
+sous 48 heures pour être validée. Configurez-la juste avant la première release
+automatique ; si elle expire, recréez-la avant de relancer la publication.
+
 Sources : [Trusted publishing npm](https://docs.npmjs.com/trusted-publishers/),
 [GitHub Packages npm](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry).
 
