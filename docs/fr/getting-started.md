@@ -2,16 +2,15 @@
 
 Le package `procedural-terrains` permet d’utiliser le moteur de terrain du studio dans votre application Three.js. Cette alpha ESM inclut les déclarations TypeScript. Le rendu nécessite WebGL2 dans un navigateur.
 
-## Compiler et installer
+## Installer
 
-Cette préversion n’est pas encore publiée sur npm. Depuis le dépôt :
+Installez la version alpha depuis npm :
 
 ```sh
-npm ci
-npm run build
+npm install procedural-terrains
 ```
 
-Cette commande compile la bibliothèque et le studio. L’archive installable est créée dans `dist/npm/procedural-terrains-0.1.0-alpha.0.tgz`. Installez-la dans votre application :
+Three.js `~0.185.1` est une dépendance pair, installée automatiquement par npm si nécessaire. Pour compiler les sources, lancez `npm ci` puis `npm run build` dans le dépôt. Cette commande compile la bibliothèque et le studio, puis crée une archive installable dans `dist/npm/`. Vous pouvez installer cette archive dans votre application :
 
 ```sh
 npm install /chemin/vers/procedural-terrains-0.1.0-alpha.0.tgz three@~0.185.1

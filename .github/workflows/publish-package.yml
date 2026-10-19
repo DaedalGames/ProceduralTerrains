@@ -1,0 +1,161 @@
+name: Publish terrain package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish (for example v2.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terrain-package-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      dist-tag: ${{ steps.version.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease > release.json
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const release = JSON.parse(readFileSync('release.json', 'utf8'));
+          if (release.isDraft) throw new Error('Publish the GitHub release first.');
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${process.env.RELEASE_TAG}\n`);
+          NODE
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci
+      - name: Set package version from release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const version = process.env.RELEASE_TAG.replace(/^v/, '');
+          // npm version performs the full SemVer validation. No commit or tag is created.
+          if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version))
+            throw new Error('Release tag must be a SemVer version, optionally prefixed with v.');
+          execFileSync('npm', ['version', version, '--workspace=procedural-terrains', '--no-git-tag-version', '--allow-same-version', '--ignore-scripts'], { stdio: 'inherit' });
+          const release = JSON.parse(readFileSync('release.json', 'utf8'));
+          const distTag = release.isPrerelease || version.includes('-') ? 'next' : 'latest';
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ndist-tag=${distTag}\n`);
+          NODE
+      - name: Test application and package
+        run: |
+          npm test
+          npm run check:lib
+      - name: Pack both registries
+        run: |
+          npm run pack:lib
+          node tools/prepare-github-package.mjs
+          npm pack ./dist/github-package --ignore-scripts --pack-destination dist/npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terrain-packages
+          path: dist/npm/*.tgz
+          if-no-files-found: error
+
+  npm:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: terrain-packages
+          path: packages
+      - name: Publish to npm using trusted publishing
+        env:
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+        run: |
+          published=$(npm view "procedural-terrains@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)
+          if [ "$published" = "$PACKAGE_VERSION" ]; then
+            echo "procedural-terrains@$PACKAGE_VERSION is already published."
+          else
+            npm publish packages/procedural-terrains-*.tgz --access public --tag "$DIST_TAG" --registry=https://registry.npmjs.org --provenance
+          fi
+
+  github-packages:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://npm.pkg.github.com
+          scope: '@zyfou'
+      - uses: actions/download-artifact@v4
+        with:
+          name: terrain-packages
+          path: packages
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+        run: |
+          published=$(npm view "@zyfou/procedural-terrains@$PACKAGE_VERSION" version --registry=https://npm.pkg.github.com 2>/dev/null || true)
+          if [ "$published" = "$PACKAGE_VERSION" ]; then
+            echo "@zyfou/procedural-terrains@$PACKAGE_VERSION is already published."
+          else
+            npm publish packages/zyfou-procedural-terrains-*.tgz --access public --tag "$DIST_TAG" --registry=https://npm.pkg.github.com
+          fi
+
+  release-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: terrain-packages
+          path: packages
+      - name: Attach archives to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" packages/*.tgz --clobber

@@ -4,19 +4,20 @@ An ESM library extracted from Terrain Studio 2.0.0. Finite, infinite, planetary
 and Mini worlds reuse the studio's terrain geometry, noise, shaders and caches.
 The package has no React, Electron, account, stylesheet or backend dependency.
 Three.js `~0.185.1` is a peer dependency; `fflate` handles packed materials,
-paint documents and ZIP exports. This change prepares an unpublished alpha.
+paint documents and ZIP exports. The current version is an alpha.
 
-## Install the preview
+## Install
 
 ```sh
-npm ci
-npm run build:lib
-npm pack --workspace=procedural-terrains
+npm install procedural-terrains
 ```
 
-Install that archive and `three@~0.185.1` in your application. The archive
+Use `three@~0.185.1` in your application (npm also installs this peer automatically). The package
 contains ESM entry points, declarations, bundled Workers and the MIT license.
 No studio files or material packs are copied into the package.
+
+To build from source: `npm ci && npm run build` in the repository. An installable
+archive is also produced in `dist/npm/`. See [release publishing](https://github.com/ZyFou/ProceduralTerrains/blob/develop/docs/package-publishing.md).
 
 ## Use your own renderer and loop
 
