@@ -38,6 +38,7 @@ import SplinesPanel from './SplinesPanel.jsx';
 import { AnalysisContent } from './AnalysisPanel.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
 import { useLiveMetrics } from '../../state/LiveMetricsStore.js';
+import TerrainCodeSnippet from '../ui/TerrainCodeSnippet.jsx';
 
 // ---------------------------------------------------------------- helpers
 function SeedRow({ seed, onParam, onRandomizeSeed }) {
@@ -909,7 +910,7 @@ const COLL_OPTIONS = [
   { value: '128', label: '128 × 128 (Recommended)' }, { value: '256', label: '256 × 256' },
 ];
 
-function ExportPanel({ ctx }) {
+export function ExportPanel({ ctx }) {
   useLanguage();
   const [opt, setOpt] = useState({
     exportPresetId: 'custom', packageRoot: null, packagePaths: null, heightmapRawPath: null,
@@ -960,6 +961,10 @@ function ExportPanel({ ctx }) {
         <button type="button" className="action-btn" onClick={ctx.onExportScreenshot} disabled={busy}>{translateText("Screenshot")}</button>
         <button type="button" className="action-btn" onClick={ctx.onExportHeightmap} disabled={busy}>{translateText("Heightmap")}</button>
       </div>
+
+      <ControlSection id="export-use-in-code" title={translateText('Use in code')} defaultOpen={false} settingId="export.section.code">
+        <TerrainCodeSnippet generateCode={ctx.onTerrainCodeSnippet} revision={ctx.terrainCodeRevision} />
+      </ControlSection>
 
       <ControlSection id="export-production-preset" title={translateText("Production Preset")} defaultOpen settingId="export.section.productionPreset">
         <SelectRow label={translateText("Target")} value={opt.exportPresetId} options={EXPORT_PRESET_OPTIONS} onChange={applyPreset} />

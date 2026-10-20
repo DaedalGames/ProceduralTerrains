@@ -17,7 +17,7 @@ export function dependencyId(specifier, importer) {
 
 /** Preserve ESM semantics, cycles and dynamic imports using a virtual import map. */
 export function rewriteModule(source, id) {
-  const [imports] = parse(source);
+  const [imports, exports] = parse(source);
   const replacements = [];
   const dependencies = [];
   for (const record of imports) {
@@ -33,7 +33,7 @@ export function rewriteModule(source, id) {
   }
   for (const change of replacements.sort((a, b) => b.start - a.start))
     source = source.slice(0, change.start) + change.text + source.slice(change.end);
-  return { source: source.replace(/^\/\/# sourceMappingURL=.*$/gm, ''), dependencies };
+  return { source: source.replace(/^\/\/# sourceMappingURL=.*$/gm, ''), dependencies, classicWorker: imports.length === 0 && exports.length === 0 };
 }
 
 async function collect(directory, prefix, files) {
@@ -57,11 +57,13 @@ export async function createPlaygroundRuntime() {
   files.set('fflate.js', await readFile(join(root, 'node_modules/fflate/esm/browser.js'), 'utf8'));
   entries.push('three/three.module.js', 'fflate.js', 'three/addons/controls/OrbitControls.js');
   const modules = {};
+  const classicWorkers = [];
   const visit = (id) => {
     if (Object.hasOwn(modules, moduleId(id))) return;
     if (!files.has(id)) throw new Error('Missing playground module: ' + id);
     const result = rewriteModule(files.get(id), id);
     modules[moduleId(id)] = result.source;
+    if (id.startsWith('package/assets/') && result.classicWorker) classicWorkers.push(moduleId(id));
     for (const dependency of result.dependencies) visit(dependency);
   };
   entries.forEach(visit);
@@ -75,5 +77,5 @@ export async function createPlaygroundRuntime() {
     imports[path] = id;
     imports[path.replace('three/addons/', 'three/examples/jsm/')] = id;
   }
-  return { version: manifest.version, modules, imports };
+  return { version: manifest.version, modules, imports, classicWorkers };
 }

@@ -2,7 +2,7 @@ import { translateText, useLanguage } from '../../i18n/LanguageContext.jsx';
 import React, { useContext, useEffect, useState } from 'react';
 import {
   Bookmark, Boxes, Bug, ChartNoAxesCombined, ChevronDown, CircleDot, Clock3,
-  CloudSun, Droplets, Eye, FileOutput, Fish, Gauge, Globe2, Grid2X2, Image,
+  CloudSun, Code2, Droplets, Eye, FileOutput, Fish, Gauge, Globe2, Grid2X2, Image,
   Map, Orbit, Paintbrush, Palette, Scan, Shell, SlidersHorizontal,
   Sparkles, Sun, Waves, Wind, Wrench,
 } from 'lucide-react';
@@ -47,6 +47,7 @@ const SECTION_ICONS = {
   'skybox.section.time': Clock3,
   'skybox.section.appearance': Sparkles,
   'export.section.productionPreset': Bookmark,
+  'export.section.code': Code2,
   'export.section.tileAssembly': Grid2X2,
   'export.section.format': FileOutput,
   'export.section.textures': Image,

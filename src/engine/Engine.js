@@ -1,3 +1,4 @@
+import { applyTerrainDetailUniforms, applyTerrainVisualUniforms } from '../runtime/TerrainAppearance.js';
 import { normalizeMarkers } from './terrain/RealWorldMarkers.js';
 import { fetchCityMarkers } from './terrain/RealWorldCities.js';
 import { RealWorldMarkerLayer } from './terrain/RealWorldMarkerLayer.js';
@@ -5044,15 +5045,7 @@ export class Engine {
     const p = this.params;
     const u = this.uniforms;
     if (!u?.uVisualTerrainColorVariation) return;
-    u.uVisualTerrainColorVariation.value = p.visualsTerrainColorVariation ?? 0.36;
-    u.uVisualTerrainHeightDetail.value = p.visualsTerrainHeightDetail ?? 0.42;
-    u.uVisualWetShoreStrength.value = p.visualsWetShoreStrength ?? 0.55;
-    u.uVisualRockDetail.value = p.visualsRockDetail ?? 0.45;
-    u.uVisualSoilDetail.value = p.visualsSoilDetail ?? 0.35;
-    u.uVisualSandDetail.value = p.visualsSandDetail ?? 0.38;
-    u.uVisualFoamBreakup.value = p.visualsFoamBreakup ?? 0.45;
-    u.uVisualWetSandRange.value = p.visualsWetSandRange ?? 18;
-    u.uVisualShallowWaterSoftness.value = p.visualsShallowWaterSoftness ?? 0.38;
+    applyTerrainVisualUniforms(u, p);
     this._needsRender = true;
   }
 
@@ -11136,20 +11129,7 @@ export class Engine {
     const s = this.perf;
     const u = this.uniforms;
     if (!u?.uTerrainDetailQuality) return;
-    u.uTerrainDetailQuality.value = s.terrainDetailQuality ?? 3;
-    u.uTerrainDetailScale.value = s.terrainDetailScale ?? 0.16;
-    u.uTerrainDetailStrength.value = s.terrainDetailStrength ?? 0.72;
-    u.uTerrainDetailNormalStrength.value = s.terrainDetailNormal ?? 0.42;
-    u.uTerrainDetailNear.value = s.terrainDetailNear ?? 80;
-    u.uTerrainDetailFar.value = Math.max((s.terrainDetailFar ?? 190), (s.terrainDetailNear ?? 80) + 1);
-    u.uTerrainRockSlope.value = s.terrainRockSlope ?? 0.28;
-    u.uTerrainRockSharpness.value = s.terrainRockSharpness ?? 0.14;
-    u.uTerrainTriplanar.value = s.terrainTriplanar === false ? 0.0 : 1.0;
-    u.uTerrainShoreRange.value = s.terrainShoreRange ?? 18;
-    u.uTerrainShoreWetness.value = s.terrainShoreWetness ?? 0.35;
-    u.uTerrainDetailOpacity.value = s.terrainDetailOpacity ?? 1.0;
-    u.uTerrainMicroDetail.value = s.terrainMicroDetail ?? 0.6;
-    u.uTerrainMacroVariation.value = s.terrainMacroVariation ?? 0.5;
+    applyTerrainDetailUniforms(u, s);
     this._needsRender = true;
     if (!this._bootPending) void this._ensureTerrainShaderVariantAsync();
   }

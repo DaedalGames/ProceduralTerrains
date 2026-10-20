@@ -1,3 +1,4 @@
+import { applyTerrainDetailUniforms } from '../TerrainAppearance.js';
 import { DetailPageCache } from '../../engine/terrain/detail/DetailPageCache.js';
 import { withRendererState } from '../resources/RendererState.js';
 
@@ -15,6 +16,10 @@ export class TerrainDetailCache {
     )
       throw new RangeError('Invalid detail quality, scale or strength');
     terrain._assertAlive();
+    if (terrain._externalDetailCache) throw new Error('Terrain already has an explicit detail cache');
+    terrain._detailPageCache?.dispose();
+    terrain._detailPageCache = null;
+    terrain._externalDetailCache = this;
     this.terrain = terrain;
     this.quality = quality;
     this.scale = scale;
@@ -66,7 +71,8 @@ export class TerrainDetailCache {
     this.disposed = true;
     this._detach();
     this.cache.dispose();
-    this.terrain._uniforms.uTerrainDetailQuality.value = 0;
+    this.terrain._externalDetailCache = null;
+    applyTerrainDetailUniforms(this.terrain._uniforms, this.terrain.configuration.material);
     this.terrain._uniforms.uDetailGlobalBlend.value = 0;
     this.terrain._uniforms.uDetailPageArray.value = null;
   }

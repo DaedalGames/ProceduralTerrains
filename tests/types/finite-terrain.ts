@@ -6,6 +6,9 @@ async function consumer(renderer: WebGLRenderer) {
   const terrain: FiniteTerrain = await createTerrain({ renderer, configuration: {
     source: { kind: 'noise', seed: 123 }, quality: { lodSegments: [64, 32, 16, 8] },
     palette: { grass: [0.1, 0.2, 0.1] },
+    terrainFormationSeaLevel: 80,
+    material: { terrainDetailQuality: 3, terrainTriplanar: true, normalStrength: 1.2, visualsRockDetail: .8 },
+    style: { paletteSaturation: .9, skyAmbient: [.6,.7,.8] },
   } });
   new Scene().add(terrain.object);
   await terrain.prepare(camera);

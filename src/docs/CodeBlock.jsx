@@ -11,7 +11,7 @@ function Highlighted({ code, lang }) {
     : token.text));
 }
 
-function CopyButton({ text }) {
+function CopyButton({ text, disabled = false }) {
   useLocale();
   const [copied, setCopied] = useState(false);
   const timer = useRef(null);
@@ -25,7 +25,7 @@ function CopyButton({ text }) {
     } catch { /* the code stays selectable */ }
   };
   return (
-    <button type="button" className={`docs-copy${copied ? ' copied' : ''}`} onClick={copy}
+    <button type="button" className={`docs-copy${copied ? ' copied' : ''}`} onClick={copy} disabled={disabled}
       aria-label={copied ? translate('Copied') : translate('Copy code')}>
       {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
       <span>{copied ? translate('Copied') : translate('Copy')}</span>
@@ -38,7 +38,7 @@ function CopyButton({ text }) {
  * ([{ label, code, lang }]) instead of `code` for alternatives such as
  * npm / import map.
  */
-export default function CodeBlock({ code, lang, tabs, caption }) {
+export default function CodeBlock({ code, lang, tabs, caption, copyDisabled = false }) {
   const [active, setActive] = useState(0);
   const items = tabs ?? [{ label: languageLabel(lang), code, lang }];
   const current = items[Math.min(active, items.length - 1)];
@@ -54,7 +54,7 @@ export default function CodeBlock({ code, lang, tabs, caption }) {
             ))}
           </div>
         ) : <span className="docs-code-lang">{caption ?? current.label}</span>}
-        <CopyButton text={text} />
+        <CopyButton text={text} disabled={copyDisabled} />
       </div>
       <pre><code><Highlighted code={text} lang={current.lang} /></code></pre>
     </figure>

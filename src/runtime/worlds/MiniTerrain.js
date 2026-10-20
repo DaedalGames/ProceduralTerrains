@@ -9,16 +9,21 @@ import {
   resolveMiniLayout,
 } from '../../engine/mini/MiniTerrainSettings.js';
 import { miniStylePatch } from '../../engine/mini/MiniLook.js';
-import { applyPlanetStyleToUniforms } from '../../engine/style/PaletteUniforms.js';
+import { terrainMaterial, terrainStyle } from '../TerrainAppearance.js';
 import { applyTerrainShapeUniforms, applyTerrainShadingUniforms } from '../TerrainParameters.js';
 import { TerrainHeightCache } from '../effects/TerrainHeightCache.js';
 import { compileMaterial } from '../resources/CompileMaterial.js';
 import { withRendererState } from '../resources/RendererState.js';
 
+const SOURCE_KEYS = ['seed', 'octaves', 'noiseScale', 'noiseStrength', 'terrainSmoothing',
+  'terrainDetail', 'persistence', 'lacunarity', 'ridge', 'warp', 'falloff', 'edgeFalloffMode'];
+
 function configuration(state) {
   const p = { ...DEFAULT_PARAMS, ...miniParamsPatch(state, 'all') },
     l = resolveMiniLayout(state);
   return {
+    terrainFormationSeaLevel: p.terrainFormationSeaLevel,
+    material: terrainMaterial(p),
     layout: { chunkCount: 1, chunkSize: l.width },
     heightScale: l.heightScale,
     seaLevel: l.seaLevel,
@@ -74,9 +79,10 @@ export class MiniPresentation {
   _apply() {
     const t = this.terrain,
       l = this.controller.layout,
-      p = { ...t._params, ...miniParamsPatch(this.controller.state, 'all') };
-    // The Mini relief/cut uses the same uniforms and evaluator as the studio.
-    this.context.params = p;
+      p = t._params;
+    // Mini decorates the saved terrain. Recipe defaults are applied only when
+    // creating or explicitly changing a recipe, never while loading/preparing.
+    this.context.params = { ...p, ...[...t._layers].find((layer) => layer.system)?.parameters };
     this.context._terrainGen = t._revision;
     const water = [...t._layers].find((layer) => layer.system);
     this.context.water = water?.context.mesh;
@@ -87,31 +93,59 @@ export class MiniPresentation {
       skirtDepth: l.baseDepth,
       wallThickness: 0,
     });
-    applyPlanetStyleToUniforms(
-      t._uniforms,
-      miniStylePatch(this.controller.state.recipe, this.controller.state.preset),
-    );
     this.controller.applyUniforms(t._uniforms);
     t._runtime.board.syncCells({
       chunkCount: 1,
       chunkSize: l.width,
-      maxHeight: l.heightScale * 1.35 + 2,
+      maxHeight: Math.max(p.heightScale * 1.35 + 2, t._source.maxHeight),
       skirtDepth: l.baseDepth,
       lodSegments: this.controller.lodSegments(),
       cells: [{ cx: 0, cz: 0 }],
       progressive: false,
     });
     while (t._runtime.board._lodRebuildQueue.length) t._runtime.board.updateLOD(t._cameraPosition);
+    t._runtime.board.setMorphEnabled(false);
+    t._runtime.board.setMergeOptions({ enabled: false });
     this.controller.syncPresentation();
     this.controller.stage.backdrop.visible = this.backdrop;
     t._miniCloudLayout = this.controller.cloudLayout();
     t._miniVolume = this.controller.underwaterVolume();
   }
   async configure(patch = {}, options = {}) {
-    const state = normalizeMiniTerrainState({ ...this.controller.state, ...patch });
+    const plan = this.controller.planChange(patch);
+    const state = plan.state;
+    const p = { ...this.terrain._params, ...plan.params };
+    const c = this.terrain.configuration;
+    const next = {
+      heightScale: p.heightScale, seaLevel: p.seaLevel,
+      terrainFormationSeaLevel: p.terrainFormationSeaLevel,
+      layout: { chunkCount: 1, chunkSize: state.width },
+      material: terrainMaterial(plan.params),
+      ...(plan.palette ? { palette: plan.palette.palette, style: terrainStyle(plan.palette) } : {}),
+    };
+    if (SOURCE_KEYS.some(key => Object.hasOwn(plan.params, key))) {
+      next.source = {
+        ...c.source, seed: p.seed, octaves: p.octaves,
+        scale: p.noiseScale, strength: p.noiseStrength,
+        smoothing: p.terrainSmoothing, detail: p.terrainDetail,
+        persistence: p.persistence, lacunarity: p.lacunarity, ridge: p.ridge,
+        warp: p.warp, falloff: p.falloff, edgeFalloffMode: p.edgeFalloffMode,
+      };
+    }
     this._nextState = state;
     try {
-      await this.terrain.configure(configuration(state), options);
+      await this.terrain.configure(next, options);
+      // The effects own their saved parameters; update only the fields changed
+      // by this Mini action, preserving edits from the shared water/cloud API.
+      for (const layer of this.terrain._layers) {
+        if (!layer.system && !layer.layer) continue;
+        const parameters = Object.fromEntries(Object.entries(plan.params).filter(([key]) =>
+          Object.hasOwn(layer.parameters, key) || (layer.system && key === 'seaLevel')));
+        if (Object.keys(parameters).length) await layer.configure({
+          parameters,
+          ...(layer.system && plan.params.waterMode ? { mode: plan.params.waterMode } : {}),
+        }, options);
+      }
     } finally {
       if (this._nextState === state) this._nextState = null;
     }
@@ -144,6 +178,7 @@ export class MiniPresentation {
   _applyWater() {
     const water = [...this.terrain._layers].find((layer) => layer.system);
     if (water?.system !== this.context.waterSystem) {
+      this.context.params = { ...this.terrain._params, ...water?.parameters };
       this.context.water = water?.context.mesh;
       this.context.waterSystem = water?.system;
       this.controller.syncPresentation();
@@ -171,9 +206,20 @@ export class MiniPresentation {
 
 export async function createMiniTerrain({ mini = {}, backdrop = false, ...options } = {}) {
   const state = normalizeMiniTerrainState({ ...createMiniTerrainState(mini), ...mini });
+  const defaults = configuration(state);
+  const look = miniStylePatch(state.recipe, state.preset);
+  const custom = options.configuration ?? {};
   const terrain = await createTerrain({
     ...options,
-    configuration: { ...options.configuration, ...configuration(state) },
+    configuration: {
+      ...defaults, ...custom,
+      source: { ...defaults.source, ...custom.source },
+      material: { ...defaults.material, ...custom.material },
+      style: { ...terrainStyle(look), ...custom.style },
+      palette: { ...look.palette, ...custom.palette },
+      quality: { ...defaults.quality, ...custom.quality },
+      layout: { chunkCount: 1, chunkSize: state.width },
+    },
   });
   try {
     new MiniPresentation(terrain, state, { backdrop });

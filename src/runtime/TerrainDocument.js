@@ -1,3 +1,6 @@
+import { miniParamsPatch } from '../engine/mini/MiniTerrainSettings.js';
+import { miniStylePatch } from '../engine/mini/MiniLook.js';
+import { terrainMaterial, terrainStyle } from './TerrainAppearance.js';
 import { createTerrain } from './FiniteTerrain.js';
 import { createInfiniteTerrain } from './worlds/InfiniteTerrain.js';
 import { createPlanetTerrain } from './worlds/PlanetTerrain.js';
@@ -14,7 +17,17 @@ export async function loadTerrainDocument(document, options = {}) {
     planet: createPlanetTerrain,
   }[document.kind];
   if (!factory) throw new TypeError('Unsupported world kind');
-  const terrain = await factory({ ...options, configuration: document.configuration });
+  const mini = document.extensions?.find(extension => extension.type === 'mini');
+  // Alpha exports omitted appearance and the formation baseline. Recover the
+  // Mini defaults for those missing fields, while retaining all saved edits.
+  const miniParams = mini ? miniParamsPatch(mini.state, 'all') : null;
+  const configuration = mini ? {
+    material: terrainMaterial(miniParams),
+    style: terrainStyle(miniStylePatch(mini.state.recipe, mini.state.preset)),
+    terrainFormationSeaLevel: miniParams.terrainFormationSeaLevel,
+    ...document.configuration,
+  } : document.configuration;
+  const terrain = await factory({ ...options, configuration });
   try {
     for (const extension of document.extensions ?? []) {
       options.signal?.throwIfAborted();

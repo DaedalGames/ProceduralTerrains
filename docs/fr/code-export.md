@@ -2,6 +2,15 @@
 
 Le studio peut exporter du JavaScript utilisable avec les meshes et les cartes. Le code généré utilise l’API publique du package npm.
 
+## Copier un snippet
+
+Dans **Export → Utiliser dans le code**, le code est généré à partir du terrain courant et se met à jour avec vos réglages. **Actualiser le code** reprend aussi la caméra actuelle.
+
+- **Dans votre scène** : copiez le code dans un module de votre application Three.js. Utilisez vos propres `renderer`, `scene` et `camera`, appelez `renderTerrain(deltaSeconds)` à chaque image et `disposeTerrain()` au nettoyage.
+- **Exemple complet** : collez le code dans `main.js` d’un projet Vite ; il contient la scène, la caméra, les contrôles et la boucle de rendu. Le document du terrain est inclus, sans autre fichier JavaScript à récupérer.
+
+Installez `procedural-terrains`, puis utilisez le bouton **Copier** du format souhaité. Les notes de conversion indiquent les fonctions du studio à intégrer séparément.
+
 ## Exporter depuis le studio
 
 Ouvrez le panneau Export et activez **Inclure le code du terrain (npm)**. L’archive ZIP contient un dossier `code/` :

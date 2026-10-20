@@ -61,6 +61,18 @@ All dimensions and heights use world units. Fields are nested; `configure` merge
 
 Other source knobs: `smoothing` and `detail` (0–1), `persistence` (0.01–1), `lacunarity` (1–4), `ridge` (0–2), `warp` (0–4), `falloff` (0–1), and `edgeFalloffMode` (`island` or `mountains`). Unknown options fail explicitly.
 
+### Terrain materials and lighting style
+
+The runtime uses the studio's procedural terrain shader and automatically prepares camera-local detail pages in a worker during `update`. No external texture pack is required. Set `material.terrainDetailQuality: 0` to disable detail. An explicit `createDetailCache` takes ownership of detail until disposed.
+
+The `material` configuration preserves the studio's biome, slope, normal and AO inputs (`biomeScale`, `moistScale`, `moistBias`, `tempBias`, `snowLine`, `normalStrength`, `aoStrength`, slope gates), `terrainDetail*` quality and distance controls, triplanar/shore/micro/macro detail, and terrain color variation, rock, soil, sand and wet-shore shader settings. `style` stores palette saturation/contrast/tint, sun color/intensity, sky ambient and ground bounce. Colors use linear RGB.
+
+`terrainFormationSeaLevel` is a separate generation input. Changing the live `seaLevel` does not change that baseline. These fields serialize in terrain documents and are included in new studio code exports.
+
+Mini's document controls its footprint and presentation. Loading it preserves the saved terrain source, height and palette. Mini materials receive water scene color and depth captures before their first rendered frame, including after a water reconfiguration. Use `TerrainRenderPipeline` to render those passes.
+
+Older code exports did not contain custom material/style values. Re-export from the studio to retain those values; they cannot be recovered from an old snippet.
+
 ## Runtime properties and methods
 
 | Member | Description |

@@ -50,6 +50,7 @@ export class MiniTerrainController {
     this.lightMap = null;
     this._waterEntry = null;
     this._surfaceEntry = null;
+    this._registeredWaterSystem = null;
     this._presentationKey = '';
     this._homeKey = '';
     this._fieldKey = '';
@@ -506,8 +507,7 @@ export class MiniTerrainController {
 
   dispose() {
     this._deactivate();
-    if (this._waterEntry) this.engine.waterSystem?.removeAuxiliaryWater(this._waterEntry);
-    if (this._surfaceEntry) this.engine.waterSystem?.removeAuxiliaryWater(this._surfaceEntry);
+    this._bindWaterSystem(null);
     this._waterEntry = null;
     this._surfaceEntry = null;
     this.lightMap?.dispose();
@@ -537,7 +537,6 @@ export class MiniTerrainController {
         material: this.waterCut.material,
         applySettings: (params) => applyMiniWaterLook(this.waterCut?.material, { params }),
       };
-      eng.waterSystem?.addAuxiliaryWater(this._waterEntry);
     }
     if (!this.waterSurface) {
       // Rendered on the studio water mesh through the WaterSystem override;
@@ -547,11 +546,24 @@ export class MiniTerrainController {
         material: this.waterSurface,
         applySettings: (params) => applyMiniWaterLook(this.waterSurface, { params }),
       };
-      eng.waterSystem?.addAuxiliaryWater(this._surfaceEntry);
     }
     if (!this.lightMap) {
       this.lightMap = new MiniLightMap(eng.uniforms);
       this.stage.group.add(this.lightMap.decal);
+    }
+    this._bindWaterSystem(eng.waterSystem ?? null);
+  }
+
+  _bindWaterSystem(system) {
+    const previous = this._registeredWaterSystem;
+    if (previous === system) return;
+    for (const entry of [this._waterEntry, this._surfaceEntry]) {
+      if (entry) previous?.removeAuxiliaryWater(entry);
+    }
+    if (previous?.studioOverride === this.waterSurface) previous.setStudioOverride(null);
+    this._registeredWaterSystem = system;
+    for (const entry of [this._waterEntry, this._surfaceEntry]) {
+      if (entry) system?.addAuxiliaryWater(entry);
     }
   }
 

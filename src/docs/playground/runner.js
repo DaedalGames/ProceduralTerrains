@@ -74,7 +74,15 @@ function iframeBootstrap(token, code, bundledRuntime) {
       document.head.appendChild(map);
       const NativeWorker = window.Worker;
       if (NativeWorker) window.Worker = class extends NativeWorker {
-        constructor(url, options) { super(urls.get(String(url)) ?? url, options); }
+        constructor(url, options) {
+          const id = String(url);
+          // The built worker assets have no imports or exports. Classic workers
+          // can load their Blob source from file:// and opaque iframe origins;
+          // module workers fail in those contexts even for self-contained code.
+          const workerOptions = runtime.classicWorkers?.includes(id)
+            ? { ...options, type: 'classic' } : options;
+          super(urls.get(id) ?? url, workerOptions);
+        }
       };
       window.__playgroundReady = () => send('ready');
       userURL = URL.createObjectURL(new Blob([code + '\n;globalThis.__playgroundReady();\n'], { type: 'text/javascript' }));

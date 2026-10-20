@@ -118,8 +118,58 @@ export type TerrainPaletteKey =
   | 'foam';
 export type TerrainPalette = Readonly<Record<TerrainPaletteKey, TerrainColor>>;
 
+export interface TerrainMaterialSettings {
+  readonly biomeScale: number;
+  readonly moistScale: number;
+  readonly moistBias: number;
+  readonly tempBias: number;
+  readonly biomeDebug: boolean;
+  readonly snowLine: number;
+  readonly normalStrength: number;
+  readonly aoStrength: number;
+  readonly aoRidge: number;
+  readonly rockSlopeLo: number;
+  readonly rockSlopeHi: number;
+  readonly snowSlopeMin: number;
+  readonly snowSlopeMax: number;
+  readonly terrainDetailQuality: number;
+  readonly terrainDetailScale: number;
+  readonly terrainDetailStrength: number;
+  readonly terrainDetailNormal: number;
+  readonly terrainDetailNear: number;
+  readonly terrainDetailFar: number;
+  readonly terrainRockSlope: number;
+  readonly terrainRockSharpness: number;
+  readonly terrainTriplanar: boolean;
+  readonly terrainShoreRange: number;
+  readonly terrainShoreWetness: number;
+  readonly terrainDetailOpacity: number;
+  readonly terrainMicroDetail: number;
+  readonly terrainMacroVariation: number;
+  readonly visualsTerrainColorVariation: number;
+  readonly visualsTerrainHeightDetail: number;
+  readonly visualsWetShoreStrength: number;
+  readonly visualsRockDetail: number;
+  readonly visualsSoilDetail: number;
+  readonly visualsSandDetail: number;
+  readonly visualsFoamBreakup: number;
+  readonly visualsWetSandRange: number;
+  readonly visualsShallowWaterSoftness: number;
+}
+export interface TerrainStyleSettings {
+  readonly paletteSaturation: number;
+  readonly paletteContrast: number;
+  readonly paletteTint: TerrainColor;
+  readonly sunColor: TerrainColor;
+  readonly sunIntensity: number;
+  readonly skyAmbient: TerrainColor;
+  readonly groundBounce: TerrainColor;
+}
 export interface TerrainConfiguration {
   readonly heightScale: number;
+  readonly terrainFormationSeaLevel: number;
+  readonly material: Readonly<TerrainMaterialSettings>;
+  readonly style: Readonly<TerrainStyleSettings>;
   /** Shoreline in world units; optional water is a separate layer. */
   readonly seaLevel: number;
   readonly layout: {
@@ -165,8 +215,10 @@ export interface TerrainConfiguration {
 }
 
 export type TerrainConfigurationPatch = Partial<
-  Pick<TerrainConfiguration, 'heightScale' | 'seaLevel'>
+  Pick<TerrainConfiguration, 'heightScale' | 'seaLevel' | 'terrainFormationSeaLevel'>
 > & {
+  material?: Partial<TerrainMaterialSettings>;
+  style?: Partial<TerrainStyleSettings>;
   layout?: Partial<TerrainConfiguration['layout']>;
   source?: TerrainSourcePatch;
   quality?: Partial<TerrainConfiguration['quality']>;

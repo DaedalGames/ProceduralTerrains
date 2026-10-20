@@ -2470,7 +2470,22 @@ export default function App() {
       });
     });
   };
+  const onTerrainCodeSnippet = useCallback(async () => {
+    const eng = engineRef.current;
+    if (!eng) throw new Error('Terrain is not ready');
+    const { createTerrainCodeSnippet } = await import('./export/TerrainCodeExporter.js');
+    const project = await eng.createProjectPayload();
+    return createTerrainCodeSnippet(project, {
+      quality: eng.perf,
+      camera: {
+        position: eng.camera?.position?.toArray(),
+        target: eng.controls?.target?.toArray(),
+      },
+    });
+  }, []);
+  const terrainCodeRevision = useMemo(() => ({}), [params, worldMode, miniTerrain, terrainGraph, manualTerrainState, creatorHistory]);
   const ctx = {
+    onTerrainCodeSnippet, terrainCodeRevision,
     params, worldMode, onParam,
     miniTerrain,
     onMiniTerrain: queueMiniPatch,

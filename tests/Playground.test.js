@@ -26,6 +26,11 @@ describe('terrain playground', () => {
     expect(() => rewriteModule("import x from 'missing';", 'package/a.js')).toThrow('Unsupported playground dependency');
     expect(dependencyId('three/examples/jsm/controls/OrbitControls.js', 'package/a.js')).toBe('three/addons/controls/OrbitControls.js');
   });
+  it('identifies self-contained workers without treating ESM imports or exports as classic scripts', () => {
+    expect(rewriteModule('self.onmessage = e => self.postMessage(e.data);', 'package/assets/worker.js').classicWorker).toBe(true);
+    expect(rewriteModule("import './dependency.js'; self.onmessage = () => {};", 'package/assets/worker.js').classicWorker).toBe(false);
+    expect(rewriteModule('export const value = 1;', 'package/assets/worker.js').classicWorker).toBe(false);
+  });
   it('round-trips Unicode code and rejects invalid or oversized share links', () => {
     const code = "console.log('Terrain émeraude 🌍');";
     expect(decodeCode(encodeCode(code))).toBe(code);

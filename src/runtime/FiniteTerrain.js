@@ -1,3 +1,5 @@
+import { applyTerrainDetailUniforms, applyTerrainVisualUniforms } from './TerrainAppearance.js';
+import { DetailPageCache } from '../engine/terrain/detail/DetailPageCache.js';
 import * as THREE from 'three';
 import { createTerrainMaterial, createTerrainUniforms } from '../engine/terrain/TerrainMaterial.js';
 import { TerrainHeightSampler } from '../engine/terrain/TerrainHeightSampler.js';
@@ -42,6 +44,8 @@ export class FiniteTerrain {
     this._worldCamera = null;
     this._viewport = new THREE.Vector4();
     this._prepared = false;
+    this._onContextRestored = () => this._detailPageCache?.onContextRestored();
+    renderer.domElement?.addEventListener?.('webglcontextrestored', this._onContextRestored);
     this._fallback = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
     this._fallback.needsUpdate = true;
     this._uniforms = createTerrainUniforms({ surfaceFallback: this._fallback });
@@ -225,7 +229,8 @@ export class FiniteTerrain {
       skirtDepth,
       wallThickness: Math.max(10, size * 0.006),
     });
-    this._uniforms.uTerrainDetailQuality.value = 0;
+    applyTerrainDetailUniforms(this._uniforms, c.material);
+    applyTerrainVisualUniforms(this._uniforms, c.material);
     this._uniforms.uBakeOrigin.value.set(-size / 2, -size / 2);
     this._uniforms.uBakeSpan.value.set(size, size);
     const az = THREE.MathUtils.degToRad(p.sunAzimuth);
@@ -236,7 +241,7 @@ export class FiniteTerrain {
       Math.cos(el) * Math.cos(az),
     );
     this._uniforms.uFogDensity.value = p.fogDensity * 0.0001;
-    applyPlanetStyleToUniforms(this._uniforms, { palette: c.palette });
+    applyPlanetStyleToUniforms(this._uniforms, { ...c.style, palette: c.palette });
     this._uniforms.uInfiniteMode.value = this.mode === 'infinite' ? 1 : 0;
     if (this._world.apply) {
       this._world.apply(this, c);
@@ -360,7 +365,10 @@ export class FiniteTerrain {
     const sameLayout = JSON.stringify(next.layout) === JSON.stringify(this._configuration.layout);
     const reuseSource = next.source === this._configuration.source && sameLayout;
     const nextSource = reuseSource ? this._source : new TerrainSource(next, this.mode);
-    const sourceChanged = !reuseSource || next.heightScale !== this._configuration.heightScale;
+    const sourceChanged = !reuseSource || next.heightScale !== this._configuration.heightScale
+      || next.terrainFormationSeaLevel !== this._configuration.terrainFormationSeaLevel
+      || ['biomeScale', 'moistScale', 'moistBias', 'tempBias'].some(
+        key => next.material[key] !== this._configuration.material[key]);
     const changedProgram =
       nextSource.signature !== this._source.signature || this._materialSurface !== this._surface;
     const candidate = changedProgram ? this._makeMaterial(next.source.octaves, nextSource) : null;
@@ -461,6 +469,18 @@ export class FiniteTerrain {
       view.updateMatrix();
       view.updateMatrixWorld(true);
     }
+    const detail = this.configuration.material;
+    if (!this._externalDetailCache && detail.terrainDetailQuality > 0 && typeof Worker === 'function' && this._renderer.initTexture) {
+      this._detailPageCache ??= new DetailPageCache({ renderer: this._renderer, uniforms: this._uniforms });
+      const seed = this._uniforms.uSeedOffset.value;
+      this._detailPageCache.update({ camera: view, mode: this.mode === 'finite' ? 'studio' : this.mode,
+        generation: this._revision,
+        scale: detail.terrainDetailScale * (0.55 + 0.70 * Math.min(1, detail.terrainDetailQuality / 3)),
+        seedX: seed.x, seedY: seed.y, active: true, allowUpload: !this._compilingMaterials.size,
+        dt: Math.min(deltaSeconds, 0.1) });
+    } else if (!this._externalDetailCache && this._detailPageCache) {
+      this._uniforms.uDetailGlobalBlend.value = 0;
+    }
     this._uniforms.uTime.value += Math.min(deltaSeconds, 0.1);
     this._runtime.update(view);
     this._world.update?.(this, view);
@@ -528,6 +548,8 @@ export class FiniteTerrain {
     this._world.dispose?.(this);
     this._runtime.dispose();
     this._source.dispose();
+    this._detailPageCache?.dispose();
+    this._renderer.domElement?.removeEventListener?.('webglcontextrestored', this._onContextRestored);
     this.object.removeFromParent();
     this._retireMaterial(this._material);
     for (const texture of this._ownedTextures) texture.dispose();

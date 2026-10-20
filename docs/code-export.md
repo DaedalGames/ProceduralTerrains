@@ -2,6 +2,15 @@
 
 The studio can export runnable JavaScript alongside meshes and maps. The generated code uses the public npm runtime.
 
+## Copy a snippet
+
+Open **Export → Use in code**. The snippets use the current terrain and update as its settings change. **Refresh code** also captures the current camera.
+
+- **In your scene**: paste into an application module using your own `renderer`, `scene` and `camera`. Call `renderTerrain(deltaSeconds)` each frame and `disposeTerrain()` on cleanup.
+- **Complete example**: paste into `main.js` in a Vite project. It includes the terrain document, scene, camera, controls and rendering loop, with no additional JavaScript files to download.
+
+Install `procedural-terrains`, then use the **Copy** button for either format. Conversion notes list studio features that require separate integration.
+
 ## Export from the studio
 
 Open the Export panel and enable **Include Terrain Code (npm)**. The ZIP gains a `code/` folder with:

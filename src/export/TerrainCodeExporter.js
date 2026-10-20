@@ -1,3 +1,4 @@
+import { MATERIAL_DEFAULTS, terrainStyle } from '../runtime/TerrainAppearance.js';
 import { DEFAULT_PARAMS } from '../engine/presets.js';
 import { normalizeConfiguration } from '../runtime/FiniteTerrainConfiguration.js';
 import { infiniteAdapter } from '../runtime/worlds/InfiniteTerrain.js';
@@ -40,6 +41,9 @@ export function createTerrainCodeDocument(project, { quality = {} } = {}) {
   if (kind === 'infinite') Object.assign(layout, { viewRadius: quality.viewRadius ?? 8 });
   const configuration = normalizeConfiguration({
     layout, source, heightScale: p.heightScale, seaLevel: p.seaLevel,
+    terrainFormationSeaLevel: p.terrainFormationSeaLevel,
+    material: pick({ ...p, ...quality }, MATERIAL_DEFAULTS),
+    style: terrainStyle(p.planetStyle),
     lighting: { sunAzimuth: p.sunAzimuth, sunElevation: p.sunElevation, fogDensity: p.fogDensity },
     ...(p.planetStyle?.palette ? { palette: p.planetStyle.palette } : {}),
   }, undefined, kind === 'planet' ? planetAdapter : kind === 'infinite' ? infiniteAdapter : {});
@@ -87,17 +91,7 @@ export function createTerrainCodeDocument(project, { quality = {} } = {}) {
   };
 }
 
-export function createTerrainCodeFiles(project, context = {}) {
-  const { document, warnings } = createTerrainCodeDocument(project, context);
-  const terrainCode = `import { loadTerrainDocument } from 'procedural-terrains/documents';
-
-// Generated from the studio. Adjust this document to change the terrain.
-export const terrainDocument = ${json(document)};
-
-export function createExportedTerrain({ renderer, signal } = {}) {
-  return loadTerrainDocument(terrainDocument, { renderer, signal });
-}
-`;
+function createTerrainRenderingCode(document, context = {}, inline = false) {
   const size = document.kind === 'planet'
     ? document.configuration.layout.radius * 3
     : document.configuration.layout.chunkCount * document.configuration.layout.chunkSize;
@@ -106,11 +100,14 @@ export function createExportedTerrain({ renderer, signal } = {}) {
   const main = `import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TerrainRenderPipeline } from 'procedural-terrains/render';
-import { createExportedTerrain } from './terrain.js';
+${inline ? "import { loadTerrainDocument } from 'procedural-terrains/documents';" : "import { createExportedTerrain } from './terrain.js';"}
+${inline ? '\nconst terrainDocument = ' + json(document) + ';\n' : ''}
 
 async function start() {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  document.body.style.margin = '0';
+  renderer.domElement.style.display = 'block';
   document.body.appendChild(renderer.domElement);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x101827);
@@ -139,11 +136,11 @@ async function start() {
     renderer.domElement.remove();
   };
   try {
-    terrain = await createExportedTerrain({ renderer });
+    terrain = await ${inline ? 'loadTerrainDocument(terrainDocument, { renderer })' : 'createExportedTerrain({ renderer })'};
     scene.add(terrain.object);
     pipeline = new TerrainRenderPipeline({ renderer, terrains: [terrain] });
     await terrain.prepare(camera);
-    document.querySelector('#status').remove();
+    document.querySelector('#status')?.remove();
     let last = performance.now();
     renderer.setAnimationLoop((now) => {
       const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
@@ -159,10 +156,55 @@ async function start() {
   }
 }
 start().catch((error) => {
-  document.querySelector('#status').textContent = error.message;
+  const status = document.querySelector('#status');
+  if (status) status.textContent = error.message;
   console.error(error);
 });
 `;
+  return main;
+}
+
+/** Copyable code for an existing scene and a complete browser entry point. */
+export function createTerrainCodeSnippet(project, context = {}) {
+  const { document, warnings } = createTerrainCodeDocument(project, context);
+  const code = `import { loadTerrainDocument } from 'procedural-terrains/documents';
+import { TerrainRenderPipeline } from 'procedural-terrains/render';
+
+// Use your existing Three.js renderer, scene and camera.
+const terrainDocument = ${json(document)};
+
+const terrain = await loadTerrainDocument(terrainDocument, { renderer });
+scene.add(terrain.object);
+const pipeline = new TerrainRenderPipeline({ renderer, terrains: [terrain] });
+await terrain.prepare(camera);
+
+// Call from your animation loop. deltaSeconds is the time since the last frame.
+function renderTerrain(deltaSeconds) {
+  terrain.update(deltaSeconds, { camera });
+  pipeline.render(scene, camera);
+}
+
+// Call when removing the terrain from your application.
+function disposeTerrain() {
+  pipeline.dispose();
+  terrain.dispose();
+}
+`;
+  return { code, standaloneCode: createTerrainRenderingCode(document, context, true), warnings };
+}
+
+export function createTerrainCodeFiles(project, context = {}) {
+  const { document, warnings } = createTerrainCodeDocument(project, context);
+  const terrainCode = `import { loadTerrainDocument } from 'procedural-terrains/documents';
+
+// Generated from the studio. Adjust this document to change the terrain.
+export const terrainDocument = ${json(document)};
+
+export function createExportedTerrain({ renderer, signal } = {}) {
+  return loadTerrainDocument(terrainDocument, { renderer, signal });
+}
+`;
+  const main = createTerrainRenderingCode(document, context);
   const readme = `# Exported Procedural Terrain
 
 This example uses procedural-terrains ${packageInfo.version} and Three.js ${packageInfo.peerDependencies.three}.

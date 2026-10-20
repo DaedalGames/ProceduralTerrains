@@ -61,6 +61,18 @@ Dimensions et hauteurs sont en unités du monde. Les champs sont imbriqués ; `c
 
 Autres réglages de source : `smoothing` et `detail` (0–1), `persistence` (0.01–1), `lacunarity` (1–4), `ridge` (0–2), `warp` (0–4), `falloff` (0–1), `edgeFalloffMode` (`island` ou `mountains`). Les options inconnues sont rejetées.
 
+### Matières du terrain et éclairage
+
+Le runtime utilise le shader procédural du studio et prépare automatiquement ses pages de détail dans un worker pendant `update`. Aucun pack de textures externe n’est nécessaire. `material.terrainDetailQuality: 0` désactive ce détail. Un `createDetailCache` explicite prend la main sur ce cache jusqu’à sa destruction.
+
+La configuration `material` conserve les réglages de biomes, pente, normales et occlusion du studio (`biomeScale`, `moistScale`, `moistBias`, `tempBias`, `snowLine`, `normalStrength`, `aoStrength`, seuils de pente), les réglages de qualité et distance `terrainDetail*`, les détails triplanaires, micro/macro, roche, sol, sable et rivage. `style` contient saturation/contraste/teinte de palette, couleur/intensité du soleil, lumière ambiante et rebond du sol. Les couleurs sont en RGB linéaire.
+
+`terrainFormationSeaLevel` est une entrée de génération distincte : déplacer `seaLevel` ne change pas ce niveau de formation. Ces champs sont sérialisés dans le document et les nouveaux exports de code du studio.
+
+Le document Mini contrôle la présentation et son emprise. Son chargement conserve la source, la hauteur et la palette enregistrées. Ses matériaux d’eau reçoivent les captures de couleur et de profondeur avant la première image, y compris après une reconfiguration de l’eau. Utilisez `TerrainRenderPipeline` pour exécuter ces passes.
+
+Les anciens snippets ne contenaient pas les réglages personnalisés de matière et de style. Réexportez le terrain depuis le studio pour les conserver ; ces valeurs absentes ne peuvent pas être récupérées depuis un ancien snippet.
+
 ## Propriétés et méthodes
 
 | Membre | Description |

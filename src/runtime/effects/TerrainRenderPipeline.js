@@ -57,11 +57,11 @@ export class TerrainRenderPipeline {
       const visibility = clouds.map((l) => [l.layer.mesh, l.layer.mesh.visible]);
       try {
         for (const [mesh] of visibility) mesh.visible = false;
+        for (const t of this.terrains) for (const l of t._layers) l.beforeRender?.();
         for (const l of waters) {
           l.system.capturePlanarReflection(r, scene, camera, size);
           l.system.captureSceneRefraction(r, scene, camera, size);
         }
-        for (const t of this.terrains) for (const l of t._layers) l.beforeRender?.();
         r.setRenderTarget(this.target);
         r.clear(true, true, true);
         r.render(scene, camera);

@@ -1703,6 +1703,31 @@ body {
 .export-validation-row.success span { color: #55c58b; }
 .export-validation-row.warning span { color: #e8b85c; }
 .export-validation-row.error span { color: #f06f6f; }
+.terrain-code-snippet { min-width: 0; }
+.terrain-code-snippet .docs-code { margin: 8px 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-control); }
+.terrain-code-snippet .docs-code-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 34px; padding: 4px 6px; border-bottom: 1px solid var(--border-subtle); }
+.terrain-code-snippet .docs-code-tabs { display: flex; gap: 3px; min-width: 0; overflow-x: auto; }
+.terrain-code-snippet .docs-code-tabs button, .terrain-code-snippet .docs-copy { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.terrain-code-snippet .docs-copy { flex-shrink: 0; }
+.terrain-code-snippet .docs-code-tabs button.active { background: var(--accent-bg); color: var(--text-bright); }
+.terrain-code-snippet .docs-copy:hover { background: var(--accent-bg); color: var(--text-bright); }
+.terrain-code-snippet .docs-copy:disabled { opacity: .45; cursor: wait; }
+.terrain-code-snippet .docs-copy.copied { color: var(--success, #55c58b); }
+.terrain-code-snippet .docs-code-lang { padding-left: 5px; color: var(--text-dim); font-size: 11px; }
+.terrain-code-snippet .docs-code pre { max-height: 340px; overflow: auto; margin: 0; padding: 12px; font: 11px/1.6 var(--mono, monospace); tab-size: 2; color: var(--text-bright); }
+.terrain-code-snippet .docs-code code { font: inherit; }
+.terrain-code-snippet .hl-keyword { color: #c792ea; }
+.terrain-code-snippet .hl-string { color: #a6d189; }
+.terrain-code-snippet .hl-number, .terrain-code-snippet .hl-literal { color: #f5a97f; }
+.terrain-code-snippet .hl-comment { color: #7d899e; }
+.terrain-code-snippet .hl-type { color: #82aaff; }
+.terrain-code-snippet .hl-fn { color: #7dcfff; }
+.terrain-code-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 36px; color: var(--text-dim); font-size: 11px; }
+.terrain-code-toolbar .action-btn { display: inline-flex; align-items: center; gap: 5px; flex: none; width: auto; margin: 0; padding: 6px 8px; font-size: 11px; }
+.terrain-code-notes { margin: 10px 0; color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+.terrain-code-notes summary { cursor: pointer; }
+.terrain-code-notes ul { margin: 6px 0; padding-left: 18px; }
+.terrain-code-snippet > a { color: var(--accent); font-size: 11px; }
 .kv-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 0; }
 .tile-chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
 .tile-chip-grid .action-btn { margin-top: 0; flex: 0 0 auto; }

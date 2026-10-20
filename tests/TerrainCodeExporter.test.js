@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { transform } from 'esbuild';
-import { createTerrainCodeDocument, createTerrainCodeFiles } from '../src/export/TerrainCodeExporter.js';
+import { createTerrainCodeDocument, createTerrainCodeFiles, createTerrainCodeSnippet } from '../src/export/TerrainCodeExporter.js';
 import { loadTerrainDocument } from '../src/runtime/TerrainDocument.js';
 import { readEditableProjectDocument } from '../src/project/ProjectDocument.js';
 import { createBlankGraph, makeGraphNode } from '../src/engine/terrain/graph/GraphDocument.js';
@@ -15,6 +15,33 @@ const project = (patch = {}) => ({
 const decode = (bytes) => new TextDecoder().decode(bytes);
 
 describe('npm terrain code export', () => {
+  it.each(['studio', 'infinite', 'planet'])('generates self-contained snippets for %s with the same document as the ZIP', async (worldMode) => {
+    const saved = project({ worldMode });
+    const { document, warnings } = createTerrainCodeDocument(saved);
+    const snippet = createTerrainCodeSnippet(saved, { camera: { position: [100, 200, 300], target: [0, 40, 0] } });
+    expect(snippet.warnings).toEqual(warnings);
+    for (const code of [snippet.code, snippet.standaloneCode]) {
+      expect(code).toContain(JSON.stringify(document, null, 2));
+      expect(code).not.toContain("from './terrain.js'");
+      await expect(transform(code, { loader: 'js', format: 'esm' })).resolves.toBeDefined();
+    }
+    expect(snippet.code).toContain('function renderTerrain(deltaSeconds)');
+    expect(snippet.code).toContain('pipeline.render(scene, camera)');
+    expect(snippet.code).toContain('function disposeTerrain()');
+    expect(snippet.standaloneCode).toContain('renderer.setAnimationLoop');
+    expect(snippet.standaloneCode).toContain('camera.position.fromArray([\n  100,\n  200,\n  300\n])');
+  });
+
+  it('keeps Mini and water in the copied document and updates the seed from current settings', () => {
+    const saved = project({ miniTerrain: createMiniTerrainState({ recipe: 'cove', seed: 42 }), params: { seed: 42, waterMode: 'stylized' } });
+    const first = createTerrainCodeSnippet(saved);
+    expect(first.code).toContain('"type": "mini"');
+    expect(first.code).toContain('"type": "water"');
+    saved.params.seed = 9182;
+    expect(createTerrainCodeSnippet(saved).code).toContain('"seed": 9182');
+    expect(first.code).not.toContain('"seed": 9182');
+  });
+
   it('round-trips a studio noise source through the public document loader without DOM', async () => {
     const { document } = createTerrainCodeDocument(project());
     const terrain = await loadTerrainDocument(document, { renderer: { isWebGLRenderer: true } });

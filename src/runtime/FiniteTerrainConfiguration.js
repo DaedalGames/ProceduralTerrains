@@ -1,3 +1,4 @@
+import { MATERIAL_DEFAULTS, MATERIAL_FIELDS, STYLE_DEFAULTS } from './TerrainAppearance.js';
 import { normalizeTerrainSource } from './TerrainSources.js';
 import { DEFAULT_PARAMS } from '../engine/presets.js';
 import { EARTH_PALETTE, PALETTE_KEYS } from '../engine/style/ColorPalette.js';
@@ -6,6 +7,9 @@ const p = DEFAULT_PARAMS;
 const defaults = {
   heightScale: p.heightScale,
   seaLevel: p.seaLevel,
+  terrainFormationSeaLevel: p.terrainFormationSeaLevel,
+  material: MATERIAL_DEFAULTS,
+  style: STYLE_DEFAULTS,
   layout: { chunkCount: 8, chunkSize: p.chunkSize },
   source: {
     kind: 'noise',
@@ -66,7 +70,7 @@ export function normalizeConfiguration(patch = {}, base = defaults, world = {}) 
   const layoutDefaults = { ...defaults.layout, ...world.layoutDefaults };
   record(patch, Object.keys(defaults), 'configuration');
   const next = { ...base, ...patch };
-  for (const key of ['layout', 'quality', 'lighting', 'palette']) {
+  for (const key of ['layout', 'quality', 'lighting', 'palette', 'material', 'style']) {
     if (patch[key] !== undefined)
       record(patch[key], Object.keys(key === 'layout' ? layoutDefaults : defaults[key]), key);
     next[key] = { ...(key === 'layout' ? layoutDefaults : {}), ...base[key], ...patch[key] };
@@ -93,6 +97,20 @@ export function normalizeConfiguration(patch = {}, base = defaults, world = {}) 
       ? base.source
       : normalizeTerrainSource(patch.source, base.source, defaults.source, world.mode);
   world.validateLayout?.(next.layout);
+  for (const [key, value] of Object.entries(next.material)) {
+    const [, fallback, min, max] = MATERIAL_FIELDS[key];
+    if (typeof fallback === 'boolean') {
+      if (typeof value !== 'boolean') throw new TypeError('material.' + key + ' must be boolean');
+    } else number(value, min, max, 'material.' + key, key === 'terrainDetailQuality');
+  }
+  for (const [key, value] of Object.entries(next.style)) {
+    if (Array.isArray(STYLE_DEFAULTS[key])) {
+      if (!Array.isArray(value) || value.length !== 3) throw new TypeError('style.' + key + ' requires three components');
+      next.style[key] = [...value];
+      value.forEach(v => number(v, 0, 10, 'style.' + key));
+    } else number(value, 0, 10, 'style.' + key);
+  }
+  number(next.terrainFormationSeaLevel, -100000, 100000, 'terrainFormationSeaLevel');
   number(next.heightScale, 1, 100000, 'heightScale');
   number(next.seaLevel, -100000, 100000, 'seaLevel');
   number(next.layout.chunkCount, 1, 32, 'layout.chunkCount', true);
@@ -144,7 +162,8 @@ export function configurationParameters(c) {
     heightScale: c.heightScale,
     seaLevel: c.seaLevel,
     // This is a generation input; moving the live shoreline does not change it.
-    terrainFormationSeaLevel: DEFAULT_PARAMS.terrainFormationSeaLevel,
+    terrainFormationSeaLevel: c.terrainFormationSeaLevel,
+    ...c.material,
     seed: c.source.seed,
     octaves: c.source.octaves,
     noiseScale: c.source.scale,
