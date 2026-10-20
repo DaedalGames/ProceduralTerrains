@@ -1,8 +1,9 @@
-import type { Camera } from 'three';
-import type { FiniteTerrain, TerrainLayer, TerrainExtension } from './index.js';
+import type { Camera, Group } from 'three';
+import type { EffectHostOptions, TerrainLayer, TerrainExtension } from './index.js';
 export type WaterMode = 'off' | 'legacy' | 'realistic' | 'volumetric' | 'cinematic' | 'stylized';
 export interface WaterParameters {
   waterEnabled?: boolean;
+  waterHideAtZero?: boolean;
   waterMode?: string;
   waterQualityPreset?: string;
   waterAutoDowngradeInfinite?: boolean;
@@ -77,17 +78,23 @@ export interface WaterParameters {
   seaLevel?: number;
   waterAnim?: boolean;
 }
-export interface WaterOptions {
-  terrain: FiniteTerrain;
+export interface WaterQuality {
+  waterQuality?: 0 | 1 | 2;
+  waterDetail?: number;
+  waterReflection?: number;
+  waterWaves?: number;
+}
+export type WaterOptions = EffectHostOptions & {
   signal?: AbortSignal;
   mode?: WaterMode;
   parameters?: WaterParameters;
-  quality?: Record<string, number>;
+  quality?: WaterQuality;
 }
 export declare class TerrainWater implements TerrainLayer {
   constructor(options: WaterOptions);
+  readonly object: Group;
   configure(
-    patch?: { mode?: WaterMode; parameters?: WaterParameters },
+    patch?: { mode?: WaterMode; parameters?: WaterParameters; quality?: WaterQuality },
     options?: { signal?: AbortSignal },
   ): Promise<void>;
   prepare(camera: Camera, options?: { signal?: AbortSignal }): Promise<void>;

@@ -1,3 +1,5 @@
+import { effectQuality, CLOUD_QUALITY_DEFAULTS } from './EffectQuality.js';
+import { resolveEffectHost } from './EffectHost.js';
 import * as THREE from 'three';
 import { validateParameters } from '../resources/ParameterValidation.js';
 import { CloudSlabLayer } from '../../engine/sky/CloudSlabLayer.js';
@@ -24,42 +26,39 @@ const classes = {
 };
 
 export class TerrainClouds {
-  constructor({ terrain, mode = 'legacy', parameters = {}, quality = {} }) {
+  constructor({ terrain, renderer, world, mode = 'legacy', parameters = {}, quality = {} } = {}) {
     validateParameters(parameters, CLOUD_DEFAULT_PARAMS);
-    terrain._assertAlive();
-    this.terrain = terrain;
+    const resolvedQuality=effectQuality(quality,CLOUD_QUALITY_DEFAULTS);
+    const host = resolveEffectHost({terrain,renderer,world});
+    terrain=host.terrain;
+    this.terrain=terrain;
+    this._ownsHost=host.ownsHost;
+    this.object=new THREE.Group();this.object.name='clouds';terrain.object.add(this.object);
     this.mode = mode;
-    this.parameters = { ...CLOUD_DEFAULT_PARAMS, ...parameters, cloudsEnabled: true };
-    this.quality = {
-      cloudSteps: 12,
-      cloudLightSteps: 2,
-      cloudOctaves: 3,
-      cloudDetailOctaves: 0,
-      cloudRealisticSteps: 24,
-      cloudRenderScale: 0.5,
-      ...quality,
-    };
+    this.parameters = { ...CLOUD_DEFAULT_PARAMS, ...parameters, cloudsEnabled: parameters.cloudsEnabled ?? true };
+    this.quality = resolvedQuality;
     this.layer = null;
     this.group = null;
     this.scope = new RevisionScope();
     this._detach = terrain.addLayer(this);
   }
-  _apply(layer, parameters) {
+  _apply(layer, parameters, quality = this.quality) {
     const t = this.terrain,
       c = t.configuration;
-    if (t.mode === 'planet') layer.applyParams(parameters, c.layout.radius, this.quality);
+    if (t.mode === 'planet') layer.applyParams(parameters, c.layout.radius, quality);
     else
       layer.applyParams(
         parameters,
         c.heightScale * 1.35,
         c.layout.chunkCount * c.layout.chunkSize,
-        this.quality,
+        quality,
         { chunkSize: c.layout.chunkSize, viewRadius: c.layout.viewRadius, ...t._miniCloudLayout },
       );
     layer.setLighting(resolveCloudLightingState({ sunDirection: t._uniforms.uSunDir.value }));
   }
   configure(patch = {}, options = {}) {
     const mode = patch.mode ?? this.mode;
+    const quality=effectQuality(patch.quality,this.quality);
     if (!classes[mode]) throw new TypeError('Invalid cloud mode');
     const parameters = { ...this.parameters, ...patch.parameters };
     validateParameters(patch.parameters ?? {}, CLOUD_DEFAULT_PARAMS);
@@ -67,7 +66,7 @@ export class TerrainClouds {
       const t = this.terrain,
         group = new THREE.Group();
       group.visible = false;
-      t.object.add(group);
+      this.object.add(group);
       let layer;
       let published = false;
       try {
@@ -86,7 +85,7 @@ export class TerrainClouds {
               );
           },
         });
-        this._apply(layer, parameters);
+        this._apply(layer, parameters, quality);
         // applyParams starts the exact selected specialization's warm-up.
         if (layer._pendingCompile) await layer._pendingCompile.promise;
         else await layer.warmup?.();
@@ -105,7 +104,7 @@ export class TerrainClouds {
           if (layer._pendingCompile) await layer._pendingCompile.promise;
           await Promise.resolve();
         }
-        if (t.mode !== 'planet' && !layer._ready)
+        if (t.mode !== 'planet' && parameters.cloudsEnabled !== false && quality.cloudFallback !== 'off' && !layer._ready)
           throw new Error('Cloud shader preparation failed');
         check();
         t._assertAlive();
@@ -115,6 +114,7 @@ export class TerrainClouds {
         this.group = group;
         this.mode = mode;
         this.parameters = parameters;
+        this.quality = quality;
         group.visible = true;
         published = true;
       } finally {
@@ -126,12 +126,14 @@ export class TerrainClouds {
     }, options);
   }
   prepare(camera, options = {}) {
+    if(this._ownsHost)this.terrain.frame(0,camera);
     return this.configure({}, options);
   }
   onTerrainChanged() {
     if (this.layer) this._apply(this.layer, this.parameters);
   }
   update(dt, { camera }) {
+    if(this._ownsHost)camera=this.terrain.frame(dt,camera);
     if (!this.layer) return;
     withRendererState(this.terrain._renderer, () =>
       this.layer.update(dt, camera.position, this.terrain._uniforms.uSunDir.value),
@@ -162,6 +164,7 @@ export class TerrainClouds {
   serialize() {
     return {
       type: 'clouds',
+      ...(this._ownsHost ? {world:{...this.terrain.world}} : {}),
       mode: this.mode,
       parameters: structuredClone(this.parameters),
       quality: { ...this.quality },
@@ -184,6 +187,8 @@ export class TerrainClouds {
     this.terrain._uniforms.uTerrainCloudShadowEnabled.value = 0;
     this.layer = null;
     this.group = null;
+    this.object.removeFromParent();
+    if(this._ownsHost)this.terrain.dispose();
   }
 }
 

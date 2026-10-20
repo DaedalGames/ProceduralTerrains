@@ -25,13 +25,14 @@
     "materials:verify": "node tools/materials.mjs verify",
     "build:lib": "node tools/build-terrain-package.mjs",
     "pack:lib": "node tools/pack-terrain-package.mjs",
-    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js tests/TerrainPackage.test.js tests/TerrainRuntimeParity.test.js",
+    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js tests/TerrainPackage.test.js tests/TerrainRuntimeParity.test.js tests/StandaloneEffects.test.js",
     "typecheck:lib": "tsc -p tests/types/tsconfig.json",
     "test:package": "node tools/check-terrain-package.mjs",
     "check:lib": "npm run test:lib && npm run build:lib && npm run typecheck:lib && npm run test:package",
     "test:lib:browser": "node tools/check-terrain-browser.mjs",
     "test:lib:worlds": "node tools/check-terrain-worlds-browser.mjs",
-    "test:lib:parity": "node tools/check-terrain-parity-browser.mjs"
+    "test:lib:parity": "node tools/check-terrain-parity-browser.mjs",
+    "test:lib:effects": "node tools/check-effects-playgrounds.mjs"
   },
   "config": {
     "forge": "./forge.config.cjs"

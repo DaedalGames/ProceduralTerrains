@@ -1,6 +1,6 @@
 # Eau, nuages et matériaux
 
-Les effets sont des couches explicites attachées au terrain. Ils partagent son renderer et ses données de génération.
+Eau et nuages sont des composants Three.js indépendants ou des couches attachées au terrain. Les indépendants utilisent renderer/world et exposent un groupe stable ; les couches attachées partagent les données du terrain. Consultez [les fonctionnalités](features.md), [l’eau](water.md), [les nuages](clouds.md) et [les grands mondes](large-worlds.md), avec paramètres complets et playgrounds séparés.
 
 ## Eau et nuages
 

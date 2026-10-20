@@ -4,6 +4,14 @@ import gettingStarted from '../../docs/getting-started.md?raw';
 import api from '../../docs/api.md?raw';
 import worlds from '../../docs/worlds.md?raw';
 import effects from '../../docs/effects.md?raw';
+import features from '../../docs/features.md?raw';
+import water from '../../docs/water.md?raw';
+import clouds from '../../docs/clouds.md?raw';
+import largeWorlds from '../../docs/large-worlds.md?raw';
+import featuresFr from '../../docs/fr/features.md?raw';
+import waterFr from '../../docs/fr/water.md?raw';
+import cloudsFr from '../../docs/fr/clouds.md?raw';
+import largeWorldsFr from '../../docs/fr/large-worlds.md?raw';
 import exports from '../../docs/code-export.md?raw';
 import gettingStartedFr from '../../docs/fr/getting-started.md?raw';
 import apiFr from '../../docs/fr/api.md?raw';
@@ -20,6 +28,10 @@ export const DOCS_PAGES = [
   { id: 'overview', group: 'start', title: 'Overview', component: 'overview', summary: 'The Three.js terrain package' },
   { id: 'playground', group: 'start', title: 'Playground', component: 'playground', summary: 'Edit and run terrain code with a live preview, templates and console' },
   { id: 'getting-started', group: 'start', title: 'Getting started', file: 'getting-started', source: gettingStarted, fr: gettingStartedFr, summary: 'Install the package and create your first terrain' },
+  { id: 'features', group: 'start', title: 'Package features and limits', file: 'features', source: features, fr: featuresFr, summary: 'Supported runtime features and editor-only tools' },
+  { id: 'water', group: 'guides', title: 'Water', file: 'water', source: water, fr: waterFr, summary: 'Standalone oceans, terrain water, modes, parameters and underwater' },
+  { id: 'clouds', group: 'guides', title: 'Clouds', file: 'clouds', source: clouds, fr: cloudsFr, summary: 'Independent volumetric clouds, coverage, shadows and quality' },
+  { id: 'large-worlds', group: 'guides', title: 'Larger worlds', file: 'large-worlds', source: largeWorlds, fr: largeWorldsFr, summary: 'Kilometre-scale scenes, camera-following effects and precision budgets' },
   { id: 'worlds', group: 'guides', title: 'Worlds and sources', file: 'worlds', source: worlds, fr: worldsFr, summary: 'Tile, Infinite World, Planet, Mini, Noise Stack, graphs and heightmaps' },
   { id: 'effects', group: 'guides', title: 'Water, clouds and materials', file: 'effects', source: effects, fr: effectsFr, summary: 'Compose effects, pipelines, PBR assets and workers' },
   { id: 'code-export', group: 'guides', title: 'Studio and code export', file: 'code-export', source: exports, fr: exportsFr, summary: 'Export JavaScript, restore documents, bake meshes and maps' },
@@ -51,6 +63,7 @@ export function createLinkContext(pageId) {
   return {
     resolveHref(href = '') {
       if (/^(https?:|mailto:)/i.test(href)) return { href, internal: false };
+      if (href.startsWith('#/docs/')) return { href, internal: true };
       if (href.startsWith('#')) return { href: docsHref(pageId, href.slice(1)), internal: true };
       const path = href.replace(/^(\.\.?\/)+/, '');
       const match = /^([\w-]+)\.md(?:#(.*))?$/.exec(path);

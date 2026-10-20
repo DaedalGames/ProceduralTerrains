@@ -77,7 +77,7 @@ export class WaterSurfacePass {
     return !this._disposed
       && worldMode !== 'planet'
       && params?.waterEnabled !== false
-      && (params?.seaLevel ?? 0) > 0.5
+      && (params?.waterHideAtZero === false || (params?.seaLevel ?? 0) > 0.5)
       && (params?.waterRefractionQuality ?? 0.6) > 0.01
       && isSceneRefractionMode(mode);
   }

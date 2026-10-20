@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { init } from 'es-module-lexer';
 import { transform } from 'esbuild';
 import { buildDocument, buildStandalone, codeFromHash, decodeCode, encodeCode, playgroundHref } from '../src/docs/playground/runner.js';
-import { PLAYGROUND_TEMPLATES } from '../src/docs/playground/templates.js';
+import { PLAYGROUND_TEMPLATES, templateFromHash } from '../src/docs/playground/templates.js';
 import { dependencyId, moduleId, rewriteModule } from '../tools/playground-runtime.mjs';
 
 beforeAll(async () => { await init; });
@@ -30,6 +30,11 @@ describe('terrain playground', () => {
     expect(rewriteModule('self.onmessage = e => self.postMessage(e.data);', 'package/assets/worker.js').classicWorker).toBe(true);
     expect(rewriteModule("import './dependency.js'; self.onmessage = () => {};", 'package/assets/worker.js').classicWorker).toBe(false);
     expect(rewriteModule('export const value = 1;', 'package/assets/worker.js').classicWorker).toBe(false);
+  });
+  it('selects independent examples through documentation deep links',()=>{
+    expect(templateFromHash('#/docs/playground?example=clouds').id).toBe('clouds');
+    expect(templateFromHash('#/docs/playground?example=water').code).not.toContain('createTerrain(');
+    expect(templateFromHash('#/docs/playground?example=missing')).toBe(null);
   });
   it('round-trips Unicode code and rejects invalid or oversized share links', () => {
     const code = "console.log('Terrain émeraude 🌍');";

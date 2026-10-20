@@ -576,7 +576,6 @@
   "Classic palettes": "Palettes classiques",
   "Clean Denoise": "Débruitage net",
   "Clean Denoise reconstructs reduced resolution while preserving edges. Pixelated Denoise keeps hard source pixels for a retro look.": "Le débruitage net reconstruit la résolution réduite en préservant les contours. Le débruitage pixelisé conserve des pixels nets pour un rendu rétro.",
-  "Clear": "Effacer",
   "Clear Painted Layers": "Effacer les couches peintes",
   "Clear Tropical": "Tropical clair",
   "Clear all explosions": "Effacer toutes les explosions",
@@ -3632,5 +3631,10 @@
   "Mini Shape": "Forme du mini terrain",
   "Clouds spread": "Étendue des nuages",
   "Match to terrain": "Adapter au terrain",
-  "Width of the cloud generation zone relative to the terrain. 100% matches the terrain width; lower values keep clouds closer to the center.": "Largeur de la zone de génération des nuages par rapport au terrain. 100 % correspond à la largeur du terrain ; une valeur plus faible concentre les nuages vers le centre."
+  "Width of the cloud generation zone relative to the terrain. 100% matches the terrain width; lower values keep clouds closer to the center.": "Largeur de la zone de génération des nuages par rapport au terrain. 100 % correspond à la largeur du terrain ; une valeur plus faible concentre les nuages vers le centre.",
+  "Package features and limits": "Fonctionnalités et limites du package",
+  "Larger worlds": "Grands mondes",
+  "Standalone water": "Eau indépendante",
+  "Standalone clouds": "Nuages indépendants",
+  "Large world with effects": "Grand monde avec effets"
 }

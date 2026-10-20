@@ -14,6 +14,10 @@ workspace package has its own ESM build, declarations and dependency boundary.
 | Interchange | Detached JSON documents; GLB/OBJ/map artifacts; ZIP helper; explicit real-world height/imagery providers |
 | Distribution | Typed ESM subpaths, external Three.js peer, portable bundled workers, npm tarball consumer, browser matrix, studio regression CI |
 
+## Current feature reference
+
+See [feature coverage](features.md), [water](water.md), [clouds](clouds.md) and [larger worlds](large-worlds.md) for current independent-effect support, lifecycle and limitations. Historical validation counts below describe the initial extraction.
+
 ## Ownership and boundaries
 
 - `src/runtime/FiniteTerrain.js` orchestrates terrain resources; world adapters
@@ -50,9 +54,7 @@ This is a layered extraction, not an EngineProxy wrapper or a full rewrite.
 Instancing, LOD, merging rules, streaming budgets, shader generation and GPU
 bakers retain their existing implementations. Continuous edits retain geometry;
 only structural/program/surface changes require a new terrain material.
-Uniform-only lighting/palette edits do not rebuild world caches. Finite height
-and detail caches are explicit; the simple default does not force their memory
-or worker cost on every consumer. Specialized world caches remain available.
+Uniform-only lighting/palette edits do not rebuild world caches. Finite height caches are explicit; procedural detail pages now prepare lazily during update and can be disabled with material.terrainDetailQuality: 0. Specialized world caches remain available.
 
 Workers perform CPU erosion, detail and material preparation. Rendering stays on
 the host renderer, avoiding a second WebGL context, scene serialization or transfer

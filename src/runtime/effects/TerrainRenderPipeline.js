@@ -2,17 +2,24 @@ import * as THREE from 'three';
 import { Pass } from 'three/addons/postprocessing/Pass.js';
 import { withRendererState } from '../resources/RendererState.js';
 
+function visible(object){
+  for(let o=object;o;o=o.parent)if(!o.visible)return false;
+  return true;
+}
 const vertexShader = 'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
 const fragmentShader =
   'uniform sampler2D tColor;varying vec2 vUv;void main(){gl_FragColor=texture2D(tColor,vUv);}';
 
 /** Owns passes/targets, borrows renderer/scene/camera. It never owns a loop. */
 export class TerrainRenderPipeline {
-  constructor({ renderer, terrains = [] }) {
+  constructor({ renderer, terrains = [], effects = [] }) {
     if (!renderer?.isWebGLRenderer) throw new TypeError('A THREE.WebGLRenderer is required');
     for (const terrain of terrains)
       if (terrain._renderer !== renderer)
         throw new TypeError('Pipeline and terrains must share the same renderer');
+    for (const effect of effects)
+      if(effect.terrain?._renderer !== renderer)throw new TypeError('Pipeline and effects must share the same renderer');
+    this.effects=effects;
     this.renderer = renderer;
     this.terrains = terrains;
     this.target = null;
@@ -51,17 +58,23 @@ export class TerrainRenderPipeline {
       this._target(size.x, size.y);
       r.autoClear = true;
       r.setScissorTest(false);
-      const layers = this.terrains.flatMap((t) => [...t._layers]);
-      const waters = layers.filter((l) => l.system),
-        clouds = layers.filter((l) => l.layer);
+      const layers = [...new Set([...this.terrains.flatMap((t) => [...t._layers]), ...this.effects])].filter(l=>!l.scope?.disposed);
+      const waters = layers.filter((l) => l.system && visible(l.object)),
+        clouds = layers.filter((l) => l.layer && visible(l.object));
       const visibility = clouds.map((l) => [l.layer.mesh, l.layer.mesh.visible]);
       try {
         for (const [mesh] of visibility) mesh.visible = false;
-        for (const t of this.terrains) for (const l of t._layers) l.beforeRender?.();
-        for (const l of waters) {
-          l.system.capturePlanarReflection(r, scene, camera, size);
-          l.system.captureSceneRefraction(r, scene, camera, size);
-        }
+        for (const l of layers) l.beforeRender?.();
+        // A water-free capture excludes every water layer, including siblings.
+        const hidden = [...new Set(waters.flatMap(l=>[l.object,...l.system.auxiliaryWaterMeshes()]))]
+          .filter(Boolean).map(object=>[object,object.visible]);
+        try {
+          for(const [object] of hidden)object.visible=false;
+          for (const l of waters) {
+            l.system.capturePlanarReflection(r, scene, camera, size);
+            l.system.captureSceneRefraction(r, scene, camera, size);
+          }
+        } finally { for(const [object,visible] of hidden)object.visible=visible; }
         r.setRenderTarget(this.target);
         r.clear(true, true, true);
         r.render(scene, camera);

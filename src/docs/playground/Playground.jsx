@@ -3,13 +3,15 @@ import { Check, Download, Eraser, Link2, LoaderCircle, Play, RotateCcw, ShieldCh
 import { translateText as t, useLanguage } from '../../i18n/LanguageContext.jsx';
 import { copyText } from '../clipboard.js';
 import CodeEditor from './CodeEditor.jsx';
-import { DEFAULT_TEMPLATE, PLAYGROUND_TEMPLATES } from './templates.js';
+import { DEFAULT_TEMPLATE, PLAYGROUND_TEMPLATES, templateFromHash } from './templates.js';
 import { buildDocument, buildStandalone, codeFromHash, loadPlaygroundRuntime, playgroundHref } from './runner.js';
 
 const DRAFT_KEY = 'procedural-terrains:docs-playground:v1';
 function initialState() {
   const shared = codeFromHash();
   if (shared !== null) return { code: shared, template: null, shared: true };
+  const example=templateFromHash();
+  if(example)return {code:example.code,template:example.id};
   try {
     const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
     if (typeof draft?.code === 'string' && draft.code.length <= 100000)
@@ -69,7 +71,11 @@ export default function Playground() {
   useEffect(() => {
     const onHash = () => {
       const shared = codeFromHash();
-      if (shared === null) return;
+      if (shared === null) {
+        const example=templateFromHash();
+        if(example){setState({code:example.code,template:example.id});setApproved(true);setRun(newRun(example.code));setLogs([]);setStatus('running');}
+        return;
+      }
       setState({ code: shared, template: null });
       setApproved(false); setRun(null); setLogs([]); setStatus('idle');
     };

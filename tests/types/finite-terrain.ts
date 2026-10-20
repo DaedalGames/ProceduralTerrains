@@ -60,6 +60,15 @@ async function allModules(renderer:WebGLRenderer){
   await water.configure({mode:'unknown'});
   // @ts-expect-error Heightmaps require dimensions.
   await mini.configure({source:{kind:'heightmap',data:[1,2]}});
+  const ocean = await createWater({ renderer, world: {mode:'infinite',size:20000}, mode:'volumetric', parameters:{seaLevel:0,waterHideAtZero:false} });
+  const weather = await createClouds({ renderer, world: {size:20000}, mode:'realistic', quality:{cloudRenderScale:.5,cloudSelfShadow:true} });
+  scene.add(ocean.object,weather.object);
+  await ocean.configure({quality:{waterDetail:.5}});await weather.configure({quality:{cloudRealisticSteps:24}});
+  new TerrainRenderPipeline({renderer,effects:[ocean,weather]});
+  // @ts-expect-error Standalone and terrain hosts cannot be combined.
+  await createWater({terrain:mini,renderer});
+  // @ts-expect-error Unknown quality field.
+  await weather.configure({quality:{unknown:1}});
   void createTerrainViewer;
 }
 void allModules;

@@ -125,3 +125,7 @@ GPU compilation itself cannot be interrupted. Shader candidates are validated be
 
 Dispose effects through their terrain or individually, and dispose render pipelines separately. Borrowed renderers, textures, surface resources and shared scopes remain owned by the caller.
 
+
+## Independent effects
+
+createWater and createClouds accept either terrain, or renderer with an optional world (finite/infinite mode, size, heightScale, seaLevel, sunAzimuth, sunElevation). They expose a stable object group and support configure({ mode, parameters, quality }). Pass standalone effects to TerrainRenderPipeline({ renderer, effects }); update/dispose them explicitly. Terrain-attached layers are updated/disposed by their terrain. Full references: [water](water.md), [clouds](clouds.md), [feature coverage](features.md), [larger worlds](large-worlds.md).

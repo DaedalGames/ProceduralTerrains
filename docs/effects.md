@@ -1,6 +1,6 @@
 # Water, clouds and materials
 
-Effects are explicit runtime layers attached to a terrain. They reuse its renderer and generation data.
+Water and clouds can be independent Three.js components or terrain-attached layers. Independent effects take renderer/world and expose a stable object group; attached effects reuse terrain generation data. See [feature coverage](features.md), [water](water.md), [clouds](clouds.md) and [larger worlds](large-worlds.md) for complete API/default references and separate playgrounds.
 
 ## Water and clouds
 
@@ -32,7 +32,7 @@ The pipeline renders your whole scene to a color/depth target, captures reflecti
 
 ## Height and detail caches
 
-`createHeightCache({ terrain, resolution: 512 })` and `createDetailCache({ terrain, quality: 2 })` are optional for finite terrain. Infinite, planet and Mini adapters have their own caches. Height caches use double buffering; detail caches own a worker and GPU pages.
+`createHeightCache({ terrain, resolution: 512 })` and `createDetailCache({ terrain, quality: 2 })` are optional for finite terrain. Infinite, planet and Mini adapters have their own caches. Height caches use double buffering; detail pages prepare automatically on update; an explicit detail cache overrides that lifecycle until disposed. Each cache owns its worker and GPU pages.
 
 ## PBR materials
 

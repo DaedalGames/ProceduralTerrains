@@ -6,6 +6,12 @@ The package has no React, Electron, account, stylesheet or backend dependency.
 Three.js `~0.185.1` is a peer dependency; `fflate` handles packed materials,
 paint documents and ZIP exports. The current version is an alpha.
 
+## Feature coverage and independent effects
+
+The runtime does not contain every editor tool. See the [feature matrix](https://github.com/ZyFou/ProceduralTerrains/blob/develop/docs/features.md), [water API](https://github.com/ZyFou/ProceduralTerrains/blob/develop/docs/water.md), [cloud API](https://github.com/ZyFou/ProceduralTerrains/blob/develop/docs/clouds.md), and [larger-world guide](https://github.com/ZyFou/ProceduralTerrains/blob/develop/docs/large-worlds.md).
+
+Water and clouds can be used around custom Three.js meshes without generating a terrain. Call createWater/createClouds with renderer and world, add each effect.object, pass effects to TerrainRenderPipeline and update them once per frame. Pass terrain instead to attach a layer managed by that terrain. Separate water/cloud/large-world playground templates are available in the studio documentation.
+
 ## Install
 
 ```sh

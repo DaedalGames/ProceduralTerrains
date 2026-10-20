@@ -189,7 +189,7 @@ export class WaterSystem {
   }
 
   isEnabled() {
-    return isWaterActive(this._effectiveMode, this.engine.params.seaLevel);
+    return isWaterActive(this._effectiveMode, this.engine.params.seaLevel, this.engine.params.waterHideAtZero);
   }
 
   /**
@@ -908,7 +908,7 @@ export class WaterSystem {
 
   _applyVisibility(params, worldMode) {
     const eng = this.engine;
-    const active = isWaterActive(this._effectiveMode, params.seaLevel) && !eng._waterDeferred;
+    const active = isWaterActive(this._effectiveMode, params.seaLevel, params.waterHideAtZero) && !eng._waterDeferred;
     const sea = params.seaLevel;
 
     if (eng.water) {

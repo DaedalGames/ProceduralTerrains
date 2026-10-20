@@ -19,6 +19,7 @@ describe('package documentation', () => {
     expect(parseDocsHash('#/docs/api/%E0%A4%A')).toEqual({ page: 'api', anchor: '' });
     expect(parseDocsHash('#/docs/missing')).toEqual({ page: 'overview', anchor: '' });
     expect(createLinkContext('api').resolveHref('worlds.md#mini')).toEqual({ href: '#/docs/worlds/mini', internal: true });
+    expect(createLinkContext('water').resolveHref('#/docs/playground?example=water')).toEqual({href:'#/docs/playground?example=water',internal:true});
     expect(createLinkContext('api').resolveHref('#configuration').href).toBe('#/docs/api/configuration');
   });
   it('renders the API tables and every documented entry point', () => {

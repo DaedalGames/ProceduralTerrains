@@ -331,6 +331,8 @@ export class FiniteTerrain {
     this._assertIdentity();
     if (!camera?.isCamera) throw new TypeError('A THREE.Camera is required');
     this._viewCamera = camera;
+    camera.updateWorldMatrix(true, false);
+    camera.getWorldPosition(this._cameraPosition);
     checkSignal(signal);
     const revision = this._revision;
     await this._operation(async () => {

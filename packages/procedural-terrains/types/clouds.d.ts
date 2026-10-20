@@ -1,5 +1,5 @@
-import type { Camera } from 'three';
-import type { FiniteTerrain, TerrainLayer, TerrainExtension } from './index.js';
+import type { Camera, Group } from 'three';
+import type { EffectHostOptions, TerrainLayer, TerrainExtension } from './index.js';
 export type CloudMode = 'legacy' | 'realistic';
 export interface CloudParameters {
   cloudsEnabled?: boolean;
@@ -41,17 +41,31 @@ export interface CloudParameters {
   cloudSkyTint?: number[];
   cloudExposure?: number;
 }
-export interface CloudOptions {
-  terrain: FiniteTerrain;
+export interface CloudQuality {
+  cloudSteps?: number;
+  cloudLightSteps?: number;
+  cloudOctaves?: number;
+  cloudDetailOctaves?: number;
+  cloudRealisticSteps?: number;
+  cloudRenderScale?: number;
+  cloudMaxDistance?: number;
+  cloudUseErosion?: boolean;
+  cloudSelfShadow?: boolean;
+  cloudLightMode?: 0 | 1;
+  cloudStepLOD?: boolean;
+  cloudFallback?: 'none' | 'lite' | 'off';
+}
+export type CloudOptions = EffectHostOptions & {
   signal?: AbortSignal;
   mode?: CloudMode;
   parameters?: CloudParameters;
-  quality?: Record<string, number>;
+  quality?: CloudQuality;
 }
 export declare class TerrainClouds implements TerrainLayer {
   constructor(options: CloudOptions);
+  readonly object: Group;
   configure(
-    patch?: { mode?: CloudMode; parameters?: CloudParameters },
+    patch?: { mode?: CloudMode; parameters?: CloudParameters; quality?: CloudQuality },
     options?: { signal?: AbortSignal },
   ): Promise<void>;
   prepare(camera: Camera, options?: { signal?: AbortSignal }): Promise<void>;

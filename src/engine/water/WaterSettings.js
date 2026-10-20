@@ -40,8 +40,8 @@ export function isRealisticWaterMode(mode) {
   return mode === 'realistic' || mode === 'volumetric' || mode === 'cinematic';
 }
 
-export function isWaterActive(mode, seaLevel) {
-  return mode !== 'off' && seaLevel > 0.5;
+export function isWaterActive(mode, seaLevel, hideAtZero = true) {
+  return mode !== 'off' && (hideAtZero === false || seaLevel > 0.5);
 }
 
 export const WATER_LIGHTING_PARAM_KEYS = [
@@ -74,7 +74,7 @@ export const UNDERWATER_MODES = [
 export function resolveUnderwaterMode(params, effectiveWaterMode, perfEnabled = true) {
   if (perfEnabled === false) return 'off';
   if (params.waterUnderwaterEnabled === false) return 'off';
-  if (!isWaterActive(effectiveWaterMode, params.seaLevel ?? 100)) return 'off';
+  if (!isWaterActive(effectiveWaterMode, params.seaLevel ?? 100, params.waterHideAtZero)) return 'off';
 
   const requested = params.waterUnderwaterMode ?? 'auto';
   if (requested === 'off') return 'off';
@@ -94,6 +94,7 @@ export function underwaterModeFellBack(params, effectiveWaterMode) {
 
 export const WATER_DEFAULT_PARAMS = {
   waterEnabled: true,
+  waterHideAtZero: true,
   waterMode: 'legacy',
   waterQualityPreset: 'legacy',
   waterAutoDowngradeInfinite: true,
@@ -214,7 +215,7 @@ export function migrateWaterParams(params) {
   if (!params || typeof params !== 'object') return params;
   if ('waterMode' in params) return params;
   const next = { ...params };
-  if (next.waterEnabled === false || (next.seaLevel ?? 100) <= 0.5) {
+  if (next.waterEnabled === false || (next.waterHideAtZero !== false && (next.seaLevel ?? 100) <= 0.5)) {
     next.waterMode = 'off';
     next.waterEnabled = false;
   } else {
@@ -228,7 +229,7 @@ export function migrateWaterParams(params) {
 export function resolveEffectiveWaterMode(params, worldMode) {
   let mode = params.waterMode ?? 'legacy';
   if (!params.waterEnabled) mode = 'off';
-  if (params.seaLevel <= 0.5) mode = 'off';
+  if (params.waterHideAtZero !== false && params.seaLevel <= 0.5) mode = 'off';
 
   if (worldMode === 'infinite' && params.waterAutoDowngradeInfinite) {
     if (mode === 'cinematic') mode = 'realistic';

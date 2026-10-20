@@ -4,6 +4,7 @@ import type { FiniteTerrain, TerrainLayer } from './index.js';
 export interface PipelineOptions {
   renderer: WebGLRenderer;
   terrains?: FiniteTerrain[];
+  effects?: Array<import('./water.js').TerrainWater | import('./clouds.js').TerrainClouds>;
 }
 export declare class TerrainRenderPipeline {
   constructor(options: PipelineOptions);

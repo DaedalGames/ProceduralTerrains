@@ -226,6 +226,18 @@ export type TerrainConfigurationPatch = Partial<
   palette?: Partial<Record<TerrainPaletteKey, TerrainColor>>;
 };
 
+export interface EffectWorldOptions {
+  mode?: 'finite' | 'infinite';
+  /** Active coverage in world units, 1..100000 (infinite minimum: 6). No terrain mesh is allocated. */
+  size?: number;
+  heightScale?: number;
+  seaLevel?: number;
+  sunAzimuth?: number;
+  sunElevation?: number;
+}
+export type EffectHostOptions =
+  | { terrain: FiniteTerrain; renderer?: never; world?: never }
+  | { renderer: WebGLRenderer; world?: EffectWorldOptions; terrain?: never };
 export interface TerrainOptions {
   /** Borrowed; never resized, reconfigured or disposed by the terrain. */
   renderer: WebGLRenderer;

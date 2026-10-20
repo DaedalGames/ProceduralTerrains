@@ -1,3 +1,5 @@
+import { effectQuality, WATER_QUALITY_DEFAULTS } from './EffectQuality.js';
+import { resolveEffectHost } from './EffectHost.js';
 import * as THREE from 'three';
 import { validateParameters } from '../resources/ParameterValidation.js';
 import { WaterSystem } from '../../engine/water/WaterSystem.js';
@@ -13,24 +15,23 @@ import { UnderwaterController } from '../../engine/render/UnderwaterController.j
 import { UnderwaterEffect } from '../../engine/render/UnderwaterEffect.js';
 
 export class TerrainWater {
-  constructor({ terrain, mode = 'legacy', parameters = {}, quality = {} }) {
+  constructor({ terrain, renderer, world, mode = 'legacy', parameters = {}, quality = {} } = {}) {
     validateParameters(parameters, WATER_DEFAULT_PARAMS, { seaLevel: 0, waterAnim: true });
-    terrain._assertAlive();
-    this.terrain = terrain;
+    const resolvedQuality=effectQuality(quality,WATER_QUALITY_DEFAULTS);
+    const host = resolveEffectHost({terrain,renderer,world});
+    terrain=host.terrain;
+    this.terrain=terrain;
+    this._ownsHost=host.ownsHost;
+    this.object=new THREE.Group();this.object.name='water';terrain.object.add(this.object);
     this.mode = mode;
     this.parameters = {
       ...WATER_DEFAULT_PARAMS,
+      ...(this._ownsHost ? {waterHideAtZero:false,waterAutoDowngradeInfinite:false} : {}),
       ...parameters,
       waterMode: mode,
-      waterEnabled: mode !== 'off',
+      waterEnabled: mode !== 'off' && parameters.waterEnabled !== false,
     };
-    this.quality = {
-      waterQuality: 2,
-      waterDetail: 1,
-      waterReflection: 1,
-      waterWaves: 2,
-      ...quality,
-    };
+    this.quality = resolvedQuality;
     this.scope = new RevisionScope();
     this.context = null;
     this.system = null;
@@ -38,14 +39,14 @@ export class TerrainWater {
     this.underwater = new UnderwaterEffect();
     this._detach = terrain.addLayer(this);
   }
-  _createContext(params) {
+  _createContext(params, quality = this.quality) {
     const t = this.terrain,
       u = t._uniforms,
       wm = t.mode === 'finite' ? 'studio' : t.mode;
     const group = new THREE.Group();
     group.name = 'terrain-water';
     group.visible = false;
-    t.object.add(group);
+    this.object.add(group);
     const base = createWaterMaterialForMode({
       mode: 'legacy',
       sharedUniforms: u,
@@ -70,7 +71,7 @@ export class TerrainWater {
       geometry,
       scene: group,
       uniforms: u,
-      perf: this.quality,
+      perf: quality,
       worldMode: wm,
       params,
       camera: t._viewCamera ?? new THREE.PerspectiveCamera(),
@@ -115,12 +116,13 @@ export class TerrainWater {
   }
   async configure(patch = {}, options = {}) {
     const mode = patch.mode ?? this.mode;
+    const quality=effectQuality(patch.quality,this.quality);
     if (!WATER_MODES.some((m) => m.value === mode)) throw new TypeError('Invalid water mode');
     const parameters = {
       ...this.parameters,
       ...patch.parameters,
       waterMode: mode,
-      waterEnabled: mode !== 'off',
+      waterEnabled: mode !== 'off' && (patch.parameters?.waterEnabled ?? (patch.mode !== undefined ? true : this.parameters.waterEnabled)),
     };
     validateParameters(patch.parameters ?? {}, WATER_DEFAULT_PARAMS, {
       seaLevel: 0,
@@ -131,7 +133,7 @@ export class TerrainWater {
         ...this.terrain._params,
         ...parameters,
         seaLevel: parameters.seaLevel ?? this.terrain.configuration.seaLevel,
-      });
+      }, quality);
       const system = new WaterSystem(context);
       let published = false;
       try {
@@ -149,6 +151,7 @@ export class TerrainWater {
         this.system = system;
         this.mode = mode;
         this.parameters = parameters;
+        this.quality = quality;
         context.group.visible = true;
         published = true;
       } finally {
@@ -162,6 +165,7 @@ export class TerrainWater {
     }, options);
   }
   prepare(camera, options = {}) {
+    if(this._ownsHost) this.terrain.frame(0,camera);
     if (this.context) this.context.camera = camera;
     return this.configure({}, options);
   }
@@ -175,6 +179,7 @@ export class TerrainWater {
     this.system.sync(this.context.params, this.context.worldMode);
   }
   update(dt, { camera }) {
+    if(this._ownsHost) camera=this.terrain.frame(dt,camera);
     if (!this.system) return;
     const c = this.context,
       t = this.terrain;
@@ -194,14 +199,34 @@ export class TerrainWater {
       waterActive: this.system.isEnabled(),
       waterMode,
       quality,
-      causticsEnabled: c.params.waterCausticsEnabled,
+      requestedQuality: c.params.waterUnderwaterMode,
+      blendBand: Math.max(.3,c.params.waterSurfaceTransition??.8),
+      causticsEnabled: c.params.waterUnderwaterCausticsEnabled !== false,
+      particlesEnabled: !!c.params.waterUnderwaterParticles,
+      lightShaftsEnabled: !!c.params.waterUnderwaterLightShafts,
       volume: t._miniVolume ?? null,
     });
-    this.underwater.update(this.controller, t._uniforms.uTime.value, t._uniforms, { camera });
+    this.underwater.enabled=c.params.waterUnderwaterEnabled!==false;
+    this.underwater.intensity=c.params.waterUnderwaterFogDensity??1;
+    this.underwater.visibility=140/Math.max(.25,c.params.waterUnderwaterVisibility??1);
+    const causticsOn=this.system.isEnabled() && this.controller.causticsEnabled && quality!=='off';
+    const u=t._uniforms;
+    u.uCausticStrength.value=causticsOn && !t.mini && waterMode!=='stylized' ? c.params.waterUnderwaterCaustics : 0;
+    u.uCausticBlend.value=causticsOn?1:0;
+    u.uCausticScale.value=c.params.waterUnderwaterCausticScale;
+    u.uCausticSpeed.value=c.params.waterUnderwaterCausticSpeed;
+    u.uCausticMinDepth.value=c.params.waterUnderwaterCausticMinDepth;
+    u.uCausticMinDepthFalloff.value=c.params.waterUnderwaterCausticMinDepthFalloff;
+    const sun=t._uniforms.uSunDir.value.clone().multiplyScalar(10000).add(camera.position).project(camera);
+    this.underwater.update(this.controller, t._uniforms.uTime.value, t._uniforms, {
+      distortion:c.params.waterUnderwaterDistortion,caustics:c.params.waterUnderwaterCaustics,
+      particles:.6,lightShafts:.7,sunScreen:{x:sun.x*.5+.5,y:sun.y*.5+.5},sunVisible:sun.z<1 && t._uniforms.uSunDir.value.y>0,
+    });
   }
   serialize() {
     return {
       type: 'water',
+      ...(this._ownsHost ? {world:{...this.terrain.world}} : {}),
       mode: this.mode,
       parameters: structuredClone(this.parameters),
       quality: { ...this.quality },
@@ -234,6 +259,8 @@ export class TerrainWater {
     this._detach();
     this._disposeActive();
     this.underwater.dispose();
+    this.object.removeFromParent();
+    if(this._ownsHost)this.terrain.dispose();
   }
 }
 

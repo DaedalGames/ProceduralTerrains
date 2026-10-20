@@ -125,3 +125,7 @@ La compilation GPU ne peut pas être interrompue. Les shaders sont validés avan
 
 Libérez les effets avec leur terrain ou individuellement, et les pipelines séparément. Renderer, textures, surfaces et ressources partagées empruntées restent à la charge de l’application.
 
+
+## Effets indépendants
+
+createWater et createClouds acceptent terrain, ou renderer avec world (mode fini/infini, size, heightScale, seaLevel, sunAzimuth, sunElevation). Leur groupe object est stable ; configure accepte mode/parameters/quality. Passez les effets indépendants au pipeline dans effects, puis mettez-les à jour/libérez-les explicitement. Les couches attachées sont gérées par le terrain. Références : [eau](water.md), [nuages](clouds.md), [fonctionnalités](features.md), [grands mondes](large-worlds.md).
