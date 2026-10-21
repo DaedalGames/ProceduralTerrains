@@ -6,6 +6,18 @@ import tomllib
 from pathlib import Path
 import zipfile
 
+# Git checkouts may use LF or CRLF. Only normalize this representation for
+# known UTF-8 source files; binary assets and every other source byte stay exact.
+TEXT_SUFFIXES = {".py", ".toml", ".json", ".md", ".txt", ".cs", ".meta", ".asmdef"}
+
+
+def comparable_content(relative, content):
+    path = Path(relative)
+    if path.suffix.lower() in TEXT_SUFFIXES or path.name == "LICENSE":
+        return content.decode("utf-8").replace("\r\n", "\n").encode("utf-8")
+    return content
+
+
 ROOT = Path(__file__).resolve().parents[1]
 config = (ROOT / "src/config/plugins.js").read_text(encoding="utf-8")
 for engine in ("blender", "unity"):
@@ -33,5 +45,5 @@ for engine in ("blender", "unity"):
         assert archive.testzip() is None
         assert set(archive.namelist()) == {prefix + p for p in expected}
         for p in expected:
-            assert archive.read(prefix + p) == (source / p).read_bytes(), f"Stale archive entry: {p}"
-    print(f"{engine} {version}: {len(expected)} entries, source bytes and download URL verified")
+            assert comparable_content(p, archive.read(prefix + p)) == comparable_content(p, (source / p).read_bytes()), f"Stale archive entry: {p}"
+    print(f"{engine} {version}: {len(expected)} entries, source content and download URL verified")
