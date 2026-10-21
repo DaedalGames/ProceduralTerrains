@@ -31,6 +31,9 @@ let rendererReady = false;
 let closing = false;
 let activeBackend = null;
 const writableDocumentPaths = new Set();
+const profileDirectory = app.commandLine.getSwitchValue('user-data-dir');
+if (profileDirectory && path.isAbsolute(profileDirectory)) app.setPath('userData', profileDirectory);
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 const execFileAsync = promisify(execFile);
 const shaderBenchmarkLaunch = parseShaderBenchmarkArgv(process.argv);
@@ -57,7 +60,7 @@ function findDocumentArgument(argv = process.argv) {
 }
 
 async function registerFileAssociation() {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32' || process.argv.includes('--no-file-associations')) return;
   const classRoot = 'HKCU\\Software\\Classes';
   const progId = 'ProceduralTerrains.ptrterrain';
   const executable = process.execPath;
@@ -255,7 +258,9 @@ function createWindow() {
   });
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  mainWindow.webContents.once('did-finish-load', () => {
+  // did-finish-load may fire while isLoading() is still true. Drain only
+  // after loading stops, otherwise queueDocumentPath would enqueue again.
+  mainWindow.webContents.on('did-stop-loading', () => {
     const paths = pendingDocumentPaths;
     pendingDocumentPaths = [];
     paths.forEach(queueDocumentPath);

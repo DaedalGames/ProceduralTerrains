@@ -5149,13 +5149,14 @@ export class Engine {
       && a.usesSceneTarget === b.usesSceneTarget
       && a.renderTarget === b.renderTarget;
   }
-  _compileCameraTargetMaterials(mats, { timeoutMs = 120000, stagger = false } = {}) {
+  _compileCameraTargetMaterials(mats, { timeoutMs = 120000, stagger = false, isCurrent = () => true } = {}) {
     const { renderTarget } = this._resolveCameraCompileTarget();
     return this._compileMaterialVariants(mats, {
       canvasOnly: true,
       timeoutMs,
       stagger,
       renderTarget,
+      isCurrent,
     });
   }
 
@@ -5692,13 +5693,16 @@ export class Engine {
           targetScene,
           logCompile,
           isCurrent,
+          resolveLinks,
         }));
+        if (results.at(-1)?.aborted || !isCurrent()) break;
         done += passesPerMaterial;
         await yieldTask();
       }
       return {
         ready: results.every((result) => result.ready),
         timedOut: results.some((result) => result.timedOut),
+        aborted: results.some((result) => result.aborted) || !isCurrent(),
         materialCount: list.length,
         pendingCount: results.reduce((sum, result) => sum + result.pendingCount, 0),
         waitMs: results.reduce((sum, result) => sum + result.waitMs, 0),
@@ -5725,7 +5729,7 @@ export class Engine {
       group.add(probe);
     }
 
-    const waitOpts = timeoutMs != null ? { timeoutMs } : undefined;
+    const waitOpts = { ...(timeoutMs != null ? { timeoutMs } : {}), isCurrent };
     const compileStartedAt = performance.now();
     let pending;
     let rendererCompileMs = 0;
@@ -5769,9 +5773,10 @@ export class Engine {
     }
     const validationStartedAt = performance.now();
     const canvasHealth = canvasResult.ready
-      ? await this._validateCompiledPrograms(list, group, renderTarget, camera)
+      ? await this._validateCompiledPrograms(list, group, renderTarget, camera, { isCurrent })
       : { ok: false, code: 'PROGRAM_NOT_READY', diagnostics: [] };
     const validationMs = performance.now() - validationStartedAt;
+    if (this._disposed || this.renderer !== renderer || !isCurrent()) return { ...canvasResult, ready: false, aborted: true, materialCount: list.length };
     if (!canvasHealth.ok) {
       const error = programHealthError(canvasHealth);
       console.error('[shader health]', error, canvasHealth);
@@ -5867,7 +5872,7 @@ export class Engine {
     };
   }
 
-  async _validateCompiledPrograms(materials, group, renderTarget = null, camera = this.camera) {
+  async _validateCompiledPrograms(materials, group, renderTarget = null, camera = this.camera, { isCurrent = () => true } = {}) {
     const renderer = this.renderer;
     if (!renderer || this._disposed) {
       return { ok: false, code: 'RENDERER_UNAVAILABLE', diagnostics: [] };
@@ -5903,7 +5908,7 @@ export class Engine {
           // driver's first-draw pipeline setup, even after the shader linked.
           const startedAt = performance.now();
           while (!pacer.ready()) {
-            if (this._disposed || this.renderer !== renderer || performance.now() - startedAt > 120000) {
+            if (this._disposed || this.renderer !== renderer || !isCurrent() || performance.now() - startedAt > 120000) {
               throw new Error('Shader validation draw did not finish');
             }
             await yieldFrame();
@@ -5961,11 +5966,11 @@ export class Engine {
    * compileAsync throwing when currentProgram is still undefined (common for
    * transparent DoubleSide materials mid-prepare).
    */
-  _waitForMaterialsReady(materials, { timeoutMs = 45000 } = {}) {
+  _waitForMaterialsReady(materials, { timeoutMs = 45000, isCurrent = () => true } = {}) {
     const pending = new Set(materials);
     const readyTimeline = [];
     const renderer = this.renderer;
-    if (this._disposed || !renderer) {
+    if (this._disposed || !renderer || !isCurrent()) {
       return Promise.resolve({
         ready: false,
         timedOut: false,
@@ -5991,7 +5996,7 @@ export class Engine {
       const start = performance.now();
 
       const check = () => {
-        if (this._disposed || this.renderer !== renderer
+        if (this._disposed || this.renderer !== renderer || !isCurrent()
             || this._contextLost || gl?.isContextLost?.()) {
           resolve({
             ready: false,
@@ -6152,47 +6157,53 @@ export class Engine {
    * Compile realistic water shaders without pausing the whole app, then swap.
    * Legacy water stays visible until programs are linked.
    */
-  compileWaterMaterialsAsync(materials, onSwap) {
+  compileWaterMaterialsAsync(materials, onSwap, { isCurrent = () => true } = {}) {
     const mats = materials.filter(Boolean);
-    if (!mats.length) {
-      onSwap?.();
-      return Promise.resolve(true);
-    }
-
-    this.cb.onStatus('Compiling water shaders…', false);
-
-    return new Promise((resolve) => {
-      const run = async () => {
-        let ready = false;
-        try {
-          const result = await this._compileCameraTargetMaterials(mats, {
-            timeoutMs: 20000,
-            stagger: mats.length > 1,
-          });
-          this._recordWaterShaderCompile('mode-switch', result);
-          ready = result?.ready === true;
-          if (!ready) {
-            console.warn(
-              `Water shader compile still pending after ${result?.waitMs?.toFixed?.(0) ?? 0}ms; keeping the current material`
-            );
-            const states = await Promise.all(
-              mats.map((mat) => this._pollProgramReady(mat, { tries: 240, intervalMs: 250 }))
-            );
-            ready = states.every(Boolean);
+    const current = () => !this._disposed && isCurrent();
+    const run = async () => {
+      if (!current()) return false;
+      if (!mats.length) { onSwap?.(); return true; }
+      this.cb.onStatus('Compiling water shaders…', false);
+      let ready = false;
+      try {
+        await yieldTask();
+        if (!current()) return false;
+        const result = await this._compileCameraTargetMaterials(mats, {
+          timeoutMs: 20000, stagger: mats.length > 1, isCurrent: current,
+        });
+        if (!current() || result?.aborted) return false;
+        this._recordWaterShaderCompile('mode-switch', result);
+        ready = result?.ready === true;
+        if (!ready && !result?.error) {
+          const states = await Promise.all(mats.map((mat) =>
+            this._pollProgramReady(mat, { tries: 240, intervalMs: 250, isCurrent: current })));
+          ready = states.every(Boolean);
+          // Readiness after a timeout still needs the same offscreen validation.
+          if (ready && current()) {
+            const checked = await this._compileCameraTargetMaterials(mats, {
+              timeoutMs: 20000, isCurrent: current,
+            });
+            ready = checked?.ready === true;
           }
-          if (ready && !this._disposed) onSwap?.();
-          else if (!ready) console.warn('Water shader did not become ready; material swap skipped');
-        } catch (e) {
-          console.warn('Water shader compile failed', e);
-        } finally {
-          if (!this._disposed) this.cb.onStatus('Ready', false);
-          resolve(ready);
         }
-      };
-
-      // Yield twice so the UI can paint before kicking off GPU work.
-      yieldTask().then(() => yieldTask().then(run));
+        if (ready && current()) onSwap?.();
+        return ready && current();
+      } catch (error) {
+        if (current()) console.warn('Water shader compile failed', error);
+        return false;
+      } finally {
+        // An old job must never clear the status of a newer request.
+        if (current()) this.cb.onStatus('Ready', false);
+      }
+    };
+    // One live compile at a time. Obsolete requests stop at the next yield,
+    // before touching disposed materials or validating another mode's program.
+    const promise = (this._waterCompilePromise || Promise.resolve()).catch(() => {}).then(run);
+    this._waterCompilePromise = promise;
+    void promise.finally(() => {
+      if (this._waterCompilePromise === promise) this._waterCompilePromise = null;
     });
+    return promise;
   }
 
   _recordWaterShaderCompile(reason, result) {
@@ -7353,9 +7364,9 @@ export class Engine {
    * not-ready program would force a blocking link — the exact freeze all of
    * this avoids — so the upgrade paths wait patiently here instead.
    */
-  async _pollProgramReady(mat, { tries = 1200, intervalMs = 250 } = {}) {
+  async _pollProgramReady(mat, { tries = 1200, intervalMs = 250, isCurrent = () => true } = {}) {
     for (let i = 0; i < tries; i++) {
-      if (this._disposed) return false;
+      if (this._disposed || !this.renderer || !isCurrent()) return false;
       const prog = this.renderer.properties.get(mat)?.currentProgram;
       if (prog?.isReady?.()) return true;
       await new Promise((r) => setTimeout(r, intervalMs));
@@ -13422,6 +13433,7 @@ export class Engine {
         fps: this._fps,
         triangles: this._lastTris,
         drawCalls: this._lastDraws,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,
@@ -13534,6 +13546,7 @@ export class Engine {
         fps: this._fps,
         triangles,
         drawCalls,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,
@@ -13627,6 +13640,7 @@ export class Engine {
         fps: this._fps,
         triangles,
         drawCalls,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,

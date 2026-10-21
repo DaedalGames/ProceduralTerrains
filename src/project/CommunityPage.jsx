@@ -74,6 +74,8 @@ export default function CommunityPage({ onBack, onOpen, ready = true }) {
   const [pages, setPages] = useState(0);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const loadRevision = useRef(0);
   const [busy, setBusy] = useState('');
   const [editingId, setEditingId] = useState('');
   const [copiedCode, setCopiedCode] = useState('');
@@ -81,20 +83,24 @@ export default function CommunityPage({ onBack, onOpen, ready = true }) {
   const autoOpenCodeRef = useRef('');
 
   const load = useCallback(async () => {
+    const revision = ++loadRevision.current;
     setLoading(true);
+    setLoadError('');
     try {
       const result = await projectApi.community({ query: activeQuery, type: activeType, page });
+      if (revision !== loadRevision.current) return;
       setProjects(result.projects);
       setPages(result.pages);
       setTotal(result.total);
     } catch (requestError) {
-      showPopup(requestError.message || 'Could not load community projects.', { type: 'error' });
+      if (revision !== loadRevision.current) return;
+      setLoadError(requestError.message || 'Could not load community projects.');
     } finally {
-      setLoading(false);
+      if (revision === loadRevision.current) setLoading(false);
     }
   }, [activeQuery, activeType, page, showPopup]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); return () => { loadRevision.current++; }; }, [load]);
 
   useEffect(() => {
     if (!ready || !pendingOpenRef.current) return;
@@ -222,11 +228,13 @@ export default function CommunityPage({ onBack, onOpen, ready = true }) {
       </div>
 
       <div className="community-results-head">
-        <div><h2>{translateText(resultsTitle)}</h2><span>{translateText(total)}{translateText(" public project")}{translateText(total === 1 ? '' : 's')}</span></div>
+        <div><h2>{translateText(resultsTitle)}</h2>{!loadError && <span>{translateText(total)}{translateText(" public project")}{translateText(total === 1 ? '' : 's')}</span>}</div>
         {activeQuery && <button type="button" className="community-clear-search" onClick={() => { setQuery(''); setActiveQuery(''); setPage(1); }}><X size={12} />{translateText(" Clear search")}</button>}
       </div>
 
-      {loading ? <div className="community-state"><Compass size={22} /><span>{translateText("Loading community projects…")}</span></div> : projects.length === 0 ? (
+      {loading ? <div className="community-state"><Compass size={22} /><span>{translateText("Loading community projects…")}</span></div> : loadError ? (
+        <div className="community-state" role="alert"><Globe2 size={24} /><strong>{translateText("Could not load community projects.")}</strong><span>{translateText(loadError)}</span><button type="button" className="lp-secondary" onClick={load}>{translateText("Retry")}</button></div>
+      ) : projects.length === 0 ? (
         <div className="community-state"><Globe2 size={24} /><strong>{translateText("No terrains match these filters")}</strong><span>{translateText("Try another search or browse all public terrains.")}</span></div>
       ) : (
         <div className="community-grid">

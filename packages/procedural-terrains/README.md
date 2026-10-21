@@ -4,7 +4,7 @@ An ESM library extracted from Terrain Studio 2.0.0. Finite, infinite, planetary
 and Mini worlds reuse the studio's terrain geometry, noise, shaders and caches.
 The package has no React, Electron, account, stylesheet or backend dependency.
 Three.js `~0.185.1` is a peer dependency; `fflate` handles packed materials,
-paint documents and ZIP exports. The current version is an alpha.
+paint documents and ZIP exports. The runtime version follows the studio release; this source builds version 2.0.0.
 
 ## Feature coverage and independent effects
 

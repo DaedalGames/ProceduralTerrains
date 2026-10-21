@@ -1,5 +1,6 @@
 import { matchesTranslatedSearch } from '../i18n/language.js';
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
+import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import SurfacePackCredits from '../components/ui/SurfacePackCredits.jsx';
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Box, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
@@ -141,6 +142,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
   const [nodeColorPreset, setNodeColorPreset] = useState('alpine');
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const creditsRef = useRef(null);
+  useDialogFocus(creditsOpen, creditsRef, () => setCreditsOpen(false));
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [projectActionBusy, setProjectActionBusy] = useState(false);
@@ -792,7 +795,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
           </div>
         </section>
       </div>}
-      {creditsOpen && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => setCreditsOpen(false)}><section className="landing-credits-dialog" role="dialog" aria-modal="true" aria-labelledby="credits-title" onMouseDown={(event) => event.stopPropagation()}><div><span>{translateText("Credits")}</span><h2 id="credits-title">{translateText("Sources & credits")}</h2></div><p>{translateText("The editor cursor set is based on the Windows 11 Light Theme cursor pack by ")}<strong>{translateText(CURSOR_PACK_AUTHOR)}</strong>.</p><a href={CURSOR_PACK_URL} target="_blank" rel="noopener noreferrer">{translateText("View cursor pack")}</a><p>{translateText("Real-world 3D building data: ")}<a href={BUILDING_SOURCE_URL} target="_blank" rel="noopener noreferrer">{translateText(BUILDING_SOURCE)}</a>.</p><SurfacePackCredits /><div className="landing-credits-socials"><a href={AUTHOR_X_URL} target="_blank" rel="noopener noreferrer"><FaXTwitter size={14} />{translateText(" X / Twitter")}</a><a href={AUTHOR_PORTFOLIO_URL} target="_blank" rel="noopener noreferrer"><Globe2 size={14} />{translateText(" Portfolio")}</a></div><button type="button" onClick={() => setCreditsOpen(false)}>{translateText("Close")}</button></section></div>}
+      {creditsOpen && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => setCreditsOpen(false)}><section ref={creditsRef} tabIndex={-1} className="landing-credits-dialog" role="dialog" aria-modal="true" aria-labelledby="credits-title" onMouseDown={(event) => event.stopPropagation()}><div><span>{translateText("Credits")}</span><h2 id="credits-title">{translateText("Sources & credits")}</h2></div><p>{translateText("The editor cursor set is based on the Windows 11 Light Theme cursor pack by ")}<strong>{translateText(CURSOR_PACK_AUTHOR)}</strong>.</p><a href={CURSOR_PACK_URL} target="_blank" rel="noopener noreferrer">{translateText("View cursor pack")}</a><p>{translateText("Real-world 3D building data: ")}<a href={BUILDING_SOURCE_URL} target="_blank" rel="noopener noreferrer">{translateText(BUILDING_SOURCE)}</a>.</p><SurfacePackCredits /><div className="landing-credits-socials"><a href={AUTHOR_X_URL} target="_blank" rel="noopener noreferrer"><FaXTwitter size={14} />{translateText(" X / Twitter")}</a><a href={AUTHOR_PORTFOLIO_URL} target="_blank" rel="noopener noreferrer"><Globe2 size={14} />{translateText(" Portfolio")}</a></div><button type="button" data-dialog-close onClick={() => setCreditsOpen(false)}>{translateText("Close")}</button></section></div>}
       {deleteTarget && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => !projectActionBusy && setDeleteTarget(null)}>
         <section className="landing-credits-dialog landing-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()}>
           <div><span>{translateText("Delete project")}</span><h2 id="delete-project-title">{translateText("Delete “")}{deleteTarget.metadata.name}&rdquo;?</h2></div>

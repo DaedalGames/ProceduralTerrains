@@ -10,13 +10,13 @@ Procedural Terrains is a React + Vite + Three.js terrain studio. Height,
 normals, and biome colors are evaluated on the GPU, so the live view stays
 editable without relying on a baked CPU heightmap.
 
-An experimental [Three.js library](packages/procedural-terrains/README.md) now
+A [Three.js library](packages/procedural-terrains/README.md) now
 extracts finite, infinite, planet and Mini runtimes into a typed ESM package,
 with optional water, clouds, material providers, Workers and exports. It uses
 your own scene, renderer and loop; see the
 [plain Three.js example](examples/three-finite-terrain) and
 [migration scope](docs/npm-runtime-migration.md). Install with
-`npm install procedural-terrains` (currently alpha), or build locally with
+`npm install procedural-terrains` (2.0.0 release), or build locally with
 `npm run build:lib`. See [package publishing](docs/package-publishing.md) for release automation.
 The studio's **Docs** tab serves the [API reference](docs/api.md), guides and
 code examples in English and French. **Include Terrain Code (npm)** in the
@@ -27,6 +27,8 @@ the local npm runtime in an isolated iframe without a CDN dependency.
 
 `npm run build` builds the library and the studio, then writes an installable
 npm archive to `dist/npm/`. Use `npm run build:app` for the studio alone.
+Python 3.11+ is required to verify the bundled Blender and Unity archives.
+Use `npm run plugins:build` to regenerate them after editing plugin sources.
 
 ## What’s new in 2.0.0
 
@@ -60,7 +62,7 @@ npm archive to `dist/npm/`. Use `npm run build:app` for the studio alone.
   studio backdrop. Relief, water level, vegetation, prop size, and cloud spread
   have dedicated controls; projects preserve the composition and camera views.
 
-Unity `0.4.0-alpha.1` and Blender `0.4.0` integrations, production export
+Unity `0.4.0-alpha.2` and Blender `0.4.1` integrations, production export
 presets, and local-first project storage remain available. Their versions are
 independent of the terrain studio's `2.0.0` release.
 
@@ -197,8 +199,8 @@ The latest archives are available from the app and checked into
 
 | Integration | Version | Requirements | Source | Download |
 | --- | --- | --- | --- | --- |
-| **Unity** | `0.4.0-alpha.1` | Unity `6000.3+` | [`plugins/unity/Packages/com.zyfou.procedural-terrains`](plugins/unity/Packages/com.zyfou.procedural-terrains) | [`Unity ZIP`](public/downloads/plugins/procedural-terrains-unity-0.4.0-alpha.1.zip) |
-| **Blender** | `0.4.0` | Blender `5.2+` | [`plugins/blender/procedural_terrains`](plugins/blender/procedural_terrains) | [`Blender ZIP`](public/downloads/plugins/procedural-terrains-blender-0.4.0.zip) |
+| **Unity** | `0.4.0-alpha.2` | Unity `6000.3+` | [`plugins/unity/Packages/com.zyfou.procedural-terrains`](plugins/unity/Packages/com.zyfou.procedural-terrains) | [`Unity ZIP`](public/downloads/plugins/procedural-terrains-unity-0.4.0-alpha.2.zip) |
+| **Blender** | `0.4.1` | Blender `5.2+` | [`plugins/blender/procedural_terrains`](plugins/blender/procedural_terrains) | [`Blender ZIP`](public/downloads/plugins/procedural-terrains-blender-0.4.1.zip) |
 
 ### Unity workflow
 
@@ -215,7 +217,7 @@ for current limitations and release details.
 
 ### Blender workflow
 
-1. Download `procedural-terrains-blender-0.4.0.zip`.
+1. Download `procedural-terrains-blender-0.4.1.zip`.
 2. In Blender 5.2, open **Edit > Preferences > Get Extensions > Install from Disk**.
 3. Enable the extension and open **3D View > Sidebar > Terrain**.
 4. Use **Create** for native procedural terrain or **Import** for a ZIP/

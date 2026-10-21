@@ -607,6 +607,7 @@ export class WaterSystem {
 
   _swapMaterials(params, worldMode) {
     const eng = this.engine;
+    const wasPending = this._waterCompilePending;
     if (this._waterCompileRetryTimer) {
       clearTimeout(this._waterCompileRetryTimer);
       this._waterCompileRetryTimer = null;
@@ -626,6 +627,9 @@ export class WaterSystem {
       this._waterCompileGen++;
       const gen = this._waterCompileGen;
       const materialVersions = mats.map((material) => material?.version ?? 0);
+      const isCurrent = () => !this._disposed && gen === this._waterCompileGen
+        && eng.worldMode === wm
+        && mats.every((material, index) => (material?.version ?? 0) === materialVersions[index]);
       this._waterCompilePending = true;
       // Keep the cheap legacy plane visible while the requested realistic
       // material links. This matters on boot, where water was hidden until init.
@@ -686,9 +690,14 @@ export class WaterSystem {
         // fallback before this async callback ran, so explicitly request the
         // first frame that uses the newly attached realistic material.
         eng._needsRender = true;
-      });
+      }, { isCurrent });
       Promise.resolve(compileJob).then((ready) => {
         if (this._disposed || gen !== this._waterCompileGen || ready !== false) return;
+        if (!isCurrent()) {
+          this._waterCompilePending = false;
+          this._swapMaterials(eng.params, eng.worldMode);
+          return;
+        }
         this._waterCompilePending = false;
         this._realisticAttached = false;
         const currentParams = eng.params;
@@ -722,6 +731,9 @@ export class WaterSystem {
           // Keep the visible legacy material as a terminal degraded fallback.
           // A setting/mode change or a later successful compile resets this.
           this._waterCompileFailed = true;
+          eng.cb?.onToast?.('Water could not be prepared. Legacy water remains active.');
+          eng.cb?.onStatus?.('Water could not be prepared. Legacy water remains active.', false);
+          eng._needsRender = true;
           return;
         }
         if (!this._waterCompileRetryTimer
@@ -748,6 +760,7 @@ export class WaterSystem {
     this._waterCompileFailed = false;
     this._realisticAttached = false;
     this._waterCompileGen++;
+    if (wasPending) eng.cb?.onStatus?.('Ready', false);
     this._ensureLegacyInfiniteMaterial(oct);
     if (eng.water && eng.waterMaterial) eng.water.material = eng.waterMaterial;
     if (eng.infiniteWorld?.waterPlane && eng._infiniteWaterMat) {
@@ -961,6 +974,15 @@ export class WaterSystem {
     return mat === this._realisticStudio
       || mat === this._realisticInfinite
       || mat === this._legacyInfiniteFallback;
+  }
+
+  getTransitionState() {
+    return {
+      requestedMode: this._effectiveMode,
+      renderedMode: this._usingRealistic && !this._realisticAttached ? 'legacy' : this._effectiveMode,
+      pending: this._waterCompilePending,
+      failed: this._waterCompileFailed,
+    };
   }
 
   isMaterialTransitionPending() {

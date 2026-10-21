@@ -1,8 +1,16 @@
 # Publication du package
 
-Le package public s’installe avec `npm install procedural-terrains`. La première
-publication est `0.1.0-alpha.0`, disponible sous le tag npm `latest` pour permettre
-cette installation directe. Il s’agit toujours d’une version alpha.
+Le candidat 2.0.0 construit `procedural-terrains@2.0.0`. Les exports du studio
+épinglent cette version exacte : publiez le package avant de déployer le site
+ou de distribuer le desktop correspondant. Le registre public ne change pas
+lors du build local. Les archives alpha antérieures restent immuables.
+
+Le workflow de déploiement vérifie que cette version exacte existe sur npm
+avant de transférer le site. Pour la 2.0.0, publier le runtime est donc une
+étape préalable au déploiement, pas une opération effectuée par le build local.
+Les archives Unity et Blender sont vérifiées contre les sources pendant
+`npm run build:app` (Python 3.11 ou supérieur requis). Pour les régénérer :
+`npm run plugins:build`, puis `npm run plugins:verify`.
 
 ## Releases automatiques
 
@@ -65,8 +73,21 @@ Sources : [Trusted publishing npm](https://docs.npmjs.com/trusted-publishers/),
 ```sh
 npm run check:lib
 npm run pack:lib
-npm publish dist/npm/procedural-terrains-0.1.0-alpha.0.tgz --access public --tag latest --registry=https://registry.npmjs.org
+npm publish dist/npm/procedural-terrains-2.0.0.tgz --access public --tag latest --registry=https://registry.npmjs.org
 ```
 
 Avant les publications suivantes, augmentez la version du workspace. L’archive
 contient uniquement le runtime, ses types, son README et la licence MIT.
+
+## Vérification locale du desktop
+
+Le build Windows conserve le renderer uniquement dans `resources/dist`.
+L’exécutable accepte `--user-data-dir=C:\chemin\profil-qa` pour isoler ses
+données et `--no-file-associations` pour tester une archive portable sans
+réenregistrer l’association Windows `.ptrterrain`. Le démarrage ordinaire
+conserve l’enregistrement de cette association.
+
+Après `npm run desktop:package`, `npm run test:desktop` vérifie l’ouverture à
+froid d’un projet, son rendu, Enregistrer sous et sa réouverture. Les chemins
+d’exécutable et de preuves peuvent être choisis avec
+`TERRAIN_DESKTOP_EXECUTABLE` et `TERRAIN_DESKTOP_QA_OUTPUT`.

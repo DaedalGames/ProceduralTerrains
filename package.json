@@ -14,7 +14,7 @@
     "desktop:icon": "node tools/create-electron-icon.cjs",
     "dev:api": "npm --prefix api run dev",
     "build": "npm run build:lib && npm run build:app && npm run pack:lib",
-    "build:app": "node tools/materials.mjs verify && vite build && node tools/materials.mjs verify --root=dist/textures/terrain/pbr",
+    "build:app": "npm run plugins:verify && node tools/materials.mjs verify && vite build && node tools/materials.mjs verify --root=dist/textures/terrain/pbr",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -32,7 +32,10 @@
     "test:lib:browser": "node tools/check-terrain-browser.mjs",
     "test:lib:worlds": "node tools/check-terrain-worlds-browser.mjs",
     "test:lib:parity": "node tools/check-terrain-parity-browser.mjs",
-    "test:lib:effects": "node tools/check-effects-playgrounds.mjs"
+    "test:lib:effects": "node tools/check-effects-playgrounds.mjs",
+    "plugins:build": "python tools/build_blender_extension.py && python tools/build_unity_plugin.py",
+    "plugins:verify": "python tools/verify_plugin_releases.py",
+    "test:desktop": "node tools/check-desktop-browser.mjs"
   },
   "config": {
     "forge": "./forge.config.cjs"

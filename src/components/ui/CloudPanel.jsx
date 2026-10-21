@@ -213,6 +213,7 @@ export default function CloudPanel({
               <span className="setting-label">{translateText(label)}</span>
             </div>
             <ColorInput
+              label={label}
               value={colorToHex(val(params, key) ?? def)}
               onChange={(v) => onParam(key, parseColor(v))}
             />
@@ -284,6 +285,8 @@ export default function CloudPanel({
 
       {enabled && realistic && realisticContent}
 
+      {enabled && !realistic && <p className="section-hint">{translateText("Clouds hiding the terrain? Raise Altitude in Shell or try Realistic rendering.")} <button type="button" className="action-btn" onClick={() => onParam('cloudRenderMode', 'realistic')}>{translateText("Try Realistic clouds")}</button></p>}
+
       {enabled && !realistic && (
         <>
           <ControlSection
@@ -351,6 +354,7 @@ export default function CloudPanel({
                   <span className="setting-label">{translateText(label)}</span>
                 </div>
                 <ColorInput
+                  label={label}
                   value={colorToHex(val(params, key) ?? def)}
                   onChange={(v) => onParam(key, parseColor(v))}
                 />

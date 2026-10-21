@@ -1,4 +1,5 @@
 """Verify plugin ZIP contents, versions, source parity and website download links."""
+import ast
 import json
 import re
 import tomllib
@@ -12,6 +13,10 @@ for engine in ("blender", "unity"):
     if engine == "blender":
         manifest = tomllib.loads((source / "blender_manifest.toml").read_text(encoding="utf-8"))
         version = manifest["version"]
+        module = ast.parse((source / "__init__.py").read_text(encoding="utf-8"))
+        info = next(ast.literal_eval(node.value) for node in module.body
+                    if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "bl_info" for target in node.targets))
+        assert ".".join(map(str, info["version"])) == version, "Blender manifest and bl_info versions differ"
         expected = {"blender_manifest.toml", *manifest["build"]["paths"]}
         prefix = ""
     else:

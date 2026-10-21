@@ -1009,10 +1009,19 @@ export default function App() {
     reader.readAsArrayBuffer(file);
   }, [loadProjectJSON]);
 
+  const [pendingDesktopDocument, setPendingDesktopDocument] = useState(null);
+
   const loadDesktopProjectDocument = useCallback(async (payload) => {
     if (!payload || payload.canceled) return false;
     if (payload.error) {
       showToast(payload.error, 'error');
+      return false;
+    }
+    // OS file-open messages can arrive before the initial Engine exists.
+    // Keep the latest document until boot completes rather than acknowledging
+    // an optional transition against a null engine and leaving Home visible.
+    if (!engineRef.current || !bootedRef.current) {
+      setPendingDesktopDocument(payload);
       return false;
     }
     try {
@@ -1020,6 +1029,7 @@ export default function App() {
       await loadProjectJSON(project);
       setDesktopDocument({ path: payload.legacy ? null : payload.path, dirty: false });
       window.document.title = `${project.metadata.name} — Procedural Terrains`;
+      landingRef.current?.dismiss();
       if (!payload.legacy) await refreshDesktopRecents();
       else showToast('Legacy JSON project imported. Save it as .ptrterrain to create a desktop document.', 'info');
       return true;
@@ -1028,6 +1038,21 @@ export default function App() {
       return false;
     }
   }, [loadProjectJSON, refreshDesktopRecents, showToast]);
+
+  useEffect(() => {
+    if (!pendingDesktopDocument || !landing?.bootReady) return undefined;
+    let timer;
+    const openWhenReady = () => {
+      if (!engineRef.current || !bootedRef.current) {
+        timer = setTimeout(openWhenReady, 50);
+        return;
+      }
+      setPendingDesktopDocument(null);
+      void loadDesktopProjectDocument(pendingDesktopDocument);
+    };
+    openWhenReady();
+    return () => clearTimeout(timer);
+  }, [pendingDesktopDocument, landing?.bootReady, loadDesktopProjectDocument]);
 
   const openDesktopProjectDocument = useCallback(async () => {
     const result = await openDesktopDocument();

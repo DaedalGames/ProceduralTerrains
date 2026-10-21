@@ -46,7 +46,7 @@ export default function DocsOverview() {
       <p>{fr ? 'Vous gardez la scène, la caméra, le renderer et la boucle d’animation. Le package fournit la géométrie, le bruit procédural, les shaders et le LOD. React et le backend du studio ne sont pas nécessaires.' : 'You own the scene, camera, renderer and animation loop. The package provides geometry, procedural noise, shaders and LOD. React and the studio backend are not required.'}</p>
       <CodeBlock code={quickStart} lang="js" />
       <CodeBlock code="npm install procedural-terrains" lang="sh" />
-      <blockquote><p>{fr ? 'Version alpha. Three.js ~0.185.1 est une dépendance pair ; npm l’installe automatiquement si nécessaire.' : 'Alpha version. Three.js ~0.185.1 is a peer dependency; npm installs it automatically when needed.'}</p></blockquote>
+      <blockquote><p>{fr ? 'Three.js ~0.185.1 est une dépendance pair ; npm l’installe automatiquement si nécessaire.' : 'Three.js ~0.185.1 is a peer dependency; npm installs it automatically when needed.'}</p></blockquote>
       <p><a href={docsHref('code-export')}>{t('Studio and code export')} <ArrowRight size={13} /></a></p>
     </div>
   );

@@ -8056,3 +8056,13 @@ input[type="color"].palette-color-input {
 .markers-list { margin-bottom: 18px; }
 .marker-route-prompt { margin: 12px 0; padding: 10px; border: 1px solid var(--border-active); border-radius: var(--radius-sm); background: var(--accent-bg); color: var(--text-main); font-size: 11px; line-height: 1.5; }
 .marker-item-selected { background: var(--accent-bg); border-radius: var(--radius-sm); }
+
+/* Keep primary actions visible on narrow phones without a hidden horizontal scroll. */
+@media (max-width: 480px) {
+  #topbar { flex-wrap: wrap; overflow: visible; touch-action: auto; }
+  #topbar .tb-left { flex: 1 1 100%; }
+  #topbar .tb-center { order: 1; margin-right: auto; }
+  #topbar .tb-right { order: 2; }
+  #topbar .tb-right .tb-btn.primary { width: auto; padding: 0 10px; gap: 5px; }
+  #topbar .tb-right .primary .tb-text { display: inline; font-size: 11px; }
+}

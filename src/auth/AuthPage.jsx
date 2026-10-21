@@ -4,6 +4,7 @@ import { ArrowLeft, LogIn, UserPlus } from 'lucide-react';
 import { APP_NAME } from '../constants/app.js';
 import { Logo } from '../landing/shared.jsx';
 import { useAuth } from './AuthContext.jsx';
+import { validateAuthFields } from './authValidation.js';
 import { usePopup } from '../components/ui/PopupProvider.jsx';
 
 const initialFields = { email: '', username: '', identifier: '', password: '', confirmPassword: '' };
@@ -26,12 +27,10 @@ export default function AuthPage({ mode, onBack, onSwitch, onSuccess }) {
   const submit = async (event) => {
     event.preventDefault();
     if (busy) return;
-    const clientErrors = {};
-    if (isRegister && fields.password !== fields.confirmPassword) {
-      clientErrors.confirmPassword = 'Passwords do not match.';
-    }
+    const clientErrors = validateAuthFields(fields, isRegister);
     if (Object.keys(clientErrors).length) {
       setFieldErrors(clientErrors);
+      event.currentTarget.elements.namedItem(Object.keys(clientErrors)[0])?.focus();
       return;
     }
 
@@ -54,9 +53,10 @@ export default function AuthPage({ mode, onBack, onSwitch, onSuccess }) {
 
   const input = (name, label, properties = {}) => (
     <label className={`auth-field${fieldErrors[name] ? ' has-error' : ''}`}>
-      <span>{translateText(label)}</span>
+      <span id={`auth-${name}-label`}>{translateText(label)}</span>
       <input
         name={name}
+        aria-labelledby={`auth-${name}-label`}
         value={fields[name]}
         onChange={change(name)}
         aria-invalid={!!fieldErrors[name]}

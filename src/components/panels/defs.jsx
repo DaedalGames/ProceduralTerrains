@@ -174,7 +174,7 @@ export function ColorField({ label, icon, info, value, onChange }) {
         <span className="setting-label">{translateText(label)}</span>
         {info && <InfoDot />}
       </div>
-      <ColorInput value={value} onChange={(hex) => onChange({ target: { value: hex } })} />
+      <ColorInput label={label} value={value} onChange={(hex) => onChange({ target: { value: hex } })} />
     </div>
   );
 }

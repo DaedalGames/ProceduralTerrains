@@ -56,7 +56,7 @@ function SeedRow({ seed, onParam, onRandomizeSeed }) {
         <span className="setting-label">{translateText("Seed")}</span><InfoDot />
       </div>
       <div className="seed-input-wrap">
-        <input type="text" spellCheck="false" value={text}
+        <input type="text" aria-label={translateText("Seed")} spellCheck="false" value={text}
           onChange={(e) => setText(e.target.value)} onBlur={commit}
           onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
         <button type="button" className="icon-btn" title={translateText("Randomize seed")} onClick={onRandomizeSeed}>

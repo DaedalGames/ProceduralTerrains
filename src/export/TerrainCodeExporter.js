@@ -208,7 +208,7 @@ export function createExportedTerrain({ renderer, signal } = {}) {
   const readme = `# Exported Procedural Terrain
 
 This example uses procedural-terrains ${packageInfo.version} and Three.js ${packageInfo.peerDependencies.three}.
-The runtime package is an alpha available on npm.
+Install the runtime version matching this export. New versions become available on npm when their release is published.
 
 ## Run
 

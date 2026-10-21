@@ -281,6 +281,7 @@ export default function WaterPanelInner({
   const modeLabel = WATER_MODES.find((m) => m.value === mode)?.label ?? mode;
   const effectiveLabel = WATER_MODES.find((m) => m.value === effectiveMode)?.label ?? effectiveMode;
   const waterCost = perfStats?.waterCost ?? null;
+  const transition = perfStats?.waterTransition;
   const p = perf ?? {};
   const [baselineScene, setBaselineScene] = useState(WATER_BASELINE_SCENES[0].value);
   const [baselineBusy, setBaselineBusy] = useState('');
@@ -381,6 +382,8 @@ export default function WaterPanelInner({
           {translateText(downgraded ? `${modeLabel} → ${effectiveLabel}` : modeLabel)}
         </span>
         <p className="section-hint">{translateText(WORLD_MODE_WATER_HINTS[worldMode])}</p>
+        {transition?.pending && <p className="section-hint" role="status">{translateText("Preparing water; Legacy remains active.")}</p>}
+        {transition?.failed && <p className="section-hint warning" role="alert">{translateText("Water could not be prepared. Legacy water remains active.")}</p>}
         {downgraded && (
           <p className="section-hint warning">{translateText("Rendering as ")}{translateText(effectiveLabel)}
             {translateText(isInfinite && val(params, 'waterAutoDowngradeInfinite') ? ' (auto-downgrade active)' : '')}

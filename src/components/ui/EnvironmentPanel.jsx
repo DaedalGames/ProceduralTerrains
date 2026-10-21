@@ -153,6 +153,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
             </span>
           </div>
           <ColorInput
+            label="Sun Color"
             value={colorToHex(style.sunColor ?? [1.0, 0.94, 0.82])}
             onChange={(v) => onTuning('sunColor', parseColor(v))}
           />
@@ -227,6 +228,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
               )}
             </div>
             <ColorInput
+              label={label}
               value={colorToHex(style[key] ?? [0.5, 0.5, 0.5])}
               onChange={(v) => onTuning(key, parseColor(v))}
             />

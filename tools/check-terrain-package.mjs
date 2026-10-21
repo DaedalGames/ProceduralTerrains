@@ -22,6 +22,9 @@ try {
   npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', join(directory, pack.filename), 'three@0.185.1'], directory);
   const manifest = JSON.parse(await readFile(join(directory, 'node_modules/procedural-terrains/package.json'), 'utf8'));
   for(const entry of Object.values(manifest.exports)){if(entry.types)assert(pack.files.some(f=>f.path===entry.types.slice(2)));}
+  const sourceManifest = JSON.parse(await readFile(join(root, 'packages/procedural-terrains/package.json'), 'utf8'));
+  assert.equal(manifest.version, sourceManifest.version);
+  assert.equal(pack.version, sourceManifest.version);
   assert.deepEqual(manifest.peerDependencies, { three: '~0.185.1' });
   assert.deepEqual(manifest.dependencies, {fflate:'^0.8.3'});
   await writeFile(join(directory, 'consumer.mjs'), `
@@ -31,7 +34,7 @@ try {
     const manifest=JSON.parse(await (await import('node:fs/promises')).readFile(new URL('./node_modules/procedural-terrains/package.json',import.meta.url),'utf8'));
     for(const key of Object.keys(manifest.exports)){if(key!=='.' && key!=='./package.json')await import('procedural-terrains/'+key.slice(2));}
     assert.equal(typeof globalThis.document, 'undefined');
-    const terrain = await createTerrain({ renderer: { isWebGLRenderer: true }, configuration: { layout: { chunkCount: 2 } } });
+    const terrain = await createTerrain({ renderer: { isWebGLRenderer: true }, configuration: { layout: { chunkCount: 2 }, terrainFormationSeaLevel: 78 } });
     assert(terrain.object instanceof THREE.Group, 'Consumer and package must share one Three.js instance');
     const initial = terrain.sampleHeight(10, 20);
     assert(Number.isFinite(initial));
