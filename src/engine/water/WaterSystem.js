@@ -213,6 +213,10 @@ export class WaterSystem {
       this._stylized.ensure(this);
       this._stylized.applySettings(this.engine.params);
       this._stylized.update(worldMode);
+      this._stylized.prepare(this, worldMode);
+    } else if (this._stylized.pending || this._stylized.failed) {
+      this._stylized.cancelPreparation();
+      this.engine.cb?.onStatus?.('Ready', false);
     }
     if (active !== this._stylizedActive) this.engine._needsRender = true;
     this._stylizedActive = active;
@@ -221,7 +225,7 @@ export class WaterSystem {
 
   /** Material shown on the studio mesh / Infinite plane by the stylized mode. */
   _stylizedMaterial() {
-    return this._stylizedActive ? this._stylized.material : null;
+    return this._stylizedActive && this._stylized.ready ? this._stylized.material : null;
   }
 
   get stylizedMaterial() {
@@ -977,6 +981,14 @@ export class WaterSystem {
   }
 
   getTransitionState() {
+    if (this._stylizedActive) {
+      return {
+        requestedMode: this._effectiveMode,
+        renderedMode: this._stylized.ready ? this._effectiveMode : 'legacy',
+        pending: this._stylized.pending,
+        failed: this._stylized.failed,
+      };
+    }
     return {
       requestedMode: this._effectiveMode,
       renderedMode: this._usingRealistic && !this._realisticAttached ? 'legacy' : this._effectiveMode,
@@ -986,10 +998,11 @@ export class WaterSystem {
   }
 
   isMaterialTransitionPending() {
-    return this._waterCompilePending;
+    return this._stylizedActive ? this._stylized.pending : this._waterCompilePending;
   }
 
   isRequestedMaterialReady() {
+    if (this._stylizedActive) return this._stylized.ready || this._stylized.failed;
     return !this._usingRealistic
       || this._realisticAttached
       || this._waterCompileFailed;

@@ -315,11 +315,20 @@ float miniBakedTerrain(vec2 xz) {
   return texture2D(uTerrainHeightTex, uv).a * uHeightScale;
 }
 
+#ifdef MINI_WATER_TERRAIN_REFLECTION
 // Height field for reflection rays: the Mini light map (B = filtered terrain
 // height over the footprint) or the studio bake for Stylized Tile water.
 float miniTraceHeight(vec2 xz) {
-  if (uMiniLightEnabled > 0.5) return texture2D(uMiniLightTex, clamp(xz / max(uMiniHalf * 2.0, 1.0) + 0.5, 0.0, 1.0)).b;
-  return miniBakedTerrain(xz);
+  float height = -1e4;
+  if (uMiniLightEnabled > 0.5) {
+    height = textureLod(uMiniLightTex, clamp(xz / max(uMiniHalf * 2.0, 1.0) + 0.5, 0.0, 1.0), 0.0).b;
+  } else if (uMiniBakeDepth > 0.5 && uUseTerrainHeightTex > 0.5) {
+    vec2 uv = (xz - uBakeOrigin) / max(uBakeSpan, vec2(1.0));
+    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) {
+      height = textureLod(uTerrainHeightTex, uv, 0.0).a * uHeightScale;
+    }
+  }
+  return height;
 }
 
 // March a mirrored ray through that height field. Steps scale with the
@@ -327,8 +336,8 @@ float miniTraceHeight(vec2 xz) {
 // then a short bisection pins the hit. Returns 1 on a hit.
 float miniTraceTerrain(vec3 origin, vec3 dir, float jitter, out vec3 hitPos) {
   hitPos = origin;
-  vec2 lo2;
-  vec2 hi2;
+  vec2 lo2 = vec2(0.0);
+  vec2 hi2 = vec2(0.0);
   if (uMiniLightEnabled > 0.5) {
     lo2 = vec2(-uMiniHalf);
     hi2 = vec2(uMiniHalf);
@@ -371,6 +380,8 @@ float miniTraceTerrain(vec3 origin, vec3 dir, float jitter, out vec3 hitPos) {
   return 0.0;
 }
 
+#endif
+
 // What the water mirrors along reflect(rayDir, n): the environment, with the
 // terrain composited where the mirrored ray meets it (coloured from the
 // water-free capture when the hit is on screen).
@@ -384,6 +395,9 @@ vec3 miniReflection(vec3 p, vec3 rayDir, vec3 n, out float terrainHit) {
     vec3 broad = normalize(vec3(dir.x * 0.4, max(dir.y, 0.1), dir.z * 0.4));
     env = mix(env, miniEnvironment(broad), uMiniReflectBlur * 0.6);
   }
+#ifndef MINI_WATER_TERRAIN_REFLECTION
+  return env;
+#else
   if (uMiniReflectTerrain < 0.5 || uMiniTraceSteps <= 0 || dir.y <= 0.0 || uWaterQuality < 0.5) return env;
   float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
   vec3 hit;
@@ -409,6 +423,7 @@ vec3 miniReflection(vec3 p, vec3 rayDir, vec3 n, out float terrainHit) {
     }
   }
   return terrainCol;
+#endif
 }
 
 void main() {
@@ -756,6 +771,7 @@ export function createMiniWaterSurfaceMaterial(shared, { name = 'MiniWaterSurfac
     },
     vertexShader: SURFACE_VERTEX,
     fragmentShader: SURFACE_FRAGMENT,
+    forceSinglePass: true,
     transparent: true,
     premultipliedAlpha: true,
     depthTest: true,
@@ -822,7 +838,7 @@ export function applyMiniWaterLook(material, { colors, params, half, depthRange,
     if (u.uMiniFoamColor && palette?.foam) u.uMiniFoamColor.value.set(...palette.foam);
     material.userData.miniWaterParams = params;
     setMiniWaterShader(material, params.waterDioramaShader);
-    applyMiniReflectionSettings(u, params, miniRealistic(material));
+    applyMiniReflectionSettings(material, params, miniRealistic(material));
     if (u.uWaveDir) {
       const dir = (params.waterWaveDirection ?? 0) * Math.PI / 180;
       u.uWaveDir.value.set(Math.cos(dir), Math.sin(dir));
@@ -895,10 +911,21 @@ export function resolveMiniReflections(params = {}, realistic = params.waterDior
   };
 }
 
-function applyMiniReflectionSettings(u, params, realistic) {
+function applyMiniReflectionSettings(material, params, realistic) {
+  const u = material.uniforms;
   const r = resolveMiniReflections(params, realistic);
   if (u.uMiniReflect) u.uMiniReflect.value *= r.strength;
   if (!u.uMiniReflectTerrain) return;
+  // Exclude the nested ray march entirely from the common sky-only program.
+  // A uniform branch still makes ANGLE/FXC compile its texture loops on first draw.
+  const terrain = r.enabled && r.terrain;
+  if (!!material.defines?.MINI_WATER_TERRAIN_REFLECTION !== terrain) {
+    const defines = { ...(material.defines ?? {}) };
+    if (terrain) defines.MINI_WATER_TERRAIN_REFLECTION = 1;
+    else delete defines.MINI_WATER_TERRAIN_REFLECTION;
+    material.defines = defines;
+    material.needsUpdate = true;
+  }
   u.uMiniReflectTerrain.value = r.terrain ? 1 : 0;
   u.uMiniTraceSteps.value = r.steps;
   u.uMiniReflectBlur.value = r.blur;

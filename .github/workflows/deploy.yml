@@ -386,6 +386,11 @@ jobs:
             echo ""
             echo "Starting or restarting backend..."
 
+            # These flags must be explicit: npm start otherwise defaults to
+            # development and disables the Secure session-cookie attribute.
+            export NODE_ENV=production
+            export COOKIE_SECURE=true
+
             if pm2 describe TerrainStudioApi > /dev/null 2>&1; then
               pm2 restart TerrainStudioApi --update-env
             else

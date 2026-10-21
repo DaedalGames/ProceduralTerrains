@@ -161,6 +161,7 @@ function worldState() {
   const s = {
     mode: e.worldMode,
     compiling: e._compiling || 0,
+    waterPending: e.waterSystem?.isMaterialTransitionPending?.() ?? false,
     bootPending: !!e._bootPending,
     transition: !!e._modeTransitionCoordinator?.active,
     bgWork: e._bgWork ? [...e._bgWork.values()] : [],
@@ -185,7 +186,7 @@ function worldState() {
 function isIdle(s) {
   return !s.compiling && !s.bootPending && !s.transition && s.bgWork.length === 0
     && !s.props && !s.detailPending && !s.building && !s.lodQueue && !s.pendingChunks
-    && !s.baking;
+    && !s.baking && !s.waterPending;
 }
 
 async function settle({ timeoutMs = 120000, idleFrames = 40, minFrames = 60 } = {}) {

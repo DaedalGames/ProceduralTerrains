@@ -20,6 +20,12 @@ export class StylizedWaterLayer {
     this.engine = engine;
     this.material = null;
     this._entry = null;
+    this._compileGeneration = 0;
+    this._compilingVersion = -1;
+    this._compilingWorldMode = null;
+    this._readyVersion = -1;
+    this.pending = false;
+    this.failed = false;
   }
 
   /** Create the material (and its capture registration) on first use. */
@@ -38,6 +44,46 @@ export class StylizedWaterLayer {
     };
     waterSystem.addAuxiliaryWater(this._entry);
     return this.material;
+  }
+
+  get ready() {
+    return !!this.material && this._readyVersion === this.material.version;
+  }
+
+  prepare(waterSystem, worldMode) {
+    const material = this.material;
+    if (!material || this.ready || ((this.pending || this.failed)
+      && this._compilingVersion === material.version && this._compilingWorldMode === worldMode)) return;
+    const engine = this.engine;
+    const version = material.version;
+    const generation = ++this._compileGeneration;
+    this._compilingVersion = version;
+    this._compilingWorldMode = worldMode;
+    this.pending = true;
+    this.failed = false;
+    const isCurrent = () => this.material === material && generation === this._compileGeneration
+      && material.version === version && engine.worldMode === worldMode
+      && waterSystem.getEffectiveMode() === STYLIZED_WATER_MODE && !waterSystem._disposed;
+    // Leave the already-prepared Legacy material visible until both linking
+    // and the offscreen validation draw finish. First draw must never compile.
+    engine.compileWaterMaterialsAsync([material], () => {
+      if (!isCurrent()) return;
+      this._readyVersion = version;
+      this.pending = false;
+      engine._needsRender = true;
+    }, { isCurrent }).then((ready) => {
+      if (!isCurrent() || ready) return;
+      this.pending = false;
+      this.failed = true;
+      engine._needsRender = true;
+      engine.cb?.onToast?.('Water could not be prepared. Legacy water remains active.');
+    });
+  }
+
+  cancelPreparation() {
+    this._compileGeneration++;
+    this.pending = false;
+    this.failed = false;
   }
 
   applySettings(params = this.engine.params) {
@@ -76,6 +122,8 @@ export class StylizedWaterLayer {
   }
 
   dispose(waterSystem) {
+    this.cancelPreparation();
+    this._readyVersion = -1;
     if (this._entry) waterSystem?.removeAuxiliaryWater(this._entry);
     this._entry = null;
     this.material?.dispose();
