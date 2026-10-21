@@ -136,16 +136,18 @@ vec3 cl_formationPoint(vec3 p) {
 }
 
 float cl_formationBase(vec3 p, float base) {
+  float result = base;
   if (uCloudNoiseType > 1.5) {
     float fibers = cl_vnoise(p * vec3(0.65, 2.4, 1.6) + 19.7);
-    return base - 0.10 * smoothstep(0.25, 0.75, fibers);
-  }
-  if (uCloudNoiseType > 0.5) {
-    // Fold smooth value noise into rounded billows with fuller centres.
+    // Keep coverage centred on the common field; wisps stay thin through
+    // their vertical profile and opacity rather than losing the whole layer.
+    result = base + 0.04 - 0.08 * smoothstep(0.25, 0.75, fibers);
+  } else if (uCloudNoiseType > 0.5) {
+    // One initialized return value avoids ANGLE/FXC's branch-return warning.
     float billows = 0.67 - abs(cl_vnoise(p * 1.5 + 13.7) - 0.5) * 1.4;
-    return mix(base, billows, 0.65);
+    result = mix(base, billows, 0.65);
   }
-  return base;
+  return result;
 }
 `;
 

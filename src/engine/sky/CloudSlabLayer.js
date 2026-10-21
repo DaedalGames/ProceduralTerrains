@@ -489,13 +489,16 @@ export class CloudSlabLayer {
       useErosion,
       lightMode
     );
-    const a = previous.uniforms, b = next.uniforms;
-    for (const k in b) {
-      if (!(k in a)) continue;
-      const av = a[k].value, bv = b[k].value;
-      if (av && av.copy && bv && bv.copy) bv.copy(av);
-      else b[k].value = a[k].value;
-    }
+    const copyLiveUniforms = () => {
+      const a = previous.uniforms, b = next.uniforms;
+      for (const k in b) {
+        if (!(k in a)) continue;
+        const av = a[k].value, bv = b[k].value;
+        if (av && av.copy && bv && bv.copy) bv.copy(av);
+        else b[k].value = a[k].value;
+      }
+    };
+    copyLiveUniforms();
 
     if (!this._ready) {
       // First program not shown yet — swap now (nothing visible) and keep
@@ -518,6 +521,8 @@ export class CloudSlabLayer {
         next.dispose();
         return;
       }
+      // Shape/variation controls may change while the new quality program links.
+      copyLiveUniforms();
       this.mesh.material = next;
       this.material = next;
       this._applyOccupancyUniforms();

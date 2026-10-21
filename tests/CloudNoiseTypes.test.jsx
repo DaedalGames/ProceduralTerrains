@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import CloudPanel from '../src/components/ui/CloudPanel.jsx';
 import { CLOUD_DEFAULT_PARAMS, CLOUD_NOISE_TYPES, normalizeCloudFormation, resolveCloudNoiseType } from '../src/engine/sky/CloudSettings.js';
@@ -60,4 +60,27 @@ describe('cloud noise types', () => {
     expect(patterns[2]).not.toEqual(patterns[0]);
     for (const value of patterns.flat()) { expect(value).toBeGreaterThanOrEqual(0); expect(value).toBeLessThanOrEqual(1); }
   });
+  it.each([CloudSlabLayer, PlanetCloudLayer])('retains the newest noise variation while %s prepares a quality shader', async (Layer) => {
+    const layer = new Layer(new THREE.Scene());
+    const apply = (params, perf) => Layer === PlanetCloudLayer
+      ? layer.applyParams(params, 16000, perf) : layer.applyParams(params, 100, 1024, perf);
+    const perf = { cloudLightMode: 1 };
+    const params = { ...CLOUD_DEFAULT_PARAMS, cloudsEnabled: true };
+    apply(params, perf);
+    const previous = layer.material;
+    let finish;
+    layer._compile = () => new Promise(resolve => { finish = resolve; });
+    layer._rebuildMaterial(16, 6, 5, 4, true, 1);
+    apply({ ...params, cloudNoiseSeed: 21, cloudNoiseVariant: 'wispy', cloudCoverage: 0.72 },
+      { ...perf, cloudSteps: 16 });
+    const latestOffset = previous.uniforms.uCloudVariationOffset.value.clone();
+    finish({ ready: true });
+    await vi.waitFor(() => expect(layer.material).not.toBe(previous));
+    try {
+      expect(layer.material.uniforms.uCloudNoiseType.value).toBe(2);
+      expect(layer.material.uniforms.uCloudVariationOffset.value.equals(latestOffset)).toBe(true);
+      expect(layer.material.uniforms.uCloudCoverage.value).toBe(0.72);
+    } finally { layer.dispose(); }
+  });
+
 });

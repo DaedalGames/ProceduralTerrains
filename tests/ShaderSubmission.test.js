@@ -93,4 +93,16 @@ describe('scheduled shader submission', () => {
     expect(engine.renderer.compile).toHaveBeenCalledTimes(1);
     expect(jobs).toHaveLength(0);
   });
+  it('keeps a pending compilation retryable without reporting a failed health check', async () => {
+    const { engine, jobs } = harness();
+    engine._waitForMaterialsReady.mockResolvedValue({ ready: false, timedOut: true, pendingCount: 1 });
+    const task = engine._compileMaterialVariants([new THREE.ShaderMaterial()], { canvasOnly: true });
+    jobs.shift()();
+    const result = await task;
+    expect(result).toMatchObject({ ready: false, timedOut: true, pendingCount: 1 });
+    expect(result.error).toBeUndefined();
+    expect(engine._validateCompiledPrograms).not.toHaveBeenCalled();
+    expect(jobs).toHaveLength(0);
+  });
+
 });

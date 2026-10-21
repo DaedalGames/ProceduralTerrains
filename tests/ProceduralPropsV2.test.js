@@ -14,6 +14,7 @@ import {
 } from '../src/engine/props/ProceduralPropsManager.js';
 import { macroDensity, shouldPlaceType } from '../src/engine/props/PropPlacement.js';
 import { getPropType, PROP_TYPES, scoreProp } from '../src/engine/props/propCatalog.js';
+import { makeRockGeometry, makeFlowerGeometry } from '../src/engine/props/PropModels.js';
 import { createPropAsset } from '../src/engine/props/PropAssetLibrary.js';
 
 function sampleAt(x = 0, z = 0, patch = {}) {
@@ -455,5 +456,20 @@ describe('optimized prop performance architecture', () => {
       propsTreeScale: DEFAULT_PARAMS.propsTreeScale,
     });
     manager.dispose();
+  });
+});
+
+
+describe('non-indexed faceted props', () => {
+  it('creates rocks and flowers without redundant conversion warnings', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const geometries = [makeRockGeometry(), makeRockGeometry({ far: true }), makeFlowerGeometry()];
+    try {
+      for (const geometry of geometries) expect(geometry.getAttribute('position').count).toBeGreaterThan(0);
+      expect(warn.mock.calls.flat().some(message => String(message).includes('already non-indexed'))).toBe(false);
+    } finally {
+      geometries.forEach(geometry => geometry.dispose());
+      warn.mockRestore();
+    }
   });
 });

@@ -46,7 +46,7 @@ const edits = {
   waterOpacity: 0.37, waterWaveStrength: 0.23, waterDioramaReflectionStrength: 0.62,
   noiseScale: 23, ridge: 0.27, octaves: 4, terrainSmoothing: 0.45,
   falloff: 0.35, edgeFalloffMode: 'island',
-  cloudCoverage: 0.43, cloudAltitude: 701,
+  cloudCoverage: 0.43, cloudAltitude: 701, cloudRenderMode: 'legacy',
   propsDensity: 0.71, propsTreeScale: 3.2,
 };
 

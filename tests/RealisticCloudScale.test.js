@@ -60,7 +60,7 @@ it('preserves the default realistic cloud appearance and size across board sprea
     const baseline = frequencies(layer);
     expect(baseline[0]).toBeCloseTo(1 / (Math.sqrt(620 * 1024 * 0.3) * 1.6), 10);
     expect(baseline[2]).toBeCloseTo(0.33 / (620 * 3.2), 10);
-    expect(layer._weatherScale).toBeCloseTo(3.2 / (1024 * 34), 10);
+    expect(layer._weatherScale).toBeCloseTo(2 / 1024, 10);
     layer.applyParams(CLOUD_DEFAULT_PARAMS, 100, 1024, {}, { radius: 256 });
     expect(frequencies(layer)).toEqual(baseline);
     expect(layer.material.uniforms.uCloudRadius.value).toBe(256);

@@ -214,14 +214,15 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
     u.uCloudShear.value = param(params, 'cloudShear') * thickness * 2.2;
     this._baseSteps = applySharedParams(u, params, config, q);
 
-    // Keep the broad weather at the default scale. Above it, bring weather
-    // variation into board-sized distances too: the old /34 mapping stayed
-    // nearly constant over a mini terrain even at 10, joining fine billows
-    // into a single oversized mass. The 3D frequencies above keep the smaller
-    // weather patches volumetric rather than simply extruding their outlines.
+    // Bound weather detail to the visible board instead of sampling one
+    // nearly constant weather value across an entire Tile or Mini.
     const systemScale = param(params, 'cloudSystemScale');
     const weatherFrequency = Math.max(1, systemScale / CLOUD_DEFAULT_PARAMS.cloudSystemScale);
-    this._weatherScale = systemScale * weatherFrequency * weatherFrequency / (board * 34.0);
+    // A bounded board must sample several weather cells. The former /34
+    // baseline could put its entire disc in one clear cell for a variation seed.
+    const minimumWeatherFrequency = 2.0 * systemScale / CLOUD_DEFAULT_PARAMS.cloudSystemScale;
+    this._weatherScale = Math.max(systemScale * weatherFrequency * weatherFrequency / 34.0,
+      minimumWeatherFrequency) / board;
     this._seed.copy(seedOffset(params.seed ?? 0)).add(u.uCloudVariationOffset.value);
     this._windowHalf = radius * 1.3 + u.uCloudShear.value;
 

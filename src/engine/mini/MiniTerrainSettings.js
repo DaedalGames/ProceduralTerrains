@@ -106,7 +106,7 @@ export const MINI_RECIPES = Object.freeze({
     cutStyle: 'strata',
     water: 'tropical',
     vegetation: 0.7,
-    clouds: 0,
+    clouds: 0.75,
     climate: null,
   }),
   cove: Object.freeze({
@@ -126,7 +126,7 @@ export const MINI_RECIPES = Object.freeze({
     cutStyle: 'strata',
     water: 'tropical',
     vegetation: 0.75,
-    clouds: 0,
+    clouds: 0.75,
     climate: { tempBias: 0.42, moistBias: 0.3 },
   }),
   islet: Object.freeze({
@@ -144,7 +144,7 @@ export const MINI_RECIPES = Object.freeze({
     cutStyle: 'soil',
     water: 'tropical',
     vegetation: 0.9,
-    clouds: 0,
+    clouds: 0.75,
     climate: { tempBias: 0.45, moistBias: 0.38 },
   }),
   lake: Object.freeze({
@@ -162,7 +162,7 @@ export const MINI_RECIPES = Object.freeze({
     cutStyle: 'dark',
     water: 'lake',
     vegetation: 0.6,
-    clouds: 0,
+    clouds: 0.75,
     climate: { tempBias: 0.32, moistBias: 0.25 },
   }),
 });

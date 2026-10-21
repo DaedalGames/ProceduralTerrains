@@ -348,7 +348,7 @@ export default function ProjectLibrary({
           })}
         </div>
       )}
-      <input ref={fileInputRef} type="file" accept="application/json" hidden onChange={(event) => { onImportFile(event.target.files?.[0]); event.target.value = ''; }} />
+      <input ref={fileInputRef} type="file" accept=".ptrterrain,.json,application/json" hidden onChange={(event) => { onImportFile(event.target.files?.[0]); event.target.value = ''; }} />
     </section>
   );
 }

@@ -60,7 +60,7 @@ float waterTerrainHeightAt(vec2 xz) {
   float h = 0.0;
   if (bakedWeight < 1.0) h = heightAt(xz);
   if (bakedWeight > 0.0) {
-    float hBaked;
+    float hBaked = 0.0;
 #ifdef TERRAIN_NEAR_BAKE
     if (nearWeight > 0.0) {
       float hNear = textureLod(uNearBakeTex, nearBakedUvAt(xz), 0.0).a * uHeightScale;
@@ -84,8 +84,10 @@ float waterTerrainHeightAt(vec2 xz) {
 // units, far wider than a bake texel, so they use the bake whenever it is
 // published and fall back to the live field otherwise.
 float waterTerrainKernelHeightAt(vec2 xz) {
-  if (uUseWaterTerrainBiomeTex > 0.5) return waterBakedHeightAt(xz);
-  return heightAt(xz);
+  float height = 0.0;
+  if (uUseWaterTerrainBiomeTex > 0.5) height = waterBakedHeightAt(xz);
+  else height = heightAt(xz);
+  return height;
 }
 `,
   };

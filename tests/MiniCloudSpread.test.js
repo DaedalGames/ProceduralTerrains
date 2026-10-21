@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createMiniTerrainState, normalizeMiniTerrainState, resolveMiniCloudLayout, resolveMiniLayout } from '../src/engine/mini/MiniTerrainSettings.js';
+import { createMiniTerrainState, miniParamsPatch, normalizeMiniTerrainState, resolveMiniCloudLayout, resolveMiniLayout } from '../src/engine/mini/MiniTerrainSettings.js';
 import { MiniTerrainController } from '../src/engine/mini/MiniTerrainController.js';
 import { CloudSlabLayer } from '../src/engine/sky/CloudSlabLayer.js';
 import { CLOUD_DEFAULT_PARAMS } from '../src/engine/sky/CloudSettings.js';
@@ -42,4 +42,16 @@ describe('Mini cloud spread', () => {
     expect(layer.mesh.scale.x).toBeCloseTo(256 * 2.1);
     layer.dispose();
   });
+  it.each(['procedural', 'cove', 'islet', 'lake'])('enables clouds in a newly created %s Mini', (recipe) => {
+    const state = createMiniTerrainState({ recipe });
+    expect(state.clouds).toBeGreaterThan(0.04);
+    expect(miniParamsPatch(state).cloudsEnabled).toBe(true);
+  });
+
+  it('preserves explicitly disabled clouds in an existing Mini document', () => {
+    const saved = { ...createMiniTerrainState(), clouds: 0 };
+    expect(normalizeMiniTerrainState(JSON.parse(JSON.stringify(saved))).clouds).toBe(0);
+    expect(miniParamsPatch(saved).cloudsEnabled).toBe(false);
+  });
+
 });

@@ -101,7 +101,7 @@ export function cloudCoverageAt(x, y, z, f) {
   let base = fbmBase(px, py, pz, f.octaves);
   if (f.noiseType === 2) {
     const fibers = vnoise(px * 0.65 + 19.7, py * 2.4 + 19.7, pz * 1.6 + 19.7);
-    base -= 0.10 * smoothstep(0.25, 0.75, fibers);
+    base += 0.04 - 0.08 * smoothstep(0.25, 0.75, fibers);
   } else if (f.noiseType === 1) {
     const billows = 0.67 - Math.abs(vnoise(px * 1.5 + 13.7, py * 1.5 + 13.7, pz * 1.5 + 13.7) - 0.5) * 1.4;
     base = base * 0.35 + billows * 0.65;

@@ -339,19 +339,24 @@ export class PlanetCloudLayer {
       : null;
     const next = createCloudMaterial(steps, lightSteps, octaves, detailOctaves, useErosion, lightMode);
     // carry over current uniform values
-    const a = previous.uniforms, b = next.uniforms;
-    for (const k in b) {
-      if (!(k in a)) continue;
-      const av = a[k].value, bv = b[k].value;
-      if (av && av.copy && bv && bv.copy) bv.copy(av);
-      else b[k].value = a[k].value;
-    }
+    const copyLiveUniforms = () => {
+      const a = previous.uniforms, b = next.uniforms;
+      for (const k in b) {
+        if (!(k in a)) continue;
+        const av = a[k].value, bv = b[k].value;
+        if (av && av.copy && bv && bv.copy) bv.copy(av);
+        else b[k].value = a[k].value;
+      }
+    };
+    copyLiveUniforms();
     const { token, promise } = this._compileMaterial(next);
     promise.then(() => {
       if (token !== this._compileToken || this.material !== previous) {
         next.dispose();
         return;
       }
+      // Shape/variation controls may change while the new quality program links.
+      copyLiveUniforms();
       this.mesh.material = next;
       this.material = next;
       this._applyOccupancyUniforms();
