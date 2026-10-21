@@ -316,11 +316,14 @@ uniform float uUseTerrainBiomeTex;
 
 Climate terrainStudioClimateAt(vec2 xz) {
   vec2 p = xz * uFrequency + uSeedOffset;
+  Climate result = Climate(0.0, 0.0, 0.0, 0.0, 0.0);
   if (uUseTerrainBiomeTex > 0.5) {
     vec4 baked = textureLod(uTerrainBiomeTex, bakedUvAt(xz), 0.0);
-    return Climate(baked.r, baked.g, baked.b, baked.a, fbm3(p * 0.700 + vec2(631.4, 199.2)));
+    result = Climate(baked.r, baked.g, baked.b, baked.a, fbm3(p * 0.700 + vec2(631.4, 199.2)));
+  } else {
+    result = climateAt(p);
   }
-  return climateAt(p);
+  return result;
 }
 `;
 export const CLIMATE_CACHE_BLOCK = `#define TERRAIN_CLIMATE_CACHE 1\n${STUDIO_CLIMATE_CACHE_GLSL}`;

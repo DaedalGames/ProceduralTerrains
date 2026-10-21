@@ -7,8 +7,9 @@ import { ArrowRight, Box, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, 
 import { FaDiscord, FaGithub, FaXTwitter } from 'react-icons/fa6';
 import { SiKofi } from 'react-icons/si';
 import { APP_NAME, APP_VERSION, AUTHOR_PORTFOLIO_URL, AUTHOR_X_URL, CURSOR_PACK_AUTHOR, CURSOR_PACK_URL, GITHUB_REPO_URL } from '../constants/app.js';
-import { projectStore, projectSyncStore, normalizeProject } from '../project/ProjectStore.js';
+import { projectStore, projectSyncStore } from '../project/ProjectStore.js';
 import { projectApi } from '../project/projectApi.js';
+import { decodePortableProject } from '../project/PortableProject.js';
 import { buildUnifiedProjectIndex } from '../project/projectSync.js';
 import { PROJECT_TEMPLATES, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
 import { NODE_PROJECT_TEMPLATES, getNodeProjectTemplate, nodeTemplatePreviewCacheKey } from '../project/NodeProjectTemplates.js';
@@ -360,18 +361,18 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
     setCreateOpen(false);
     openTemplates(editorMode);
   };
-  const importProjectFile = (file, { openAfter } = {}) => {
+  const importProjectFile = async (file, { openAfter } = {}) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const raw = JSON.parse(reader.result);
-        const project = await projectStore.save(normalizeProject(raw.terrain ? raw : { terrain: raw, metadata: { name: file.name.replace(/\.json$/i, '') } }));
-        setSelectedProjectId(project.id);
-        if (openAfter) open(project);
-      } catch { /* invalid files leave the workspace untouched */ }
-    };
-    reader.readAsText(file);
+    try {
+      const imported = await decodePortableProject(await file.arrayBuffer(), {
+        legacyName: file.name.replace(/\.(?:json|ptrterrain)$/i, ''),
+      });
+      const project = await projectStore.save(imported);
+      setSelectedProjectId(project.id);
+      if (openAfter) open(project);
+    } catch (error) {
+      showPopup(error instanceof Error ? error.message : 'Could not parse project file.', { type: 'error' });
+    }
   };
   const hasFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
   const onFileDragEnter = (e) => {

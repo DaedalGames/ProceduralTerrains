@@ -2904,6 +2904,7 @@ export class Engine {
     }
     if (this.mini?.state) {
       Object.assign(this.params, this.mini.paramsPatch('all'));
+      this.params.cloudRenderMode = 'realistic';
       this.planetStyle.setStyle(miniStylePatch(this.mini.state.recipe, this.mini.state.preset));
     }
 
@@ -5771,6 +5772,12 @@ export class Engine {
         asyncWaitMs,
       };
     }
+    // A pending driver program has not reached the health check yet. Preserve
+    // the timeout result so callers can keep their fallback and retry readiness.
+    if (!canvasResult.ready) {
+      return { ...canvasResult, materialCount: list.length, syncCompileMs,
+        rendererCompileMs, asyncWaitMs };
+    }
     const validationStartedAt = performance.now();
     const canvasHealth = canvasResult.ready
       ? await this._validateCompiledPrograms(list, group, renderTarget, camera, { isCurrent })
@@ -6169,7 +6176,7 @@ export class Engine {
         await yieldTask();
         if (!current()) return false;
         const result = await this._compileCameraTargetMaterials(mats, {
-          timeoutMs: 20000, stagger: mats.length > 1, isCurrent: current,
+          timeoutMs: 120000, stagger: mats.length > 1, isCurrent: current,
         });
         if (!current() || result?.aborted) return false;
         this._recordWaterShaderCompile('mode-switch', result);
@@ -6181,7 +6188,7 @@ export class Engine {
           // Readiness after a timeout still needs the same offscreen validation.
           if (ready && current()) {
             const checked = await this._compileCameraTargetMaterials(mats, {
-              timeoutMs: 20000, isCurrent: current,
+              timeoutMs: 120000, isCurrent: current,
             });
             ready = checked?.ready === true;
           }
@@ -7894,7 +7901,7 @@ export class Engine {
         compileResult = await this._compileMaterialVariants(materials, {
           canvasOnly: true,
           stagger: materials.length > 1,
-          timeoutMs: 20000,
+          timeoutMs: 120000,
           renderTarget: targetSnapshot.renderTarget,
         });
         this._recordWaterShaderCompile('deferred-startup', compileResult);

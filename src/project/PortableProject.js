@@ -18,9 +18,14 @@ export async function encodePortableProject(project,{readBlob=getSurfaceBlob}={}
   }
   return zipSync(files,{level:6});
 }
-export async function decodePortableProject(input,{writeBlob=putSurfaceBlob}={}) {
+export async function decodePortableProject(input,{writeBlob=putSurfaceBlob,legacyName}={}) {
   const bytes=input instanceof Uint8Array?input:new Uint8Array(input);
-  if(bytes[0]!==80||bytes[1]!==75)return readEditableProjectDocument(JSON.parse(strFromU8(bytes)),{legacy:true});
+  if(bytes[0]!==80||bytes[1]!==75) {
+    const raw=JSON.parse(strFromU8(bytes));
+    const legacy=legacyName && raw && typeof raw==='object' && !raw.terrain
+      ? {terrain:raw,metadata:{name:legacyName}} : raw;
+    return readEditableProjectDocument(legacy,{legacy:true});
+  }
   // Never extract archive paths to disk; only declared content-addressed files are read.
   const entries=unzipSync(bytes);
   if(!entries['project.json'])throw new Error('Portable project.json missing');

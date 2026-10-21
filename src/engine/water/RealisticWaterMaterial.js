@@ -103,12 +103,15 @@ const buildFragmentSource = (stackGLSL, infinite = false) => {
 vec4 waterBiomeClimateAt(vec2 xz) {
   float available = 0.0;
   vec4 field = infiniteFieldSampleAt(xz, available);
+  vec4 result = vec4(0.0);
   if (available > 0.5) {
     float region = fbm3((xz * uFrequency + uSeedOffset) * 0.700 + vec2(631.4, 199.2));
-    return vec4(field.g, field.b, field.a, region);
+    result = vec4(field.g, field.b, field.a, region);
+  } else {
+    Climate climate = climateAt(xz * uFrequency + uSeedOffset);
+    result = vec4(climate.temp, climate.moist, climate.cont, climate.region);
   }
-  Climate climate = climateAt(xz * uFrequency + uSeedOffset);
-  return vec4(climate.temp, climate.moist, climate.cont, climate.region);
+  return result;
 }
 
 float waterBiomeClimateAvailable() {
@@ -117,14 +120,17 @@ float waterBiomeClimateAvailable() {
 `
     : /* glsl */ `
 vec4 waterBiomeClimateAt(vec2 xz) {
+  vec4 result = vec4(0.0);
   if (uUseWaterTerrainBiomeTex > 0.5) {
     // the bake holds temp, moist, cont, erosion; region jitter is evaluated live
     vec4 baked = textureLod(uWaterTerrainBiomeTex, waterBakedUvAt(xz), 0.0);
     float region = fbm3((xz * uFrequency + uSeedOffset) * 0.700 + vec2(631.4, 199.2));
-    return vec4(baked.r, baked.g, baked.b, region);
+    result = vec4(baked.r, baked.g, baked.b, region);
+  } else {
+    Climate climate = climateAt(xz * uFrequency + uSeedOffset);
+    result = vec4(climate.temp, climate.moist, climate.cont, climate.region);
   }
-  Climate climate = climateAt(xz * uFrequency + uSeedOffset);
-  return vec4(climate.temp, climate.moist, climate.cont, climate.region);
+  return result;
 }
 
 float waterBiomeClimateAvailable() {

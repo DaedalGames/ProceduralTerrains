@@ -204,8 +204,8 @@ export function makeRockGeometry({ far = false } = {}) {
     const warp = 0.82 + 0.16 * Math.sin(x * 3.1 + z * 2.3) + 0.1 * Math.cos(y * 4.2 - x * 1.7);
     pos.setXYZ(i, x * warp, Math.max(-0.3, y * 0.7 * warp) + 0.3, z * warp * 0.92);
   }
-  const flat = geo.toNonIndexed();
-  geo.dispose();
+  const flat = geo.index ? geo.toNonIndexed() : geo;
+  if (flat !== geo) geo.dispose();
   flat.computeVertexNormals();   // faceted
   b.add(flat, {
     tintMix: 1,
@@ -268,8 +268,8 @@ export function makeFlowerGeometry() {
     const head = new THREE.IcosahedronGeometry(0.085 + rand() * 0.04, 0);
     head.scale(1, 0.6, 1);
     head.translate(Math.cos(a) * r, y, Math.sin(a) * r);
-    const flat = head.toNonIndexed();
-    head.dispose();
+    const flat = head.index ? head.toNonIndexed() : head;
+    if (flat !== head) head.dispose();
     flat.computeVertexNormals();
     b.add(flat, { tintMix: 1, shade: () => 1, bend: () => 1 });
     const stem = new THREE.CylinderGeometry(0.008, 0.012, y, 3, 1, true);
