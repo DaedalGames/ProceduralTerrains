@@ -7,6 +7,7 @@ import { SliderCtl, ToggleRow, SelectRow } from '../controls.jsx';
 import { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './panelMeta.js';
 export { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './panelMeta.js';
 import MarkersPanel from './MarkersPanel.jsx';
+import MiniTerrainPanel from './MiniTerrainPanel.jsx';
 import ImportMapsContent from '../ui/ImportMapsContent.jsx';
 import CollapsibleGroup from '../ui/CollapsibleGroup.jsx';
 import ControlSection from '../ui/ControlSection.jsx';
@@ -37,6 +38,7 @@ import SplinesPanel from './SplinesPanel.jsx';
 import { AnalysisContent } from './AnalysisPanel.jsx';
 import HistoryPanel from './HistoryPanel.jsx';
 import { useLiveMetrics } from '../../state/LiveMetricsStore.js';
+import TerrainCodeSnippet from '../ui/TerrainCodeSnippet.jsx';
 
 // ---------------------------------------------------------------- helpers
 function SeedRow({ seed, onParam, onRandomizeSeed }) {
@@ -54,7 +56,7 @@ function SeedRow({ seed, onParam, onRandomizeSeed }) {
         <span className="setting-label">{translateText("Seed")}</span><InfoDot />
       </div>
       <div className="seed-input-wrap">
-        <input type="text" spellCheck="false" value={text}
+        <input type="text" aria-label={translateText("Seed")} spellCheck="false" value={text}
           onChange={(e) => setText(e.target.value)} onBlur={commit}
           onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
         <button type="button" className="icon-btn" title={translateText("Randomize seed")} onClick={onRandomizeSeed}>
@@ -400,6 +402,7 @@ function WaterPanel({ ctx }) {
         onParam={ctx.onParam}
         worldMode={ctx.worldMode}
         perf={ctx.perf}
+        miniActive={!!ctx.miniTerrain}
         perfStats={stats}
         gpu={ctx.gpu}
         onPerfSetting={ctx.onPerfSetting}
@@ -421,6 +424,7 @@ const PROP_SLIDERS = {
   propsRocks: { label: 'Rock Density', min: 0, max: 2, step: 0.05, digits: 2 },
   propsRockScale: { label: 'Rock Scale', min: 0.05, max: 2.5, step: 0.05, digits: 2 },
   propsTreeDensity: { label: 'Tree Density', min: 0, max: 2, step: 0.05, digits: 2 },
+  propsForest: { label: 'Forest Coverage', min: 0, max: 1, step: 0.01, digits: 2, info: 'Turns scattered groves into continuous woodland (clearings stay where the terrain asks for them).' },
   propsTreeScale: { label: 'Tree Scale', min: 0.25, max: 2.5, step: 0.05, digits: 2 },
   propsWind: { label: 'Wind', min: 0, max: 1.5, step: 0.05, digits: 2 },
   propsWindSpeed: { label: 'Animation Speed', min: 0, max: 4, step: 0.05, digits: 2 },
@@ -459,6 +463,7 @@ function PropsPanel({ ctx }) {
             <SliderCtl def={PROP_SLIDERS.propsFlowers} value={params.propsFlowers} onChange={(v) => onParam('propsFlowers', v)} />
             <SliderCtl def={PROP_SLIDERS.propsRocks} value={params.propsRocks ?? 0.8} onChange={(v) => onParam('propsRocks', v)} />
             <SliderCtl def={PROP_SLIDERS.propsTreeDensity} value={params.propsTreeDensity ?? 0.65} onChange={(v) => onParam('propsTreeDensity', v)} />
+            <SliderCtl def={PROP_SLIDERS.propsForest} value={params.propsForest ?? 0} onChange={(v) => onParam('propsForest', v)} settingId="props.propsForest" />
           </ControlSection>
 
           <ControlSection id="props-look" title={translateText("Look")} defaultOpen settingId="props.section.look">
@@ -548,7 +553,7 @@ function SkyboxPanel({ ctx }) {
     <SidePanel title={translateText("Skybox")} description={translateText("Sky environment, time of day and atmosphere.")} onClose={ctx.onClose}>
       <ToggleRow label={translateText("Procedural Sky")} value={enabled} onChange={(v) => onParam('skyboxEnabled', v)}
         settingId="skybox.skyboxEnabled"
-        info={translateText("Surround the scene with the procedural sky dome (Tile + Infinite World). When off, a flat backdrop and the manual Lighting sun angles are used.")} />
+        info={translateText("Surround the scene with the procedural sky dome (Tile, Mini + Infinite World). When off, a flat backdrop and the manual Lighting sun angles are used.")} />
 
       <ControlSection id="skybox-time" title={translateText("Time of Day")} defaultOpen settingId="skybox.section.time">
         <TimeOfDayControl timeOfDay={ctx.timeOfDay} onTimeOfDay={ctx.onTimeOfDay} settingId="skybox.timeOfDay" />
@@ -558,7 +563,7 @@ function SkyboxPanel({ ctx }) {
           info={translateText("Animate the time of day while the procedural sky is active.")} />
         <SliderCtl def={SKYBOX_SLIDERS.skyboxCycleSpeed} value={params.skyboxCycleSpeed ?? 1}
           onChange={(v) => onParam('skyboxCycleSpeed', v)} settingId="skybox.skyboxCycleSpeed" />
-        <p className="section-hint">{translateText("Drives the sky colours, sun position and atmosphere. Shared across the Tile view and the Infinite World.")}</p>
+        <p className="section-hint">{translateText("Drives the sky colours, sun position and atmosphere. Shared across Tile, Mini and Infinite World.")}</p>
       </ControlSection>
 
       {enabled && (
@@ -588,6 +593,7 @@ function LightingPanel({ ctx }) {
         <p className="section-hint">{translateText("Time of day and the sky environment are configured in the ")}<strong>{translateText("Skybox")}</strong>{translateText(" tab. While the procedural sky is on, it drives the sun direction and atmosphere. Turn it off to use the manual lighting palette below.")}</p>
       )}
       <EnvironmentPanelInner params={params} planetStyle={params.planetStyle}
+        miniActive={!!ctx.miniTerrain}
         onParam={ctx.onParam} onTuning={ctx.onStyleTuning} settingsTarget={ctx.settingsTarget} />
       <PanelResetButton label={translateText("Reset Lighting Settings")} onClick={() => ctx.onResetPanel?.('lighting')} settingId="lighting.reset" />
     </SidePanel>
@@ -610,6 +616,7 @@ function PerformancePanel({ ctx }) {
     <SidePanel title={translateText("Performance")} description={translateText("GPU, water, fog and cloud budgets.")} onClose={ctx.onClose}>
       <PerformanceStats stats={stats} gpu={ctx.gpu} />
       <PerfSettings perf={ctx.perf} rendererInfo={ctx.rendererInfo} onPerfPreset={ctx.onPerfPreset}
+        miniActive={!!ctx.miniTerrain}
         onPerfSetting={ctx.onPerfSetting} onPerfReset={ctx.onPerfReset}
         settingsTarget={ctx.settingsTarget}
         onSettingsTargetHandled={ctx.onSettingsTargetHandled} />
@@ -903,7 +910,7 @@ const COLL_OPTIONS = [
   { value: '128', label: '128 × 128 (Recommended)' }, { value: '256', label: '256 × 256' },
 ];
 
-function ExportPanel({ ctx }) {
+export function ExportPanel({ ctx }) {
   useLanguage();
   const [opt, setOpt] = useState({
     exportPresetId: 'custom', packageRoot: null, packagePaths: null, heightmapRawPath: null,
@@ -911,10 +918,11 @@ function ExportPanel({ ctx }) {
     format: 'glb', meshRes: '512', includeMesh: true, includeSkirts: true, includeBase: true,
     bakeColor: true, texRes: '2048', bakeLighting: false, bakeNormal: true,
     exportHeightmap: false, exportSplat: false, exportCollision: false, collisionRes: '128',
-    exportWater: false, exportPreset: true,
+    // a Mini diorama is exported whole: its water block is part of the piece
+    exportWater: !!ctx.miniTerrain, exportPreset: true,
     exportWaterMask: false, exportDepthMap: false, exportShorelineMask: false, exportFoamMask: false,
     excludeWaterFromExport: false, exportWaterMetadata: false,
-    exportTileMode: 'merged', exportSplineMasks: false,
+    exportTileMode: 'merged', exportSplineMasks: false, exportCode: false,
   });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setOpt((p) => ({ ...p, [k]: v }));
@@ -954,6 +962,10 @@ function ExportPanel({ ctx }) {
         <button type="button" className="action-btn" onClick={ctx.onExportHeightmap} disabled={busy}>{translateText("Heightmap")}</button>
       </div>
 
+      <ControlSection id="export-use-in-code" title={translateText('Use in code')} defaultOpen={false} settingId="export.section.code">
+        <TerrainCodeSnippet generateCode={ctx.onTerrainCodeSnippet} revision={ctx.terrainCodeRevision} />
+      </ControlSection>
+
       <ControlSection id="export-production-preset" title={translateText("Production Preset")} defaultOpen settingId="export.section.productionPreset">
         <SelectRow label={translateText("Target")} value={opt.exportPresetId} options={EXPORT_PRESET_OPTIONS} onChange={applyPreset} />
         <div className="settings-hint">
@@ -985,6 +997,8 @@ function ExportPanel({ ctx }) {
       )}
 
       <ControlSection id="export-format" title={translateText("Format & Resolution")} defaultOpen settingId="export.section.format">
+        <ToggleRow label={translateText("Include Terrain Code (npm)")} value={opt.exportCode} onChange={(v) => set('exportCode', v)} />
+        {opt.exportCode && <div className="settings-hint">{translateText("Adds JavaScript, a runtime document and a Three.js example in the ZIP’s code folder. Some studio features require manual integration.")} <a href="#/docs/code-export" target="_blank" rel="noopener noreferrer">{translateText("Documentation")}</a></div>}
         <SelectRow label={translateText("Format")} value={opt.format} options={FORMAT_OPTIONS} onChange={(v) => set('format', v)} />
         <ToggleRow label={translateText("Include Terrain Mesh")} value={opt.includeMesh} onChange={(v) => set('includeMesh', v)} />
         {opt.includeMesh && (
@@ -1021,7 +1035,12 @@ function ExportPanel({ ctx }) {
         {opt.exportCollision && (
           <SelectRow label={translateText("Collision Resolution")} value={opt.collisionRes} options={COLL_OPTIONS} onChange={(v) => set('collisionRes', v)} />
         )}
-        <ToggleRow label={translateText("Include Water Plane")} value={opt.exportWater} onChange={(v) => set('exportWater', v)} />
+        <ToggleRow
+          label={translateText(ctx.miniTerrain ? 'Include Water Block' : 'Include Water Plane')}
+          value={opt.exportWater}
+          onChange={(v) => set('exportWater', v)}
+          info={ctx.miniTerrain ? translateText('Exports the diorama water as a volume: the surface plus its cut faces, with a glass-like transmission material (glTF).') : undefined}
+        />
         {ctx.worldMode === 'studio' && <ToggleRow label={translateText("Export Spline Masks")} value={opt.exportSplineMasks} onChange={(v) => set('exportSplineMasks', v)} />}
         {opt.exportWater && (
           <ToggleRow label={translateText("Exclude Water from Export")} value={opt.excludeWaterFromExport} onChange={(v) => set('excludeWaterFromExport', v)} />
@@ -1105,6 +1124,7 @@ function NoiseLayersPanelWrapper({ ctx }) {
 }
 
 const COMPONENTS = {
+  mini: MiniTerrainPanel,
   markers: MarkersPanel,
   terrain: TerrainPanel, explode: ExplodePanel, noiseLayers: NoiseLayersPanelWrapper, world: WorldPanel, planet: PlanetPanel, biomes: BiomesPanel,
   water: WaterPanel, props: PropsPanel, clouds: CloudsPanel, visuals: VisualsPanel, skybox: SkyboxPanel, lighting: LightingPanel, export: ExportPanel,

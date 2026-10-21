@@ -24,6 +24,7 @@ uniform float uCloudRotation;
 uniform float uCloudTime;
 uniform float uCloudEvolve;
 uniform vec3 uCloudNoiseOffset;
+uniform vec3 uCloudVariationOffset;
 uniform vec3 uCloudDomainOrigin;
 uniform vec2 uOccCenter;
 uniform float uOccExtent;
@@ -41,9 +42,11 @@ float occShape(vec3 p) {
   vec3 drift = uCloudWind * uCloudTime;
   vec3 q = occDomain(p - uCloudDomainOrigin) * uCloudScale
     + uCloudNoiseOffset
+    + uCloudVariationOffset
     + drift
     + vec3(0.0, uCloudTime * uCloudEvolve, 0.0);
-  float base = cl_fbm_base(q);
+  q = cl_formationPoint(q);
+  float base = cl_formationBase(q, cl_fbm_base(q));
   // A generous margin replaces the old CPU dilation/boost and deliberately
   // over-estimates occupancy so the visible raymarch never clips wisps.
   float threshold = 1.0 - uCloudCoverage

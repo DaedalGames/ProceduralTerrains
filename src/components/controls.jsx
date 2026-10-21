@@ -1,5 +1,5 @@
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 export function fmt(def, v) {
   const digits = def.digits ?? 0;
@@ -8,10 +8,12 @@ export function fmt(def, v) {
 
 export function SliderCtl({ def, value, onChange, icon, info, disabled, disabledTooltip, settingId }) {
   useLanguage();
+  const labelId = useId();
   const [text, setText] = useState(fmt(def, value));
   useEffect(() => { setText(fmt(def, value)); }, [value, def]);
 
   const commitText = () => {
+    if (disabled) return;
     const v = parseFloat(text);
     if (Number.isFinite(v)) onChange(Math.min(Math.max(v, def.min), def.max));
     else setText(fmt(def, value));
@@ -30,7 +32,7 @@ export function SliderCtl({ def, value, onChange, icon, info, disabled, disabled
       <div className="ctl-top">
         <div className="label-with-icon" data-tooltip={translateText(disabled ? disabledTooltip : tooltipText)}>
           {itemIcon && <span className="setting-icon">{itemIcon}</span>}
-          <span className="setting-label">{translateText(def.label)}</span>
+          <span className="setting-label" id={labelId}>{translateText(def.label)}</span>
           {tooltipText && (
             <span className="info-icon-trigger">
               <svg viewBox="0 0 16 16" fill="none" width="10" height="10" style={{ marginLeft: '4px' }}>
@@ -42,6 +44,8 @@ export function SliderCtl({ def, value, onChange, icon, info, disabled, disabled
         </div>
         <input
           className="ctl-val"
+          aria-labelledby={labelId}
+          disabled={disabled}
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -55,6 +59,8 @@ export function SliderCtl({ def, value, onChange, icon, info, disabled, disabled
         <input
           type="range"
           className="slider-input"
+          aria-labelledby={labelId}
+          disabled={disabled}
           min={def.min}
           max={def.max}
           step={def.step}
@@ -90,6 +96,8 @@ export function ToggleRow({ label, value, onChange, icon, info, disabled, disabl
         type="button"
         className={`toggle${value ? ' on' : ''}`}
         onClick={() => onChange(!value)}
+        aria-label={translateText(label)}
+        disabled={disabled}
         aria-pressed={!!value}
       />
     </div>
@@ -116,7 +124,7 @@ export function SelectRow({ label, value, options, format, onChange, icon, info,
           </span>
         )}
       </div>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <select aria-label={translateText(label)} disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((opt) => (
           <option key={String(opt.value ?? opt)} value={opt.value ?? opt} disabled={!!opt.disabled}>
             {translateText(opt.label ?? (format ? format(opt) : String(opt)))}
@@ -128,12 +136,13 @@ export function SelectRow({ label, value, options, format, onChange, icon, info,
 }
 
 // Native color input that stays mounted while dragging in the picker.
-export function ColorInput({ value, onChange, className }) {
+export function ColorInput({ value, onChange, className, label }) {
   useLanguage();
   const commit = (e) => onChange(e.target.value);
   return (
     <input
       type="color"
+      aria-label={label ? translateText(label) : undefined}
       className={className}
       value={value}
       onInput={commit}

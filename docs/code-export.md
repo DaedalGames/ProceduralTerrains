@@ -1,0 +1,85 @@
+# Studio and code export
+
+The studio can export runnable JavaScript alongside meshes and maps. The generated code uses the public npm runtime.
+
+## Copy a snippet
+
+Open **Export → Use in code**. The snippets use the current terrain and update as its settings change. **Refresh code** also captures the current camera.
+
+- **In your scene**: paste into an application module using your own `renderer`, `scene` and `camera`. Call `renderTerrain(deltaSeconds)` each frame and `disposeTerrain()` on cleanup.
+- **Complete example**: paste into `main.js` in a Vite project. It includes the terrain document, scene, camera, controls and rendering loop, with no additional JavaScript files to download.
+
+Install `procedural-terrains`, then use the **Copy** button for either format. Conversion notes list studio features that require separate integration.
+
+## Export from the studio
+
+Open the Export panel and enable **Include Terrain Code (npm)**. The ZIP gains a `code/` folder with:
+
+| File | Purpose |
+| --- | --- |
+| `terrain.js` | The terrain document and `createExportedTerrain({ renderer, signal })` factory |
+| `terrain.json` | The same versioned runtime document as JSON |
+| `main.js` | Three.js scene, camera, controls, rendering loop and cleanup |
+| `index.html` | Standalone example page |
+| `package.json` | Vite development and production scripts |
+| `studio-project.ptrterrain` | Editable studio project, preserving the original editor state |
+| `README.md` | Installation steps and any conversion limitations |
+
+The code includes seed, supported noise or graph/manual source, palette, layout, lighting, Mini state, and enabled water/cloud layers.
+
+## Run the exported code
+
+Extract the ZIP and open a terminal in its `code/` folder:
+
+```sh
+npm install
+npm run dev
+```
+
+The generated project depends on the alpha package from npm. `npm install` installs the runtime and Three.js. For a modified local runtime, override the dependency with the archive generated in `dist/npm/`.
+
+## Integrate into your own scene
+
+```js
+import { createExportedTerrain } from './terrain.js';
+
+const terrain = await createExportedTerrain({ renderer });
+scene.add(terrain.object);
+await terrain.prepare(camera);
+```
+
+Call `terrain.update(dt, { camera })` in your loop. When effects are present, render the scene through `TerrainRenderPipeline`, as in the exported example.
+
+## Conversion scope
+
+The public runtime supports a subset of studio settings. The generated README lists detected differences. Custom PBR packs, imported imagery, painted layers, erosion/destruction deltas, splines, props, backgrounds and arbitrary tile assemblies may need manual integration. The editable project preserves the studio document; baked meshes/maps remain the visual interchange format.
+
+Mini uses its presentation state and does not include studio vegetation. Imported elevation requires an explicit heightmap or real-world provider in your application.
+
+## Runtime documents
+
+```js
+import { loadTerrainDocument } from 'procedural-terrains/documents';
+
+const document = terrain.serialize();
+const restored = await loadTerrainDocument(document, { renderer });
+scene.add(restored.object);
+await restored.prepare(camera);
+```
+
+Runtime JSON, editable studio projects, and Unity/Blender `.ptrterrain` exports have different schemas. `loadTerrainDocument` accepts the `procedural-terrains` schema, not raw studio presets or engine documents.
+
+## Mesh and map exports
+
+```js
+import { exportTerrain, zipTerrainExport } from 'procedural-terrains/export';
+
+const result = await exportTerrain(terrain, {
+  format: 'glb', meshRes: 128, texRes: 512,
+  bakeColor: true, exportHeightmap: true,
+});
+const zipBytes = zipTerrainExport(result);
+```
+
+Files are returned as byte arrays, without automatic download. For infinite worlds, add `region: { cx: 0, cz: 0, size: 1024 }`. Planet export covers six faces. Await operations before reusing GPU resources or disposing the terrain.
+

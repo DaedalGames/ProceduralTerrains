@@ -1,4 +1,5 @@
 import { buildSurfaceResources } from './SurfaceResources.js';
+import { getSurfaceBlob } from '../../../project/SurfaceAssetStore.js';
 import { getDefaultMapUrl, loadMaterialsManifest, resolveCustomMapUrl } from './SurfaceLibrary.js';
 import { MANUAL_SURFACE_ASSET_BY_ROLE } from '../../../manual/ManualSurfaceCatalog.js';
 import { SURFACE_TEXTURE_ROLES } from './SurfaceTextureRoles.js';
@@ -10,7 +11,7 @@ import { SURFACE_TEXTURE_SOURCE, normalizeSurfaceTextureSource } from './Surface
 // UI to the renderer worker. Returns two textures plus coverage metadata.
 export async function buildActiveSurfaceAtlas({ source = SURFACE_TEXTURE_SOURCE.CUSTOM, customMaps, document, signal, graph, paint } = {}) {
   const normalizedSource = normalizeSurfaceTextureSource({ surfaceTextureSource: source });
-  if (normalizedSource === SURFACE_TEXTURE_SOURCE.PBR) return buildSurfaceResources({document,signal,graph,paint});
+  if (normalizedSource === SURFACE_TEXTURE_SOURCE.PBR) return buildSurfaceResources({document,signal,graph,paint,provider:{loadUserAsset:getSurfaceBlob}});
   const manifest = await loadMaterialsManifest();
   const manifestById = Object.fromEntries((manifest.materials || []).map((material) => [material.id, material]));
   const byId = Object.fromEntries(SURFACE_TEXTURE_ROLES.map((m) => [m.id, m]));

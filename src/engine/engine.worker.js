@@ -10,7 +10,9 @@ const allowedMethods = new Set(ENGINE_METHODS);
 const cancelledRequests = new Set();
 
 function installWorkerDom(canvasFacade) {
-  const { windowTarget, documentTarget } = createWorkerDom(canvasFacade);
+  const { windowTarget, documentTarget } = createWorkerDom(canvasFacade, {
+    exitPointerLock: () => self.postMessage({ type: 'exitPointerLock' }),
+  });
   globalThis.window = Object.assign(windowTarget, {
     location: globalThis.location,
     setTimeout: globalThis.setTimeout.bind(globalThis),

@@ -129,14 +129,29 @@ export function rot3(x, y, z) {
   ];
 }
 
+// Terrain Detail cut (1 - params.terrainDetail), mirrored from the
+// uTerrainDetailCut uniform by the height samplers before a stack evaluation
+// (see TERRAIN_DETAIL_GLSL: octaveKeep / creaseAbs). 0 = full detail.
+let detailCut = 0;
+export function setNoiseDetailCut(cut) { detailCut = Number(cut) || 0; }
+function octaveKeep(i, n) {
+  const k = n - i - detailCut * (n - 1);
+  return k < 0 ? 0 : k > 1 ? 1 : k;
+}
+function creaseAbs(x) {
+  const s = detailCut * detailCut * 0.04;
+  return s > 0 ? Math.sqrt(x * x + s) - Math.sqrt(s) : Math.abs(x);
+}
+
 // ------------------------------------------------------------- 2D fractals
 export function fbm2(px, py, octaves, pers, lac, erosion = 0, warp = 0) {
   if (erosion <= 0 && warp <= 0) {
     let amp = 0.5, sum = 0, norm = 0, x = px, y = py;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      sum += amp * vnoise2(x, y);
-      norm += amp;
+      const k = octaveKeep(i, n);
+      sum += amp * k * vnoise2(x, y);
+      norm += amp * k;
       amp *= pers;
       const r = rot2(x, y); x = r[0] * lac; y = r[1] * lac;
     }
@@ -148,8 +163,9 @@ export function fbm2(px, py, octaves, pers, lac, erosion = 0, warp = 0) {
   for (let i = 0; i < n; i++) {
     const vd = vnoised2(x + dx * warp, y + dy * warp);
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy));
-    sum += amp * vd[0] * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * vd[0] * damp;
+    norm += amp * k * damp;
     dx += vd[1] * amp; dy += vd[2] * amp;
     amp *= pers;
     const r = rot2(x, y); x = r[0] * lac; y = r[1] * lac;
@@ -162,11 +178,12 @@ export function ridged2(px, py, octaves, pers, lac, sharp, erosion = 0, warp = 0
     let amp = 0.5, sum = 0, norm = 0, carry = 1, x = px, y = py;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      let v = 1 - Math.abs(vnoise2(x, y) * 2 - 1);
+      let v = 1 - creaseAbs(vnoise2(x, y) * 2 - 1);
       v = Math.pow(v, sharp);
-      sum += amp * v * carry;
+      const k = octaveKeep(i, n);
+      sum += amp * k * v * carry;
       carry = Math.max(0, Math.min(1, v * 1.4));
-      norm += amp;
+      norm += amp * k;
       amp *= pers;
       const r = rot2(x, y); x = r[0] * lac; y = r[1] * lac;
     }
@@ -178,12 +195,13 @@ export function ridged2(px, py, octaves, pers, lac, sharp, erosion = 0, warp = 0
   for (let i = 0; i < n; i++) {
     const vd = vnoised2(x + dx * warp, y + dy * warp);
     const raw = vd[0] * 2 - 1;
-    const ridge = 1 - Math.abs(raw);
+    const ridge = 1 - creaseAbs(raw);
     let v = Math.max(0, ridge);
     v = Math.pow(v, sharp);
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy));
-    sum += amp * v * carry * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * v * carry * damp;
+    norm += amp * k * damp;
     const sign = raw < 0 ? 1 : -1;
     const dscale = sign * 2 * sharp * Math.pow(Math.max(ridge, 1e-4), sharp - 1) * amp * carry;
     dx += vd[1] * dscale; dy += vd[2] * dscale;
@@ -199,8 +217,9 @@ export function billow2(px, py, octaves, pers, lac, erosion = 0, warp = 0) {
     let amp = 0.5, sum = 0, norm = 0, x = px, y = py;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      sum += amp * Math.abs(vnoise2(x, y) * 2 - 1);
-      norm += amp;
+      const k = octaveKeep(i, n);
+      sum += amp * k * creaseAbs(vnoise2(x, y) * 2 - 1);
+      norm += amp * k;
       amp *= pers;
       const r = rot2(x, y); x = r[0] * lac; y = r[1] * lac;
     }
@@ -213,8 +232,9 @@ export function billow2(px, py, octaves, pers, lac, erosion = 0, warp = 0) {
     const vd = vnoised2(x + dx * warp, y + dy * warp);
     const raw = vd[0] * 2 - 1;
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy));
-    sum += amp * Math.abs(raw) * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * creaseAbs(raw) * damp;
+    norm += amp * k * damp;
     const sign = raw < 0 ? -1 : 1;
     dx += sign * 2 * vd[1] * amp; dy += sign * 2 * vd[2] * amp;
     amp *= pers;
@@ -229,8 +249,9 @@ export function fbm3(px, py, pz, octaves, pers, lac, erosion = 0, warp = 0) {
     let amp = 0.5, sum = 0, norm = 0, x = px, y = py, z = pz;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      sum += amp * vnoise3(x, y, z);
-      norm += amp;
+      const k = octaveKeep(i, n);
+      sum += amp * k * vnoise3(x, y, z);
+      norm += amp * k;
       amp *= pers;
       const r = rot3(x, y, z); x = r[0] * lac; y = r[1] * lac; z = r[2] * lac;
     }
@@ -242,8 +263,9 @@ export function fbm3(px, py, pz, octaves, pers, lac, erosion = 0, warp = 0) {
   for (let i = 0; i < n; i++) {
     const vd = vnoised3(x + dx * warp, y + dy * warp, z + dz * warp);
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy + dz * dz));
-    sum += amp * vd[0] * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * vd[0] * damp;
+    norm += amp * k * damp;
     dx += vd[1] * amp; dy += vd[2] * amp; dz += vd[3] * amp;
     amp *= pers;
     const r = rot3(x, y, z); x = r[0] * lac; y = r[1] * lac; z = r[2] * lac;
@@ -256,11 +278,12 @@ export function ridged3(px, py, pz, octaves, pers, lac, sharp, erosion = 0, warp
     let amp = 0.5, sum = 0, norm = 0, carry = 1, x = px, y = py, z = pz;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      let v = 1 - Math.abs(vnoise3(x, y, z) * 2 - 1);
+      let v = 1 - creaseAbs(vnoise3(x, y, z) * 2 - 1);
       v = Math.pow(v, sharp);
-      sum += amp * v * carry;
+      const k = octaveKeep(i, n);
+      sum += amp * k * v * carry;
       carry = Math.max(0, Math.min(1, v * 1.4));
-      norm += amp;
+      norm += amp * k;
       amp *= pers;
       const r = rot3(x, y, z); x = r[0] * lac; y = r[1] * lac; z = r[2] * lac;
     }
@@ -272,12 +295,13 @@ export function ridged3(px, py, pz, octaves, pers, lac, sharp, erosion = 0, warp
   for (let i = 0; i < n; i++) {
     const vd = vnoised3(x + dx * warp, y + dy * warp, z + dz * warp);
     const raw = vd[0] * 2 - 1;
-    const ridge = 1 - Math.abs(raw);
+    const ridge = 1 - creaseAbs(raw);
     let v = Math.max(0, ridge);
     v = Math.pow(v, sharp);
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy + dz * dz));
-    sum += amp * v * carry * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * v * carry * damp;
+    norm += amp * k * damp;
     const sign = raw < 0 ? 1 : -1;
     const dscale = sign * 2 * sharp * Math.pow(Math.max(ridge, 1e-4), sharp - 1) * amp * carry;
     dx += vd[1] * dscale; dy += vd[2] * dscale; dz += vd[3] * dscale;
@@ -293,8 +317,9 @@ export function billow3(px, py, pz, octaves, pers, lac, erosion = 0, warp = 0) {
     let amp = 0.5, sum = 0, norm = 0, x = px, y = py, z = pz;
     const n = Math.max(1, Math.min(9, octaves | 0));
     for (let i = 0; i < n; i++) {
-      sum += amp * Math.abs(vnoise3(x, y, z) * 2 - 1);
-      norm += amp;
+      const k = octaveKeep(i, n);
+      sum += amp * k * creaseAbs(vnoise3(x, y, z) * 2 - 1);
+      norm += amp * k;
       amp *= pers;
       const r = rot3(x, y, z); x = r[0] * lac; y = r[1] * lac; z = r[2] * lac;
     }
@@ -307,8 +332,9 @@ export function billow3(px, py, pz, octaves, pers, lac, erosion = 0, warp = 0) {
     const vd = vnoised3(x + dx * warp, y + dy * warp, z + dz * warp);
     const raw = vd[0] * 2 - 1;
     const damp = 1 / (1 + Math.max(0, erosion) * 4 * (dx * dx + dy * dy + dz * dz));
-    sum += amp * Math.abs(raw) * damp;
-    norm += amp * damp;
+    const k = octaveKeep(i, n);
+    sum += amp * k * creaseAbs(raw) * damp;
+    norm += amp * k * damp;
     const sign = raw < 0 ? -1 : 1;
     dx += sign * 2 * vd[1] * amp; dy += sign * 2 * vd[2] * amp; dz += sign * 2 * vd[3] * amp;
     amp *= pers;

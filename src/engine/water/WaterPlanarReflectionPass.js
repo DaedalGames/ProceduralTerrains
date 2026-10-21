@@ -145,6 +145,7 @@ export class WaterPlanarReflectionPass {
     this._target = null;
     this._camera = null;
     this._textureMatrix = new THREE.Matrix4();
+    this._cameraPosition = new THREE.Vector3();
     this._active = false;
     this._updatedThisFrame = false;
     this._captureMs = 0;
@@ -166,12 +167,15 @@ export class WaterPlanarReflectionPass {
 
   shouldCapture(params, mode, worldMode, camera, enabled = true) {
     const seaLevel = params?.seaLevel ?? 0;
+    const cameraY = camera?.getWorldPosition
+      ? camera.getWorldPosition(this._cameraPosition).y
+      : camera?.position?.y;
     return enabled
       && !this._disposed
       && worldMode === 'studio'
       && params?.waterEnabled !== false
-      && seaLevel > 0.5
-      && camera?.position?.y > seaLevel + 0.05
+      && (params?.waterHideAtZero === false || seaLevel > 0.5)
+      && cameraY > seaLevel + 0.05
       && (params?.waterReflectionQuality ?? 1) > 1
       && isPlanarReflectionMode(mode);
   }

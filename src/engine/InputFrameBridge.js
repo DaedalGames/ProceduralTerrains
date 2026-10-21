@@ -1,3 +1,5 @@
+import { requestMouseLock } from './FirstPersonInput.js';
+
 const pointerPayload = (event) => ({
   type: event.type,
   pointerId: event.pointerId,
@@ -66,6 +68,7 @@ export class InputFrameBridge {
     this.disposed = false;
     this.listeners = [];
     this.suppressContextMenuUntil = 0;
+    this.pointerLockEnabled = false;
     this._bind();
   }
 
@@ -75,6 +78,18 @@ export class InputFrameBridge {
   }
 
   _bind() {
+    // Pointer lock needs a real browser gesture, before input reaches the worker.
+    this._listen(this.canvas, 'click', (event) => {
+      if (!this.pointerLockEnabled || event.pointerType === 'touch' || event.button !== 0) return;
+      if (document.pointerLockElement === this.canvas) return;
+      requestMouseLock(this.canvas, event);
+    });
+    this._listen(document, 'pointerlockchange', () => this._flush());
+    this._listen(document, 'mousemove', (event) => {
+      if (document.pointerLockElement !== this.canvas) return;
+      this.pointerEvents.push({ ...pointerPayload(event), type: 'mousemove' });
+      this._schedule();
+    });
     // Camera controls live inside the render worker, so their contextmenu
     // handler runs against the worker DOM shim and cannot cancel the browser's
     // native menu. Cancel it on the real canvas before forwarding input. The
@@ -161,6 +176,15 @@ export class InputFrameBridge {
     });
   }
 
+  setPointerLockEnabled(enabled) {
+    this.pointerLockEnabled = !!enabled;
+    if (!this.pointerLockEnabled) this.exitPointerLock();
+  }
+
+  exitPointerLock() {
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock?.();
+  }
+
   _flush() {
     if (this.disposed) return;
     if (this.frame) cancelAnimationFrame(this.frame);
@@ -170,6 +194,7 @@ export class InputFrameBridge {
       dragEvents: this.dragEvents.splice(0),
       keyEvents: this.keyEvents.splice(0),
       wheel: this.wheel,
+      pointerLocked: document.pointerLockElement === this.canvas,
       visible: document.visibilityState === 'visible',
     };
     this.wheel = null;
@@ -178,6 +203,7 @@ export class InputFrameBridge {
 
   dispose() {
     this.disposed = true;
+    this.exitPointerLock();
     if (this.frame) cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.suppressContextMenuUntil = 0;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bindTouchLook, requestMouseLock } from '../FirstPersonInput.js';
 import { DEFAULT_PLAYER_CONFIG } from './PlayerConfig.js';
 
 // ============================================================================
@@ -64,12 +65,13 @@ export class PlanetController {
     this.touchActive = false;
     this.mouseSensitivity = 0.0018;
 
-    this._onClick = () => { if (!this._locked) this.dom.requestPointerLock(); };
+    this._onClick = (event) => { if (!this._locked) requestMouseLock(this.dom, event); };
     this._onLockChange = () => {
       this._locked = document.pointerLockElement === this.dom;
       if (!this._locked) this._keys.clear();
     };
     this._onMouseMove = (e) => this._mouse(e);
+    this._disposeTouchLook = bindTouchLook(this.dom, this._onMouseMove);
     this._onKeyDown = (e) => { if (this._locked) this._keys.add(e.code); };
     this._onKeyUp = (e) => this._keys.delete(e.code);
     this._onWheel = (e) => {
@@ -92,6 +94,7 @@ export class PlanetController {
   }
 
   dispose() {
+    this._disposeTouchLook();
     this.dom.removeEventListener('click', this._onClick);
     this.dom.removeEventListener('wheel', this._onWheel);
     document.removeEventListener('mousemove', this._onMouseMove);
@@ -162,7 +165,7 @@ export class PlanetController {
   }
 
   _mouse(e) {
-    if (!this._locked) return;
+    if (!this._locked && e.pointerType !== 'touch') return;
     // yaw: rotate the heading around the local up
     this._q.setFromAxisAngle(this.up, -e.movementX * this.mouseSensitivity);
     this.forward.applyQuaternion(this._q).normalize();

@@ -83,7 +83,7 @@ export async function buildAndInstallSurfaceAtlas(engine, source, customMaps, {
     && (!buildKey || engine._surfaceBuildKey?.(source) === buildKey);
   if (!buildAtlas) {
     const { cancelSurfacePreparations } = await import('./SurfacePreparationClient.js');
-    cancelSurfacePreparations();
+    cancelSurfacePreparations(engine);
   }
   const build = buildAtlas || (await import('./SurfacePreparationClient.js')).prepareSurfaceInBackground;
   const layersField = engine.manualTerrain?.surfaceField?.layersField;
@@ -93,7 +93,7 @@ export async function buildAndInstallSurfaceAtlas(engine, source, customMaps, {
     atlas = await build({
       source, customMaps, document: engine.params?.surfaceDocument,
       graph: engine.terrainGraph, paint: layersField ? { layers: layersField.layers } : null,
-    });
+    }, {owner:engine});
   } catch (error) {
     if (error.code !== 'SURFACE_ATLAS_SUPERSEDED') {
       engine.cb?.onStatus?.('Terrain materials could not be prepared; base terrain remains available', false);

@@ -5,7 +5,7 @@
   "author": "ZyFou",
   "main": "electron/main.cjs",
   "private": true,
-  "version": "1.9.10",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,8 @@
     "desktop:package": "node tools/verify-desktop-release.cjs && npm run build && electron-forge package --platform=win32 --arch=x64",
     "desktop:icon": "node tools/create-electron-icon.cjs",
     "dev:api": "npm --prefix api run dev",
-    "build": "node tools/materials.mjs verify && vite build && node tools/materials.mjs verify --root=dist/textures/terrain/pbr",
+    "build": "npm run build:lib && npm run build:app && npm run pack:lib",
+    "build:app": "npm run plugins:verify && node tools/materials.mjs verify && vite build && node tools/materials.mjs verify --root=dist/textures/terrain/pbr",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,7 +22,20 @@
     "migrate:api": "npm --prefix api run migrate",
     "materials:fetch": "node tools/materials.mjs fetch",
     "materials:build": "node tools/materials.mjs build",
-    "materials:verify": "node tools/materials.mjs verify"
+    "materials:verify": "node tools/materials.mjs verify",
+    "build:lib": "node tools/build-terrain-package.mjs",
+    "pack:lib": "node tools/pack-terrain-package.mjs",
+    "test:lib": "vitest run tests/FiniteTerrain.test.js tests/FiniteTerrainStudio.test.js tests/TerrainPackage.test.js tests/TerrainRuntimeParity.test.js tests/StandaloneEffects.test.js",
+    "typecheck:lib": "tsc -p tests/types/tsconfig.json",
+    "test:package": "node tools/check-terrain-package.mjs",
+    "check:lib": "npm run test:lib && npm run build:lib && npm run typecheck:lib && npm run test:package",
+    "test:lib:browser": "node tools/check-terrain-browser.mjs",
+    "test:lib:worlds": "node tools/check-terrain-worlds-browser.mjs",
+    "test:lib:parity": "node tools/check-terrain-parity-browser.mjs",
+    "test:lib:effects": "node tools/check-effects-playgrounds.mjs",
+    "plugins:build": "python tools/build_blender_extension.py && python tools/build_unity_plugin.py",
+    "plugins:verify": "python tools/verify_plugin_releases.py",
+    "test:desktop": "node tools/check-desktop-browser.mjs"
   },
   "config": {
     "forge": "./forge.config.cjs"
@@ -39,15 +53,22 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
     "electron": "^44.0.0",
+    "es-module-lexer": "^1.7.0",
+    "marked": "^15.0.12",
     "playwright": "^1.63.0",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.4",
+    "typescript": "~5.8.3",
     "vite": "^5.4.11",
     "vitest": "^3.2.6",
     "wait-on": "^9.1.0"
-  }
+  },
+  "workspaces": [
+    "packages/procedural-terrains"
+  ]
 }

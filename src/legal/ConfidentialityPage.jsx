@@ -8,13 +8,13 @@ export default function ConfidentialityPage({ onBack }) {
   useLanguage();
   return (
     <article className="confidentiality-page" aria-labelledby="confidentiality-title">
-      <button type="button" className="admin-back" onClick={onBack}><ArrowLeft size={14} />{translateText(" Back to Three Terrain")}</button>
+      <button type="button" className="admin-back" onClick={onBack}><ArrowLeft size={14} />{translateText(" Back to Procedural Terrains")}</button>
       <header className="confidentiality-hero">
         <span className="confidentiality-icon"><ShieldCheck size={22} aria-hidden /></span>
         <div>
           <span>{translateText("Legal & privacy")}</span>
           <h1 id="confidentiality-title">{translateText("Confidentiality & privacy")}</h1>
-          <p>{translateText("How Three Terrain protects account, project, and usage information.")}</p>
+          <p>{translateText("How Procedural Terrains protects account, project, and usage information.")}</p>
           <small>{translateText("Last updated ")}{translateText(POLICY_UPDATED)}</small>
         </div>
       </header>
@@ -51,7 +51,7 @@ export default function ConfidentialityPage({ onBack }) {
         </section>
         <section>
           <h2>{translateText("Security")}</h2>
-          <p>{translateText("Three Terrain uses HTTP-only secure session cookies in production, strict origin checks, rate limits, server-side role authorization, one-way password hashing, session revocation, and audit logging. No internet service can guarantee absolute security, so suspected incidents should be reported promptly.")}</p>
+          <p>{translateText("Procedural Terrains uses HTTP-only secure session cookies in production, strict origin checks, rate limits, server-side role authorization, one-way password hashing, session revocation, and audit logging. No internet service can guarantee absolute security, so suspected incidents should be reported promptly.")}</p>
         </section>
         <section>
           <h2>{translateText("Your choices")}</h2>

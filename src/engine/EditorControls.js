@@ -31,6 +31,9 @@ export class EditorControls {
     this.minPhi = 8 * DEG;
     this.maxPhi = 80 * DEG;
     this.panLimit = 1024;          // set from board size
+    // Optional presentation framing (Mini Terrain): home pose, pivot height
+    // and limits derived from the footprint. null = classic board behaviour.
+    this.home = null;
 
     this.onFirstInteract = null;
     this.enabled = true;           // false while the studio player walks
@@ -77,6 +80,11 @@ export class EditorControls {
   }
 
   setBoardSize(boardSize, center = null) {
+    if (center) this.panCenter.set(center.x, 0, center.z);
+    if (this.home) {
+      this._applyHomeLimits();
+      return;
+    }
     this.panLimit = boardSize * 0.55;
     this.minRadius = Math.max(120, boardSize * 0.06);
     this.maxRadius = boardSize * 3.2;
@@ -97,6 +105,8 @@ export class EditorControls {
   setView(view) {
     if (view === 'top') {
       this.setMode('topdown');
+    } else if (view === 'angled' && this.home) {
+      this.goToView(this.home, { blend: true });
     } else if (view === 'angled') {
       this.mode = 'orbit';
       this.goalPhi = 55 * DEG;
@@ -104,7 +114,68 @@ export class EditorControls {
     }
   }
 
+  /**
+   * Install (or clear with null) a home framing:
+   * { theta, phi, radius, target:[x,y,z], minRadius, maxRadius, minPhi, maxPhi, panLimit }
+   */
+  setHome(home) {
+    this.home = home ? { ...home, target: [...(home.target || [0, 0, 0])] } : null;
+    if (this.home) this._applyHomeLimits();
+    else {
+      this.minPhi = 8 * DEG;
+      this.maxPhi = 80 * DEG;
+    }
+  }
+
+  _applyHomeLimits() {
+    const h = this.home;
+    if (Number.isFinite(h.minRadius)) this.minRadius = h.minRadius;
+    if (Number.isFinite(h.maxRadius)) this.maxRadius = h.maxRadius;
+    if (Number.isFinite(h.minPhi)) this.minPhi = h.minPhi;
+    if (Number.isFinite(h.maxPhi)) this.maxPhi = h.maxPhi;
+    if (Number.isFinite(h.panLimit)) this.panLimit = h.panLimit;
+    this.goalRadius = Math.min(Math.max(this.goalRadius, this.minRadius), this.maxRadius);
+    this.goalPhi = Math.min(Math.max(this.goalPhi, this.minPhi), this.maxPhi);
+  }
+
+  /** Current pose, for saved views. */
+  getView() {
+    return {
+      theta: this.goalTheta,
+      phi: this.goalPhi,
+      radius: this.goalRadius,
+      target: [this.goalTarget.x, this.goalTarget.y, this.goalTarget.z],
+    };
+  }
+
+  /** Move to a pose; `blend` eases there instead of cutting. */
+  goToView(view, { blend = true } = {}) {
+    if (!view) return;
+    this.mode = 'orbit';
+    const t = view.target || [0, 0, 0];
+    this.goalTarget.set(t[0], t[1], t[2]);
+    this.goalRadius = Math.min(Math.max(view.radius, this.minRadius), this.maxRadius);
+    this.goalPhi = Math.min(Math.max(view.phi, this.minPhi), this.maxPhi);
+    let dTheta = view.theta - this.theta;
+    while (dTheta > Math.PI) dTheta -= Math.PI * 2;
+    while (dTheta < -Math.PI) dTheta += Math.PI * 2;
+    this.goalTheta = this.theta + dTheta;
+    if (blend) {
+      this._smoothRate = 3.2;
+      return;
+    }
+    this.target.copy(this.goalTarget);
+    this.radius = this.goalRadius;
+    this.theta = this.goalTheta;
+    this.phi = this.goalPhi;
+    this._smoothRate = null;
+  }
+
   reset(boardSize) {
+    if (this.home && this.mode !== 'topdown') {
+      this.goToView(this.home, { blend: false });
+      return;
+    }
     this.goalTarget.set(0, 0, 0);
     // The landing showcase (autoOrbit) frames tighter and lower than the
     // editor default; previews reset the camera repeatedly while it's active.
@@ -121,6 +192,10 @@ export class EditorControls {
   }
 
   blendToDefault(boardSize) {
+    if (this.home && this.mode !== 'topdown') {
+      this.goToView(this.home, { blend: true });
+      return;
+    }
     this.goalTarget.set(0, 0, 0);
     this.goalRadius = boardSize * 1.4;
     const goalTheta = 45 * DEG;
@@ -261,7 +336,7 @@ export class EditorControls {
     const lim = this.panLimit;
     this.goalTarget.x = Math.min(Math.max(this.goalTarget.x, this.panCenter.x - lim), this.panCenter.x + lim);
     this.goalTarget.z = Math.min(Math.max(this.goalTarget.z, this.panCenter.z - lim), this.panCenter.z + lim);
-    this.goalTarget.y = 0;
+    this.goalTarget.y = this.home ? (this.home.target?.[1] ?? 0) : 0;
   }
 
   update(dt) {

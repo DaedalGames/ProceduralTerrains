@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>First-person input regression</title>
+  <style>
+    html, body, #wrap { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    #wrap { position: relative; }
+    #c { display: block; width: 100%; height: 100%; touch-action: none; }
+  </style>
+</head>
+<body>
+  <div id="wrap" class="fps-explore-mode"><canvas id="c"></canvas><div id="controls"></div></div>
+  <script type="module" src="./first-person-entry.jsx"></script>
+</body>
+</html>

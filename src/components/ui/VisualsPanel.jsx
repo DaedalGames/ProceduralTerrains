@@ -131,6 +131,7 @@ export default function VisualsPanel({ ctx }) {
               <span className="setting-label">{translateText("Atmosphere Tint")}</span>
             </div>
             <ColorInput
+              label="Atmosphere Tint"
               value={colorToHex(tint)}
               onChange={(v) => onParam('visualsAtmosphereTint', parseColor(v))}
             />

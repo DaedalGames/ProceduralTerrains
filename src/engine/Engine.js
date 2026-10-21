@@ -1,3 +1,4 @@
+import { applyTerrainDetailUniforms, applyTerrainVisualUniforms } from '../runtime/TerrainAppearance.js';
 import { normalizeMarkers } from './terrain/RealWorldMarkers.js';
 import { fetchCityMarkers } from './terrain/RealWorldCities.js';
 import { RealWorldMarkerLayer } from './terrain/RealWorldMarkerLayer.js';
@@ -21,17 +22,20 @@ import { createTerrainUniforms, createTerrainMaterial, createInfiniteTerrainMate
 import { syncSurfaceMaterialBackend } from './terrain/surface/SurfaceArrayGLSL.js';
 import { GpuFramePacer } from './render/GpuFramePacer.js';
 import { createWaterMaterial, createInfiniteWaterMaterial, rebuildWaterShaderSource } from './terrain/WaterMaterial.js';
-import { TerrainBoard } from './terrain/TerrainBoard.js';
+import { FiniteTerrainRuntime, updateFiniteTerrainView } from '../runtime/FiniteTerrainRuntime.js';
+import { applyTerrainShapeUniforms, applyTerrainShadingUniforms } from '../runtime/TerrainParameters.js';
 import { InfiniteWorld } from './terrain/InfiniteWorld.js';
 import { InfiniteTerrainClipmap } from './terrain/InfiniteTerrainClipmap.js';
 import { CloudSlabLayer } from './sky/CloudSlabLayer.js';
 import { InfiniteCloudLayer } from './sky/InfiniteCloudLayer.js';
+import { RealisticCloudSlabLayer, RealisticInfiniteCloudLayer } from './sky/realistic/RealisticCloudLayers.js';
 import { CloudAdaptiveQualityController } from './sky/CloudAdaptiveQualityController.js';
 import {
   CLOUD_QUALITY_PRESETS,
   CLOUD_LEGACY_PERF_KEYS,
   normalizeCloudFormation,
   resolveCloudQuality,
+  resolveCloudRenderMode,
 } from './sky/CloudSettings.js';
 import { TerrainHeightBaker } from './terrain/TerrainHeightBaker.js';
 import { NearHeightCache } from './terrain/NearHeightCache.js';
@@ -82,6 +86,9 @@ import {
   buildTileAssemblyPlinthGeometry,
   createBoardPlinthMaterial,
 } from './terrain/BoardPlinth.js';
+import { MiniTerrainController } from './mini/MiniTerrainController.js';
+import { MINI_TERRAIN_VERSION, normalizeMiniTerrainState } from './mini/MiniTerrainSettings.js';
+import { miniStylePatch } from './mini/MiniLook.js';
 import { PlanetStyleManager } from './style/PlanetStyleManager.js';
 import { TerrainHeightSampler } from './terrain/TerrainHeightSampler.js';
 import { ErosionField } from './terrain/erosion/ErosionField.js';
@@ -108,7 +115,7 @@ import { PaintModeManager } from '../paint/PaintModeManager.js';
 import { ManualTerrainModeManager } from '../manual/ManualTerrainModeManager.js';
 import { normalizeManualTerrainDocument } from '../manual/ManualShapeCatalog.js';
 import { ProceduralPropsManager } from './props/ProceduralPropsManager.js';
-import { FlatPropSampler } from './props/TerrainPropSampler.js';
+import { FlatPropSampler, MiniFieldPropSampler } from './props/TerrainPropSampler.js';
 import { WaterSystem } from './water/WaterSystem.js';
 import { migrateWaterParams, resolveEffectiveWaterMode, resolveUnderwaterMode, underwaterModeFellBack, isRealisticWaterMode, isWaterActive } from './water/WaterSettings.js';
 import {
@@ -194,17 +201,6 @@ const NODE_NEUTRAL_PALETTE = Object.fromEntries(PALETTE_KEYS.map((key) => [
 //   onModeComplete(result)      target final frame has been presented
 // ============================================================================
 
-// Deterministic PRNG used ONLY to derive noise-domain offsets from the seed.
-// Terrain itself is a pure GPU function of (worldXZ, uniforms).
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 function yieldTask() {
   if (typeof MessageChannel !== 'undefined') {
     return new Promise((resolve) => {
@@ -255,7 +251,7 @@ function readShaderColdRun(explicitToken = null) {
 // terrain input because full presets/new projects may replace it.
 const TERRAIN_FIELD_KEYS = new Set([
   'seed', 'terrainFormationSeaLevel', 'heightScale', 'noiseScale', 'noiseStrength', 'octaves',
-  'terrainSmoothing', 'persistence', 'lacunarity', 'ridge', 'warp', 'falloff', 'edgeFalloffMode',
+  'terrainSmoothing', 'terrainDetail', 'persistence', 'lacunarity', 'ridge', 'warp', 'falloff', 'edgeFalloffMode',
   'moistScale', 'moistBias', 'biomeScale', 'tempBias',
   'chunkCount', 'chunkSize',
 ]);
@@ -598,7 +594,7 @@ export class Engine {
         }
       }
       import('./terrain/surface/SurfacePreparationClient.js')
-        .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations());
+        .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations(this));
       console.warn('[graphics] context lost; aborting boot generation');
       if (this._modeTransitionRequest) {
         const request = this._modeTransitionRequest;
@@ -840,7 +836,8 @@ export class Engine {
       this._stackGLSL,
       { variant: this._targetTerrainVariant(), worldMode: 'studio' },
     );
-    this.board = new TerrainBoard(this.scene, this.terrainMaterial);
+    this.finiteTerrain = new FiniteTerrainRuntime(this.scene, this.terrainMaterial);
+    this.board = this.finiteTerrain.board;
 
     // water plane at sea level
     this.waterMaterial = createWaterMaterial(this.uniforms, oct, this._stackGLSL);
@@ -861,6 +858,8 @@ export class Engine {
     );
     this.plinth.renderOrder = 5;
     this.scene.add(this.plinth);
+    // Mini Terrain presentation (inactive until a Mini document is installed).
+    this.mini = new MiniTerrainController(this);
 
     // Dedicated circular outer wall (circle assembly only). Shares the terrain
     // material so its top edge follows the generated island/mountain silhouette;
@@ -895,8 +894,23 @@ export class Engine {
 
     // studio/flat-board volumetric cloud slab (sits above the board; hidden
     // until enabled). Planet mode has its own spherical PlanetCloudLayer.
+    this.studioCloud = this._createStudioCloudLayer();
+
+    // Procedural sky dome. Persistent + shared by studio (Tile) and infinite
+    // world so both modes show the exact same configured sky (driven by the
+    // shared timeOfDay + skybox* params). Visibility is toggled per world mode
+    // by _applySkyboxSettings(); planet mode hides it (open-space backdrop).
+    this.proceduralSky = new ProceduralSky(this.scene);
+    this.proceduralSky.setVisible(false);
+  }
+
+  /** Studio slab for the current cloud render mode (legacy / realistic). */
+  _createStudioCloudLayer() {
     const initialCloudConfig = resolveCloudQuality({ ...this.params, ...this.perf });
-    this.studioCloud = new CloudSlabLayer(this.scene, {
+    const Layer = resolveCloudRenderMode(this.params) === 'realistic'
+      ? RealisticCloudSlabLayer
+      : CloudSlabLayer;
+    return new Layer(this.scene, {
       initialConfig: initialCloudConfig,
       compile: async (mats) => {
         if (this._disposed) return { ready: false, aborted: true };
@@ -919,13 +933,40 @@ export class Engine {
       },
       renderer: this.renderer,
     });
+  }
 
-    // Procedural sky dome. Persistent + shared by studio (Tile) and infinite
-    // world so both modes show the exact same configured sky (driven by the
-    // shared timeOfDay + skybox* params). Visibility is toggled per world mode
-    // by _applySkyboxSettings(); planet mode hides it (open-space backdrop).
-    this.proceduralSky = new ProceduralSky(this.scene);
-    this.proceduralSky.setVisible(false);
+  /** Camera-following infinite-world slab for the current cloud render mode. */
+  _createInfiniteCloudLayer() {
+    const Layer = resolveCloudRenderMode(this.params) === 'realistic'
+      ? RealisticInfiniteCloudLayer
+      : InfiniteCloudLayer;
+    return new Layer(this.scene, {
+      compile: async (mats) => {
+        // Applying restored quality may request a rebuild while mode setup is
+        // still synchronous. Yield so the transition gate and scene exist first.
+        await yieldTask();
+        if (this._disposed || this.worldMode !== 'infinite') {
+          return { ready: false, aborted: true };
+        }
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const target = this._resolveCameraCompileTarget();
+          const result = await this._compileMaterialVariants(mats, {
+            canvasOnly: true,
+            timeoutMs: 120000,
+            renderTarget: target.renderTarget,
+          });
+          if (result?.ready !== true || this._disposed
+              || this.worldMode !== 'infinite') return result;
+          const current = this._resolveCameraCompileTarget();
+          if (this._sameCameraCompileTarget(target, current)) return result;
+          await yieldTask();
+        }
+        return { ready: false, aborted: true };
+      },
+      renderer: this.renderer,
+      chunkSize: this.params.chunkSize,
+      viewRadius: this.perf.viewRadius,
+    });
   }
 
   _initControls() {
@@ -1036,7 +1077,7 @@ export class Engine {
   }
 
   _initProps() {
-    this.propsManager = new ProceduralPropsManager(this.scene);
+    this.propsManager = new ProceduralPropsManager(this.scene, this.uniforms);
     this.realWorldBuildingLayer = new RealWorldBuildingLayer(this.scene);
     this.realWorldMarkerLayer = new RealWorldMarkerLayer(this.scene);
   }
@@ -1384,7 +1425,26 @@ export class Engine {
 
   // A cell can be added if empty, inside the 5×5 grid, and 4-adjacent to an
   // occupied cell (assembly stays connected). No cap on how many are placed.
+  // Mini Terrain is ONE footprint: no tile growth, removal or reshaping.
+  _miniLocksTiles() {
+    return !!this.mini?.state;
+  }
+
+  // A Mini document always owns exactly the origin cell (square). Applied
+  // after every tile restore so an edited file or an old snapshot cannot
+  // reintroduce an extended territory.
+  _enforceMiniSingleTile() {
+    if (!this._miniLocksTiles()) return false;
+    this.tileAssemblyShape = 'square';
+    this.circleRadiusCells = 0;
+    this.tiles = [{ cx: 0, cz: 0 }];
+    this._tileGhostCell = null;
+    if (this._tileGhost) this._tileGhost.visible = false;
+    return true;
+  }
+
   canAddTileAt(cx, cz) {
+    if (this._miniLocksTiles()) return false;
     if (this._landingShowcase || this.worldMode !== 'studio') return false;
     if (!this._inTilePlacementBounds(cx, cz)) return false;
     if (this._hasTile(cx, cz)) return false;
@@ -1417,7 +1477,8 @@ export class Engine {
   }
 
   canExpandCircle() {
-    return !this._landingShowcase
+    return !this._miniLocksTiles()
+      && !this._landingShowcase
       && this.worldMode === 'studio'
       && this.tileAssemblyShape === 'circle'
       && this.diskRadiusCells < this.tileGridExtent;
@@ -1440,6 +1501,7 @@ export class Engine {
   }
 
   removeTile(cx, cz) {
+    if (this._miniLocksTiles()) return false;
     if (this.tileAssemblyShape === 'circle') return false;
     if (this.tiles.length <= 1) return false;
     const i = this.tiles.findIndex((t) => t.cx === cx && t.cz === cz);
@@ -1464,6 +1526,7 @@ export class Engine {
   }
 
   setTileAssemblyShape(shape) {
+    if (this._miniLocksTiles()) return;
     const next = shape === 'circle' ? 'circle' : 'square';
     if (next === this.tileAssemblyShape) return;
     const circleRadius = next === 'circle' ? this._circleRadiusForTiles(this.tiles) : 0;
@@ -1596,7 +1659,8 @@ export class Engine {
   }
 
   _tileInteractionActive() {
-    return !this._landingShowcase
+    return !this._miniLocksTiles()
+      && !this._landingShowcase
       && this.worldMode === 'studio'
       && this.exploreMode === 'none'
       && !this._markerRoutePicking
@@ -2808,9 +2872,15 @@ export class Engine {
     presetKey = null,
     noiseStackPresetKey = null,
     initialGraph = null,
+    mini = null,
   } = {}) {
     this.projectMode = projectMode === 'nodes' ? 'nodes' : projectMode === 'manual' ? 'manual' : 'procedural';
     this.workspacePreset = workspacePreset === 'real-terrain' ? 'real-terrain' : null;
+    // Mini Terrain is a presentation of a procedural project; the document is
+    // installed before the single applyAll below so the first build is final.
+    this.mini?.install(mini && this.projectMode === 'procedural'
+      ? this.mini.createState({ recipe: mini.recipe, seed: mini.seed ?? seed, preset: mini.preset })
+      : null);
     this._clearPendingTerrainParams();
     this.params = { ...DEFAULT_PARAMS };
     if (this.projectMode === 'procedural' && PRESETS[presetKey]) {
@@ -2831,6 +2901,10 @@ export class Engine {
     this.planetStyle.reset();
     if (this.projectMode === 'procedural' && PRESETS[presetKey]?.palettePreset) {
       this.planetStyle.applyPalettePreset(PRESETS[presetKey].palettePreset);
+    }
+    if (this.mini?.state) {
+      Object.assign(this.params, this.mini.paramsPatch('all'));
+      this.planetStyle.setStyle(miniStylePatch(this.mini.state.recipe, this.mini.state.preset));
     }
 
     // Establish the requested classic stack before the single applyAll below.
@@ -2940,8 +3014,9 @@ export class Engine {
     this._syncCpuHeightProgram();
 
     this.controls.reset(this.boardSize);
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
     if (!silent) {
-      const label = this.projectMode === 'nodes'
+      const label = this.mini?.state ? 'New Mini Terrain' : this.projectMode === 'nodes'
         ? 'New Nodes terrain'
         : this.projectMode === 'manual'
           ? 'New Manual Terrain'
@@ -4424,9 +4499,7 @@ export class Engine {
   }
 
   _refreshStudioChunkView(now = performance.now()) {
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._lastLodUpdate = now;
   }
 
@@ -4440,7 +4513,7 @@ export class Engine {
       chunkSize: p.chunkSize,
       maxHeight,
       skirtDepth: this._skirtDepth(),
-      lodSegments: resolveLodSegments(this.perf),
+      lodSegments: this._boardLodSegments(),
       cells: this.tiles,
       progressive: true,
       initialBatchSize: this._studioChunkCreatesPerFrame(),
@@ -4489,7 +4562,7 @@ export class Engine {
         chunkSize: p.chunkSize,
         maxHeight,
         skirtDepth: this._skirtDepth(),
-        lodSegments: resolveLodSegments(this.perf),
+        lodSegments: this._boardLodSegments(),
         cells: this.tiles,
         progressive: this.worldMode === 'studio',
         initialBatchSize: this._studioInitialChunkBatch(),
@@ -4553,9 +4626,7 @@ export class Engine {
     const created = this.board.processBuildQueue(this._studioChunkBuildBudget());
     if (!created) return 0;
 
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._needsRender = true;
     this._lastLodUpdate = now;
     this.cb.onLod(
@@ -4578,21 +4649,40 @@ export class Engine {
   }
 
   _maxHeight() { return this.params.heightScale * 1.35 + 2; }
-  _skirtDepth() { return Math.max(24, this.params.heightScale * 0.08); }
+  _skirtDepth() {
+    if (this.mini?.active) return this.mini.layout.baseDepth;
+    return Math.max(24, this.params.heightScale * 0.08);
+  }
   // how far the terrain's perimeter wall flares out past the board edge (and how
   // far the plinth box is outset to cap it) — keeps the wall clear of the water.
-  _wallThickness() { return Math.max(10, (this.boardSize || 0) * 0.006); }
+  // Mini Terrain keeps the section walls vertical: water stops at the footprint.
+  _wallThickness() {
+    if (this.mini?.active) return 0;
+    return Math.max(10, (this.boardSize || 0) * 0.006);
+  }
+
+  // Board LOD segments: Mini uses one fixed-resolution surface (all four LOD
+  // slots equal, so geomorphing stays inert); every other mode keeps the
+  // performance-driven ladder.
+  _boardLodSegments() {
+    if (this.mini?.active) return this.mini.lodSegments();
+    return resolveLodSegments(this.perf);
+  }
 
   // Visibility for the diorama base. The circular radial wall mirrors the
   // plinth but only matters in circle mode.
   _setPlinthVisible(v) {
-    this.plinth.visible = v;
+    this._plinthWanted = v;
+    this.mini?.setStageVisible(v);
+    this.plinth.visible = v && !this.mini?.active;
     if (this.diskWall) this.diskWall.visible = v && this.tileAssemblyShape === 'circle';
   }
 
   _updatePlinth() {
     const size = this.boardSize;
     if (!size) return false;
+    // Mini Terrain owns its base (socle, studio stage, water cut).
+    if (this.mini?.syncPresentation()) return false;
     const skirtDepth = this._skirtDepth();
     const sea = this.params.seaLevel;
     const topY = sea > 0.5 ? sea : 0;
@@ -4653,54 +4743,17 @@ export class Engine {
     this._syncImportedMapUniforms();
     const size = this.boardSize;
 
-    const rng = mulberry32(p.seed >>> 0);
-    u.uSeedOffset.value.set(rng() * 2048 - 1024, rng() * 2048 - 1024);
-
-    u.uFrequency.value = (p.noiseScale * 0.1) / size;
-    u.uHeightScale.value = p.heightScale;
-    u.uSeaLevel.value = p.seaLevel;
-    u.uTerrainFormationSeaLevel.value = p.terrainFormationSeaLevel;
-    u.uAmplitude.value = p.noiseStrength;
-    u.uTerrainSmoothing.value = p.terrainSmoothing ?? 0;
-    u.uPersistence.value = p.persistence;
-    u.uLacunarity.value = p.lacunarity;
-    u.uRidge.value = p.ridge;
-    u.uWarp.value = p.warp;
-    u.uFalloff.value = p.falloff;
-    u.uEdgeFalloffMode.value = p.edgeFalloffMode === 'mountains' ? 1 : 0;
-    u.uBoardHalf.value = size / 2;
-    u.uChunkSize.value = p.chunkSize;
+    applyTerrainShapeUniforms(u, p, size);
+    this.mini?.applyUniforms(u);
     this._applyTileUniforms();
     if (this.destructionField) {
       const bounds = this._creatorBounds();
       this.destructionField.setRegion(bounds.origin, bounds.span);
       this.destructionField.applyTo(u, this.worldMode === 'studio');
     }
-    u.uMoistScale.value = p.moistScale;
-    u.uMoistBias.value = p.moistBias;
-    u.uBiomeScale.value = p.biomeScale;
-    u.uTempBias.value = p.tempBias;
-    u.uBiomeDebug.value = p.biomeDebug ? 1 : 0;
-    u.uSnowLine.value = p.snowLine;
-    u.uNormalStrength.value = p.normalStrength;
-    u.uAO.value = p.aoStrength;
-    u.uAORidge.value = p.aoRidge ?? 0;
-    // Slope gates — keep each pair ordered so the smoothstep edges stay valid
-    // whatever the two sliders are set to.
-    {
-      const rockLo = p.rockSlopeLo ?? 0.42;
-      const snowMin = p.snowSlopeMin ?? 0.30;
-      u.uRockSlopeLo.value = rockLo;
-      u.uRockSlopeHi.value = Math.max(p.rockSlopeHi ?? 0.72, rockLo + 0.01);
-      u.uSnowSlopeMin.value = snowMin;
-      u.uSnowSlopeMax.value = Math.max(p.snowSlopeMax ?? 0.62, snowMin + 0.01);
-    }
-    u.uGrid.value = p.chunkGrid ? 1 : 0;
-    u.uLodDebug.value = p.lodDebug ? 1 : 0;
-    u.uEps.value = Math.max(0.35, size / 4096);
-    u.uSkirtDepth.value = this._skirtDepth();
-    u.uPlinthBaseY.value = -this._skirtDepth();   // perimeter wall drops to plinth base
-    u.uWallThickness.value = this._wallThickness();
+    applyTerrainShadingUniforms(u, p, {
+      size, skirtDepth: this._skirtDepth(), wallThickness: this._wallThickness(),
+    });
     u.uPlanetRadius.value = p.planetRadius;
     // angular epsilon for analytic planet normals ≈ one finest-LOD quad
     u.uPlanetEps.value = 2.0 / (this._planetFaceGrid() * 64);
@@ -4992,15 +5045,7 @@ export class Engine {
     const p = this.params;
     const u = this.uniforms;
     if (!u?.uVisualTerrainColorVariation) return;
-    u.uVisualTerrainColorVariation.value = p.visualsTerrainColorVariation ?? 0.36;
-    u.uVisualTerrainHeightDetail.value = p.visualsTerrainHeightDetail ?? 0.42;
-    u.uVisualWetShoreStrength.value = p.visualsWetShoreStrength ?? 0.55;
-    u.uVisualRockDetail.value = p.visualsRockDetail ?? 0.45;
-    u.uVisualSoilDetail.value = p.visualsSoilDetail ?? 0.35;
-    u.uVisualSandDetail.value = p.visualsSandDetail ?? 0.38;
-    u.uVisualFoamBreakup.value = p.visualsFoamBreakup ?? 0.45;
-    u.uVisualWetSandRange.value = p.visualsWetSandRange ?? 18;
-    u.uVisualShallowWaterSoftness.value = p.visualsShallowWaterSoftness ?? 0.38;
+    applyTerrainVisualUniforms(u, p);
     this._needsRender = true;
   }
 
@@ -5036,9 +5081,9 @@ export class Engine {
   _prepareCameraPipeline() {
     const runtimeParams = this._bootRuntimeParams || this.params;
     const cloudsNeedDepth = this.worldMode === 'studio'
-      ? !!this.studioCloud?.active
+      ? !!(this.studioCloud?.wantsSceneDepth ?? this.studioCloud?.active)
       : (this.worldMode === 'infinite'
-        ? !!this.infiniteCloud?.active
+        ? !!(this.infiniteCloud?.wantsSceneDepth ?? this.infiniteCloud?.active)
         : (this.worldMode === 'planet'
           && (!!this.planetCloudLayer?.active || !!this.planetCloudChunks?.active)));
     const requireSharedOpaque = cloudsNeedDepth
@@ -5104,13 +5149,14 @@ export class Engine {
       && a.usesSceneTarget === b.usesSceneTarget
       && a.renderTarget === b.renderTarget;
   }
-  _compileCameraTargetMaterials(mats, { timeoutMs = 120000, stagger = false } = {}) {
+  _compileCameraTargetMaterials(mats, { timeoutMs = 120000, stagger = false, isCurrent = () => true } = {}) {
     const { renderTarget } = this._resolveCameraCompileTarget();
     return this._compileMaterialVariants(mats, {
       canvasOnly: true,
       timeoutMs,
       stagger,
       renderTarget,
+      isCurrent,
     });
   }
 
@@ -5305,6 +5351,7 @@ export class Engine {
       this.planetCloudLayer?.mesh,
       this.planetCloudChunks?.group,
       this.waterSystem?._boundsHelper,
+      ...(this.waterSystem?.auxiliaryWaterMeshes?.() ?? []),
       ...this._captureOverlayRoots(),
     ].filter(Boolean);
   }
@@ -5646,13 +5693,16 @@ export class Engine {
           targetScene,
           logCompile,
           isCurrent,
+          resolveLinks,
         }));
+        if (results.at(-1)?.aborted || !isCurrent()) break;
         done += passesPerMaterial;
         await yieldTask();
       }
       return {
         ready: results.every((result) => result.ready),
         timedOut: results.some((result) => result.timedOut),
+        aborted: results.some((result) => result.aborted) || !isCurrent(),
         materialCount: list.length,
         pendingCount: results.reduce((sum, result) => sum + result.pendingCount, 0),
         waitMs: results.reduce((sum, result) => sum + result.waitMs, 0),
@@ -5679,7 +5729,7 @@ export class Engine {
       group.add(probe);
     }
 
-    const waitOpts = timeoutMs != null ? { timeoutMs } : undefined;
+    const waitOpts = { ...(timeoutMs != null ? { timeoutMs } : {}), isCurrent };
     const compileStartedAt = performance.now();
     let pending;
     let rendererCompileMs = 0;
@@ -5723,9 +5773,10 @@ export class Engine {
     }
     const validationStartedAt = performance.now();
     const canvasHealth = canvasResult.ready
-      ? await this._validateCompiledPrograms(list, group, renderTarget, camera)
+      ? await this._validateCompiledPrograms(list, group, renderTarget, camera, { isCurrent })
       : { ok: false, code: 'PROGRAM_NOT_READY', diagnostics: [] };
     const validationMs = performance.now() - validationStartedAt;
+    if (this._disposed || this.renderer !== renderer || !isCurrent()) return { ...canvasResult, ready: false, aborted: true, materialCount: list.length };
     if (!canvasHealth.ok) {
       const error = programHealthError(canvasHealth);
       console.error('[shader health]', error, canvasHealth);
@@ -5821,7 +5872,7 @@ export class Engine {
     };
   }
 
-  async _validateCompiledPrograms(materials, group, renderTarget = null, camera = this.camera) {
+  async _validateCompiledPrograms(materials, group, renderTarget = null, camera = this.camera, { isCurrent = () => true } = {}) {
     const renderer = this.renderer;
     if (!renderer || this._disposed) {
       return { ok: false, code: 'RENDERER_UNAVAILABLE', diagnostics: [] };
@@ -5857,7 +5908,7 @@ export class Engine {
           // driver's first-draw pipeline setup, even after the shader linked.
           const startedAt = performance.now();
           while (!pacer.ready()) {
-            if (this._disposed || this.renderer !== renderer || performance.now() - startedAt > 120000) {
+            if (this._disposed || this.renderer !== renderer || !isCurrent() || performance.now() - startedAt > 120000) {
               throw new Error('Shader validation draw did not finish');
             }
             await yieldFrame();
@@ -5915,11 +5966,11 @@ export class Engine {
    * compileAsync throwing when currentProgram is still undefined (common for
    * transparent DoubleSide materials mid-prepare).
    */
-  _waitForMaterialsReady(materials, { timeoutMs = 45000 } = {}) {
+  _waitForMaterialsReady(materials, { timeoutMs = 45000, isCurrent = () => true } = {}) {
     const pending = new Set(materials);
     const readyTimeline = [];
     const renderer = this.renderer;
-    if (this._disposed || !renderer) {
+    if (this._disposed || !renderer || !isCurrent()) {
       return Promise.resolve({
         ready: false,
         timedOut: false,
@@ -5945,7 +5996,7 @@ export class Engine {
       const start = performance.now();
 
       const check = () => {
-        if (this._disposed || this.renderer !== renderer
+        if (this._disposed || this.renderer !== renderer || !isCurrent()
             || this._contextLost || gl?.isContextLost?.()) {
           resolve({
             ready: false,
@@ -5996,18 +6047,6 @@ export class Engine {
 
       yieldFrame().then(check);
     });
-  }
-
-  async _withStudioCloudDetached(task) {
-    const mesh = this.studioCloud?.mesh;
-    const parent = mesh?.parent || null;
-    if (parent) parent.remove(mesh);
-    try {
-      return await task();
-    } finally {
-      if (!this._disposed && this.worldMode === 'studio'
-          && this.studioCloud?.mesh === mesh && parent && !mesh.parent) parent.add(mesh);
-    }
   }
 
   async _withBootDeferredObjectsDetached(task) {
@@ -6118,47 +6157,53 @@ export class Engine {
    * Compile realistic water shaders without pausing the whole app, then swap.
    * Legacy water stays visible until programs are linked.
    */
-  compileWaterMaterialsAsync(materials, onSwap) {
+  compileWaterMaterialsAsync(materials, onSwap, { isCurrent = () => true } = {}) {
     const mats = materials.filter(Boolean);
-    if (!mats.length) {
-      onSwap?.();
-      return Promise.resolve(true);
-    }
-
-    this.cb.onStatus('Compiling water shaders…', false);
-
-    return new Promise((resolve) => {
-      const run = async () => {
-        let ready = false;
-        try {
-          const result = await this._compileCameraTargetMaterials(mats, {
-            timeoutMs: 20000,
-            stagger: mats.length > 1,
-          });
-          this._recordWaterShaderCompile('mode-switch', result);
-          ready = result?.ready === true;
-          if (!ready) {
-            console.warn(
-              `Water shader compile still pending after ${result?.waitMs?.toFixed?.(0) ?? 0}ms; keeping the current material`
-            );
-            const states = await Promise.all(
-              mats.map((mat) => this._pollProgramReady(mat, { tries: 240, intervalMs: 250 }))
-            );
-            ready = states.every(Boolean);
+    const current = () => !this._disposed && isCurrent();
+    const run = async () => {
+      if (!current()) return false;
+      if (!mats.length) { onSwap?.(); return true; }
+      this.cb.onStatus('Compiling water shaders…', false);
+      let ready = false;
+      try {
+        await yieldTask();
+        if (!current()) return false;
+        const result = await this._compileCameraTargetMaterials(mats, {
+          timeoutMs: 20000, stagger: mats.length > 1, isCurrent: current,
+        });
+        if (!current() || result?.aborted) return false;
+        this._recordWaterShaderCompile('mode-switch', result);
+        ready = result?.ready === true;
+        if (!ready && !result?.error) {
+          const states = await Promise.all(mats.map((mat) =>
+            this._pollProgramReady(mat, { tries: 240, intervalMs: 250, isCurrent: current })));
+          ready = states.every(Boolean);
+          // Readiness after a timeout still needs the same offscreen validation.
+          if (ready && current()) {
+            const checked = await this._compileCameraTargetMaterials(mats, {
+              timeoutMs: 20000, isCurrent: current,
+            });
+            ready = checked?.ready === true;
           }
-          if (ready && !this._disposed) onSwap?.();
-          else if (!ready) console.warn('Water shader did not become ready; material swap skipped');
-        } catch (e) {
-          console.warn('Water shader compile failed', e);
-        } finally {
-          if (!this._disposed) this.cb.onStatus('Ready', false);
-          resolve(ready);
         }
-      };
-
-      // Yield twice so the UI can paint before kicking off GPU work.
-      yieldTask().then(() => yieldTask().then(run));
+        if (ready && current()) onSwap?.();
+        return ready && current();
+      } catch (error) {
+        if (current()) console.warn('Water shader compile failed', error);
+        return false;
+      } finally {
+        // An old job must never clear the status of a newer request.
+        if (current()) this.cb.onStatus('Ready', false);
+      }
+    };
+    // One live compile at a time. Obsolete requests stop at the next yield,
+    // before touching disposed materials or validating another mode's program.
+    const promise = (this._waterCompilePromise || Promise.resolve()).catch(() => {}).then(run);
+    this._waterCompilePromise = promise;
+    void promise.finally(() => {
+      if (this._waterCompilePromise === promise) this._waterCompilePromise = null;
     });
+    return promise;
   }
 
   _recordWaterShaderCompile(reason, result) {
@@ -7319,9 +7364,9 @@ export class Engine {
    * not-ready program would force a blocking link — the exact freeze all of
    * this avoids — so the upgrade paths wait patiently here instead.
    */
-  async _pollProgramReady(mat, { tries = 1200, intervalMs = 250 } = {}) {
+  async _pollProgramReady(mat, { tries = 1200, intervalMs = 250, isCurrent = () => true } = {}) {
     for (let i = 0; i < tries; i++) {
-      if (this._disposed) return false;
+      if (this._disposed || !this.renderer || !isCurrent()) return false;
       const prog = this.renderer.properties.get(mat)?.currentProgram;
       if (prog?.isReady?.()) return true;
       await new Promise((r) => setTimeout(r, intervalMs));
@@ -7616,6 +7661,17 @@ export class Engine {
       && this.uniforms?.uWaterTerrainHeightTex?.value != null
       && this.uniforms?.uWaterTerrainBiomeTex?.value != null
       && (this.uniforms?.uUseWaterTerrainBiomeTex?.value ?? 0) > 0.5;
+  }
+
+  // True only while the published studio height bake describes the CURRENT
+  // terrain (generation + layout). Consumers that derive data from the bake
+  // texture (Mini light map, Mini prop field) must never read it otherwise:
+  // during a transition it still holds the previous terrain.
+  _studioBakeCurrent() {
+    return this.worldMode === 'studio'
+      && this.uniforms?.uUseTerrainHeightTex?.value > 0.5
+      && this._bakedStudioGen === this._terrainGen
+      && this._bakedStudioLayout === this._studioBakeLayoutKey();
   }
 
   _usesLiveStudioHeightField() {
@@ -8046,51 +8102,63 @@ export class Engine {
       let instancedResult = { ready: true };
       let quadResult = null;
 
-      await this._withStudioCloudDetached(async () => {
-        const skipMaterials = new Set();
-
-        // Infinite terrain's live draw defines USE_INSTANCING. A plain warm
-        // mesh is a different program and was the source of first-dive stalls.
-        if (preparedMode === 'infinite' && preparedTerrain) {
-          const source = this.infiniteWorld?.batches?.meshes?.find(Boolean);
-          if (!source?.geometry) throw new Error('Infinite terrain geometry unavailable');
-          instancedResult = await this._compileInstancedMaterialVariant(
-            preparedTerrain,
-            source.geometry,
-            preparedCameraTarget.renderTarget,
-          );
-          skipMaterials.add(preparedTerrain);
-        }
-
-        // Planet chunks own distinct material objects but share one source and
-        // define set. Compile one representative instead of yielding hundreds
-        // of equivalent warm meshes.
-        if (preparedMode === 'planet') {
-          for (const material of this.planetWorld?.materials?.slice(1) ?? []) {
-            skipMaterials.add(material);
-          }
-        }
-
-        sceneResult = await this._compileSceneStaggered(preparedCameraTarget.renderTarget, {
-          skipMaterials,
-          timeoutMs: 120000,
+      // Cloud passes already use their own depth/composite targets. Exclude
+      // their materials from warmup without detaching live scene objects across
+      // asynchronous work: approaching water must not make the sky disappear.
+      const skipMaterials = new Set();
+      for (const root of [
+        this.studioCloud?.mesh,
+        this.infiniteCloud?.mesh,
+        this.planetCloudLayer?.mesh,
+        this.planetCloudChunks?.group,
+      ]) {
+        root?.traverse?.((object) => {
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          for (const material of materials) if (material) skipMaterials.add(material);
         });
-        if (instancedResult?.ready !== true || sceneResult?.ready !== true) {
-          throw new Error('Underwater scene shaders did not become ready');
-        }
+      }
 
-        const quad = this.underwater._quadScene?.children?.[0] ?? null;
-        quadResult = await this._compileExactPass({
-          scene: this.underwater._quadScene,
-          camera: this.underwater._quadCam,
-          mesh: quad,
-          material: this.underwater._material,
-          renderTarget: this.underwater._rt,
-        }, { timeoutMs: 120000 });
-        if (quadResult?.ready !== true) {
-          throw new Error('Underwater composite shader did not become ready');
+      // Infinite terrain's live draw defines USE_INSTANCING. A plain warm
+      // mesh is a different program and was the source of first-dive stalls.
+      if (preparedMode === 'infinite' && preparedTerrain) {
+        const source = this.infiniteWorld?.batches?.meshes?.find(Boolean);
+        if (!source?.geometry) throw new Error('Infinite terrain geometry unavailable');
+        instancedResult = await this._compileInstancedMaterialVariant(
+          preparedTerrain,
+          source.geometry,
+          preparedCameraTarget.renderTarget,
+        );
+        skipMaterials.add(preparedTerrain);
+      }
+
+      // Planet chunks own distinct material objects but share one source and
+      // define set. Compile one representative instead of yielding hundreds
+      // of equivalent warm meshes.
+      if (preparedMode === 'planet') {
+        for (const material of this.planetWorld?.materials?.slice(1) ?? []) {
+          skipMaterials.add(material);
         }
+      }
+
+      sceneResult = await this._compileSceneStaggered(preparedCameraTarget.renderTarget, {
+        skipMaterials,
+        timeoutMs: 120000,
       });
+      if (instancedResult?.ready !== true || sceneResult?.ready !== true) {
+        throw new Error('Underwater scene shaders did not become ready');
+      }
+
+      const quad = this.underwater._quadScene?.children?.[0] ?? null;
+      quadResult = await this._compileExactPass({
+        scene: this.underwater._quadScene,
+        camera: this.underwater._quadCam,
+        mesh: quad,
+        material: this.underwater._material,
+        renderTarget: this.underwater._rt,
+      }, { timeoutMs: 120000 });
+      if (quadResult?.ready !== true) {
+        throw new Error('Underwater composite shader did not become ready');
+      }
 
       const currentCameraTarget = this._resolveCameraCompileTarget();
       this._ensureUnderwaterWarmTarget(currentCameraTarget.renderTarget);
@@ -8140,9 +8208,7 @@ export class Engine {
     const t0 = performance.now();
 
     this.controls.update(frozen ? 0 : 0.016);
-    this.camera.updateMatrixWorld(true);
-    this.board.updateLOD(this.camera.position);
-    this.board.cull(this.camera);
+    updateFiniteTerrainView(this.board, this.camera);
     this._lastLodUpdate = performance.now();
     this.cb.onLod(
       [...this.board.lodCounts],
@@ -8870,6 +8936,7 @@ export class Engine {
         camera: this.camera,
         sampler: this._getHeightSampler(),
         getWaterLevel: () => this._waterLevel(),
+        bounds: this.mini?.walkBounds() ?? null,
       });
       this.cb.onToast('Player mode — click to lock mouse · Space jump · Shift run');
     } else {
@@ -9138,6 +9205,11 @@ export class Engine {
       error.code = 'MANUAL_STUDIO_ONLY';
       throw error;
     }
+    if (this.mini?.state && requested !== 'studio' && !context.input.project) {
+      const error = new Error('Mini Terrain is a single diorama in the finite world');
+      error.code = 'MINI_STUDIO_ONLY';
+      throw error;
+    }
     context.previousWorldMode = this.worldMode;
     context.targetWorldMode = requested;
     context.targetProjectMode = context.input.projectMode || this.projectMode;
@@ -9397,6 +9469,10 @@ export class Engine {
       this.cb.onToast('Manual Terrain is currently available in Tile mode');
       return;
     }
+    if (this.mini?.state && mode !== 'studio') {
+      this.cb.onToast('Mini Terrain is a single diorama: Infinite World and Planet are unavailable');
+      return;
+    }
 
     if (mode === 'planet' && !planetModules) {
       try {
@@ -9414,6 +9490,10 @@ export class Engine {
     if (mode === this.worldMode) return;
     if (this.projectMode === 'manual' && mode !== 'studio') {
       this.cb.onToast('Manual Terrain is currently available in Tile mode');
+      return;
+    }
+    if (this.mini?.state && mode !== 'studio') {
+      this.cb.onToast('Mini Terrain is a single diorama: Infinite World and Planet are unavailable');
       return;
     }
     if (this.paintMode?.state.enabled) this.setPaintMode(false);
@@ -9599,33 +9679,7 @@ export class Engine {
     this.infiniteWorld.behindCameraCulling = this.board.behindCameraCulling;
     this.infiniteWorld.setMergeDebug(this._debug.mergeDebug);
 
-    this.infiniteCloud = p.cloudsEnabled === true ? new InfiniteCloudLayer(this.scene, {
-      compile: async (mats) => {
-        // Applying restored quality may request a rebuild while mode setup is
-        // still synchronous. Yield so the transition gate and scene exist first.
-        await yieldTask();
-        if (this._disposed || this.worldMode !== 'infinite') {
-          return { ready: false, aborted: true };
-        }
-        for (let attempt = 0; attempt < 3; attempt++) {
-          const target = this._resolveCameraCompileTarget();
-          const result = await this._compileMaterialVariants(mats, {
-            canvasOnly: true,
-            timeoutMs: 120000,
-            renderTarget: target.renderTarget,
-          });
-          if (result?.ready !== true || this._disposed
-              || this.worldMode !== 'infinite') return result;
-          const current = this._resolveCameraCompileTarget();
-          if (this._sameCameraCompileTarget(target, current)) return result;
-          await yieldTask();
-        }
-        return { ready: false, aborted: true };
-      },
-      renderer: this.renderer,
-      chunkSize: p.chunkSize,
-      viewRadius: perf.viewRadius,
-    }) : null;
+    this.infiniteCloud = p.cloudsEnabled === true ? this._createInfiniteCloudLayer() : null;
     this._applyCloudSettings();
 
     const clipmapResolutions = this.gpuTier === 'low'
@@ -10279,14 +10333,16 @@ export class Engine {
 
     // Apply the requested cloud quality before starting GPU work so a default
     // material is never compiled and immediately replaced.
-    if (p.cloudsEnabled === true && p.cloudChunksEnabled === true) {
+    const realisticClouds = resolveCloudRenderMode(p) === 'realistic';
+    if (p.cloudsEnabled === true && p.cloudChunksEnabled === true && !realisticClouds) {
       this.planetCloudChunks = new planet.PlanetCloudChunks(this.scene, {
         planetRadius: this._planetRadius(),
         faceGrid: 4,
         compile: (mats) => this._compileCameraTargetMaterials(mats),
       });
     } else if (p.cloudsEnabled === true) {
-      this.planetCloudLayer = new planet.PlanetCloudLayer(this.scene, {
+      const Layer = realisticClouds ? planet.RealisticPlanetCloudLayer : planet.PlanetCloudLayer;
+      this.planetCloudLayer = new Layer(this.scene, {
         planetRadius: this._planetRadius(),
         compile: (mats) => this._compileCameraTargetMaterials(mats),
         renderer: this.renderer,
@@ -10331,22 +10387,41 @@ export class Engine {
    *  rebuild). Both layers read the same cloud* params; each is only visible in
    *  its own world mode. */
   _applyCloudSettings() {
+    // A render-mode switch swaps every layer for its legacy / realistic twin.
+    const realisticClouds = resolveCloudRenderMode(this.params) === 'realistic';
+    const isRealistic = (layer) => layer?.renderMode === 'realistic';
+    if (this.studioCloud && isRealistic(this.studioCloud) !== realisticClouds) {
+      this.studioCloud.dispose();
+      this.studioCloud = this._createStudioCloudLayer();
+      this.studioCloud.setInScene(this.worldMode === 'studio');
+    }
+    if (this.infiniteCloud && isRealistic(this.infiniteCloud) !== realisticClouds) {
+      this.infiniteCloud.dispose();
+      this.infiniteCloud = this._createInfiniteCloudLayer();
+    } else if (!this.infiniteCloud && this.worldMode === 'infinite' && this.params.cloudsEnabled === true) {
+      this.infiniteCloud = this._createInfiniteCloudLayer();
+    }
     if (this.worldMode === 'planet') {
       const planet = this._planetModules;
       if (!planet) return;
+      if (this.planetCloudLayer && isRealistic(this.planetCloudLayer) !== realisticClouds) {
+        this.planetCloudLayer.dispose();
+        this.planetCloudLayer = null;
+      }
       if (this.params.cloudsEnabled !== true) {
         this.planetCloudChunks?.dispose?.();
         this.planetCloudChunks = null;
         this.planetCloudLayer?.dispose?.();
         this.planetCloudLayer = null;
       } else {
-      const wantChunks = this.params.cloudChunksEnabled === true;
+      const wantChunks = this.params.cloudChunksEnabled === true && !realisticClouds;
       if (wantChunks && !this.planetCloudChunks) {
         if (this.planetCloudLayer) {
           this.planetCloudLayer.dispose();
           this.planetCloudLayer = null;
         }
         this.planetCloudChunks = new planet.PlanetCloudChunks(this.scene, {
+          renderer: this.renderer,
           planetRadius: this._planetRadius(),
           faceGrid: 4,
         compile: (mats) => this._compileCameraTargetMaterials(mats),
@@ -10358,7 +10433,8 @@ export class Engine {
           this.planetCloudChunks.dispose();
           this.planetCloudChunks = null;
         }
-        this.planetCloudLayer = new planet.PlanetCloudLayer(this.scene, {
+        const Layer = realisticClouds ? planet.RealisticPlanetCloudLayer : planet.PlanetCloudLayer;
+        this.planetCloudLayer = new Layer(this.scene, {
           planetRadius: this._planetRadius(),
         compile: (mats) => this._compileCameraTargetMaterials(mats),
           renderer: this.renderer,
@@ -10389,7 +10465,7 @@ export class Engine {
     }
     if (this.studioCloud) {
       // Cover the whole tile assembly (union of cells), not just the origin cell.
-      this.studioCloud.applyParams(this.params, this._maxHeight(), this.boardSize, this.perf, {
+      this.studioCloud.applyParams(this.params, this._maxHeight(), this.boardSize, this.perf, this.mini?.cloudLayout() ?? {
         extent: Math.max(this._unionWidth(), this._unionDepth()),
         center: this._unionCenter(),
       });
@@ -10475,6 +10551,23 @@ export class Engine {
     // keep the custom-stack reference current
     this._propCpuSampler?.setStack?.(this.noiseStack);
     return this.propSampler;
+  }
+
+  // Mini Terrain prop sampler: same masks as the classic one, heights and
+  // slopes from the read-back vertex grid (see MiniFieldPropSampler).
+  _getMiniPropSampler(field) {
+    const flat = this._getPropSampler();
+    if (this.miniPropSampler?.cpu !== this._propCpuSampler) {
+      this.miniPropSampler = new MiniFieldPropSampler({
+        cpu: this._propCpuSampler,
+        getWaterLevel: flat.getWaterLevel,
+        getPaintBiomeWeights: flat.getPaintBiomeWeights,
+        getPaintMask: flat.getPaintMask,
+        getPropExclusion: flat.getPropExclusion,
+      });
+    }
+    this.miniPropSampler.setField(field);
+    return this.miniPropSampler;
   }
 
   // Rich prop-placement sampler for Planet mode (wraps PlanetHeightSampler).
@@ -10814,7 +10907,7 @@ export class Engine {
     this.underwater.enabled = s.underwaterEffect !== false;
 
     // Studio board: segment counts + master distance scale
-    this.board.setLodSegments(segments);
+    this.board.setLodSegments(this._boardLodSegments());
     if (this.tileAssemblyShape === 'circle' && this.plinth) {
       this._syncCircularBoundarySpec();
       this._updatePlinth();
@@ -10822,7 +10915,8 @@ export class Engine {
     this.board.setLodDistanceScale(s.lodDistanceScale);
     this.board.cullingAggressiveness = s.cullingAggressiveness;
     this.board.setMergeOptions({
-      enabled: s.terrainMerge,
+      // a Mini surface is one fixed mesh: never fold it into a coarse proxy
+      enabled: s.terrainMerge && !this.mini?.active,
       quadsPerChunk: s.terrainMergeQuads,
       mergeDistance: s.terrainMergeDistance,
       macroEnabled: s.terrainMacroProxy,
@@ -11046,20 +11140,7 @@ export class Engine {
     const s = this.perf;
     const u = this.uniforms;
     if (!u?.uTerrainDetailQuality) return;
-    u.uTerrainDetailQuality.value = s.terrainDetailQuality ?? 3;
-    u.uTerrainDetailScale.value = s.terrainDetailScale ?? 0.16;
-    u.uTerrainDetailStrength.value = s.terrainDetailStrength ?? 0.72;
-    u.uTerrainDetailNormalStrength.value = s.terrainDetailNormal ?? 0.42;
-    u.uTerrainDetailNear.value = s.terrainDetailNear ?? 80;
-    u.uTerrainDetailFar.value = Math.max((s.terrainDetailFar ?? 190), (s.terrainDetailNear ?? 80) + 1);
-    u.uTerrainRockSlope.value = s.terrainRockSlope ?? 0.28;
-    u.uTerrainRockSharpness.value = s.terrainRockSharpness ?? 0.14;
-    u.uTerrainTriplanar.value = s.terrainTriplanar === false ? 0.0 : 1.0;
-    u.uTerrainShoreRange.value = s.terrainShoreRange ?? 18;
-    u.uTerrainShoreWetness.value = s.terrainShoreWetness ?? 0.35;
-    u.uTerrainDetailOpacity.value = s.terrainDetailOpacity ?? 1.0;
-    u.uTerrainMicroDetail.value = s.terrainMicroDetail ?? 0.6;
-    u.uTerrainMacroVariation.value = s.terrainMacroVariation ?? 0.5;
+    applyTerrainDetailUniforms(u, s);
     this._needsRender = true;
     if (!this._bootPending) void this._ensureTerrainShaderVariantAsync();
   }
@@ -11241,6 +11322,7 @@ export class Engine {
     this.planetCloudLayer?.setLighting(state);
     this.planetCloudChunks?.setLighting(state);
     this._syncTerrainLighting(state, tod);
+    this.mini?.syncLighting(state);
     this._syncTerrainCloudShadows();
     this._needsRender = true;
   }
@@ -11278,28 +11360,19 @@ export class Engine {
   _syncTerrainCloudShadows() {
     const u = this.uniforms;
     if (!u?.uTerrainCloudShadowEnabled) return;
-    const state = this.studioCloud?.getTerrainShadowState?.();
-    const enabled = this.worldMode === 'studio'
-      && this.params.cloudsEnabled
-      && this.params.cloudShadowsEnabled
-      && !!state;
-
-    u.uTerrainCloudShadowEnabled.value = enabled ? 1.0 : 0.0;
-    u.uTerrainCloudShadowStrength.value = Math.min(
-      0.85,
-      Math.max(0, this.params.cloudShadowOpacity ?? 0.45)
-    );
+    const layer = this.worldMode === 'planet' ? (this.planetCloudLayer || this.planetCloudChunks)
+      : this.worldMode === 'infinite' ? this.infiniteCloud : this.studioCloud;
+    const requested = !!this.params.cloudsEnabled && !!this.params.cloudShadowsEnabled;
+    const state = requested ? layer?.renderTerrainShadow?.(u.uSunDir.value, this._tileOccTex) : null;
+    u.uTerrainCloudShadowEnabled.value = state ? 1 : 0;
+    u.uTerrainCloudShadowStrength.value = Math.min(0.85, Math.max(0, this.params.cloudShadowOpacity ?? 0.45));
+    u.uTerrainCloudShadowTex.value = state?.texture ?? null;
+    u.uTileOccupancy.value = state?.texture ?? this._tileOccTex ?? null;
     if (state) {
       u.uTerrainCloudShadowCenter.value.copy(state.center);
       u.uTerrainCloudShadowExtent.value = state.extent;
       u.uTerrainCloudShadowAltitude.value = state.altitude;
-      u.uTerrainCloudShadowScale.value = state.scale;
-      u.uTerrainCloudShadowCoverage.value = state.coverage;
-      u.uTerrainCloudShadowSoftness.value = state.softness;
-      u.uTerrainCloudShadowWind.value.copy(state.wind);
-      u.uTerrainCloudShadowTime.value = state.time;
-      u.uTerrainCloudShadowRotation.value = state.rotation;
-      u.uTerrainCloudShadowEvolve.value = state.evolve;
+      u.uTerrainCloudShadowPlanet.value = state.planet ? 1 : 0;
     }
   }
 
@@ -11406,6 +11479,7 @@ export class Engine {
           : 1,
       },
     };
+    if (this.mini?.state) data.miniTerrain = this.mini.serialize();
     if (this.projectMode === 'manual') data.manualTerrain = this.manualTerrain?.serialize() ?? { version: 5, baseSource: 'flat', shapes: [], sculpt: null, surfacePaint: null };
     const realWorldSource = normalizeRealWorldSource(this.realWorldSource);
     if (realWorldSource) data.realWorldSource = realWorldSource;
@@ -11481,6 +11555,36 @@ export class Engine {
       ? normalizeManualTerrainDocument(json?.manualTerrain)
       : null;
     this.workspacePreset = json?.workspacePreset === 'real-terrain' ? 'real-terrain' : null;
+    // Projects without a Mini section keep exactly their previous behaviour.
+    let miniStyleMigration = null;
+    this.mini?.install(this.projectMode === 'procedural'
+      ? normalizeMiniTerrainState(json?.miniTerrain)
+      : null);
+    if (this.mini?.state) {
+      // Keep authored params when reopening a Mini. Only the footprint is
+      // owned exclusively by the Mini document; height and water defaults
+      // must not overwrite edits made through the shared settings panels.
+      // v1 documents still need the full units/props migration, and v2
+      // documents need the v3 noise shaping and props scales.
+      const storedVersion = Number(json?.miniTerrain?.version) || 1;
+      if (storedVersion < 2) {
+        Object.assign(this.params, this.mini.paramsPatch('all'));
+        miniStyleMigration = miniStylePatch(this.mini.state.recipe, this.mini.state.preset);
+      } else {
+        for (const [key, value] of Object.entries(this.mini.paramsPatch('structure'))) {
+          const saved = src[key];
+          if (key === 'chunkCount' || key === 'chunkSize'
+            || typeof saved !== typeof value
+            || (typeof value === 'number' && !Number.isFinite(saved))) {
+            this.params[key] = value;
+          }
+        }
+        if (storedVersion < MINI_TERRAIN_VERSION) {
+          Object.assign(this.params, this.mini.paramsPatch('shape'), this.mini.paramsPatch('propScale'));
+        }
+      }
+    }
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
     if (this.projectMode === 'manual' && manualDocument.baseSource === 'flat') {
       this.params.surfaceTextureSource = SURFACE_TEXTURE_SOURCE.BUILT_IN;
       this.params.surfaceTextureMode = true;
@@ -11498,6 +11602,7 @@ export class Engine {
     this._migrateLegacyCloudPerf(src);
     if (src.planetStyle) this.planetStyle.importJSON({ planetStyle: src.planetStyle });
     else if (src.planetPreset) this.planetStyle.applyPlanetPreset(src.planetPreset);
+    if (miniStyleMigration) this.planetStyle.setStyle(miniStyleMigration);
     this._syncPlanetStyleToParams();
     // restore the tile assembly (old saves with no tiles -> single origin tile)
     this.tileAssemblyShape = json?.tileAssemblyShape === 'circle' ? 'circle' : 'square';
@@ -11510,6 +11615,7 @@ export class Engine {
     this.tiles = this.tileAssemblyShape === 'circle'
       ? this._circleTiles(this.circleRadiusCells)
       : this._sanitizeTiles(json?.tiles);
+    this._enforceMiniSingleTile();
     this.explodeTool?.dispose?.();
     this.explodeTool = null;
     if (this._explodeBuildingTimer) clearTimeout(this._explodeBuildingTimer);
@@ -11667,6 +11773,7 @@ export class Engine {
       manualTerrain: this.manualTerrain?.serialize({ includeSculpt: false, includeSurface: false }) ?? { version: 5, baseSource: 'flat', shapes: [] },
       manualSculptRev: this.manualTerrain?.field?.sculptRevision ?? 0,
       manualSurfaceRev: this.manualTerrain?.surfaceRevision ?? 0,
+      miniTerrain: this.mini?.serialize() ?? null,
     };
   }
 
@@ -11755,6 +11862,11 @@ export class Engine {
     this.tiles = this.tileAssemblyShape === 'circle'
       ? this._circleTiles(this.circleRadiusCells)
       : this._sanitizeTiles(snap.tiles);
+
+    // Mini document first: board layout, base and composition depend on it.
+    this.mini?.install(normalizeMiniTerrainState(snap.miniTerrain));
+    this._enforceMiniSingleTile();
+    this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
 
     // push params → uniforms and rebuild board geometry (chunk layout may differ)
     this.cb.onParams(this._paramsSnapshot());
@@ -12414,6 +12526,7 @@ export class Engine {
       // Water masks are folded into the single export zip (not downloaded
       // separately) via extraZipFiles, so the user gets one .zip with everything.
       const exportOptions = { ...options };
+      const projectPayload = this.createProjectPayload();
       let extraZipFiles = createProductionFiles(exportOptions, {
         seed: this.params.seed,
         boardSize: this.boardSize,
@@ -12423,8 +12536,19 @@ export class Engine {
         projectMode: this.projectMode,
         tileAssemblyShape: this.tileAssemblyShape,
         tiles: this.tiles.map((tile) => ({ ...tile })),
-        projectPayload: this.createProjectPayload(),
+        projectPayload,
       });
+      if (options.exportCode) {
+        onMsg('Generating terrain JavaScript (npm)...');
+        const { createTerrainCodeFiles } = await import('../export/TerrainCodeExporter.js');
+        Object.assign(extraZipFiles, createTerrainCodeFiles(projectPayload, {
+          quality: this.perf,
+          camera: {
+            position: this.camera.position.toArray(),
+            target: this.controls.target.toArray(),
+          },
+        }));
+      }
       let tileWaterMaskFiles = null;
       if (options.exportWaterMask || options.exportDepthMap || options.exportShorelineMask
         || options.exportFoamMask || options.exportWaterMetadata) {
@@ -12467,7 +12591,10 @@ export class Engine {
         const { TerrainExporter } = await import('./terrain/TerrainExporter.js');
         await TerrainExporter.export(
           this.renderer, this.params, this.uniforms, this.boardSize,
-          { ...exportOptions, extraZipFiles, tileWaterMaskFiles, tiles: this.tiles.map((t) => ({ ...t })), tileAssemblyShape: this.tileAssemblyShape, diskRadiusCells: this.diskRadiusCells, cellSize: this.cellSize }, onMsg, this._activeHeightProgram()
+          {
+            ...exportOptions, extraZipFiles, tileWaterMaskFiles, tiles: this.tiles.map((t) => ({ ...t })), tileAssemblyShape: this.tileAssemblyShape, diskRadiusCells: this.diskRadiusCells, cellSize: this.cellSize,
+            mini: this.mini?.exportSpec() ?? null,
+          }, onMsg, this._activeHeightProgram()
         );
       }
       return true;
@@ -12548,6 +12675,14 @@ export class Engine {
     const dispatch = (target, type, payload = {}) => {
       if (target?.dispatchTerrainEvent) target.dispatchTerrainEvent(type, payload);
     };
+    if (typeof frame.pointerLocked === 'boolean') {
+      const doc = this.canvas.ownerDocument;
+      const lockedElement = frame.pointerLocked ? this.canvas : null;
+      if (doc && doc.pointerLockElement !== lockedElement) {
+        doc.pointerLockElement = lockedElement;
+        dispatch(doc, 'pointerlockchange');
+      }
+    }
     for (const event of frame.pointerEvents || []) dispatch(this.canvas, event.type, event);
     for (const event of frame.dragEvents || []) dispatch(this.canvas, event.type, event);
     if (frame.wheel) dispatch(this.canvas, 'wheel', frame.wheel);
@@ -12566,6 +12701,8 @@ export class Engine {
       worldMode: this.worldMode,
       projectMode: this.projectMode,
       workspacePreset: this.workspacePreset,
+      pointerLockEnabled: !!(this.fpsControls || this.player?.dom),
+      miniTerrain: this.mini?.serialize() ?? null,
       realWorldSource: this.realWorldSource,
       timeOfDay: this.timeOfDay,
       soloLayerId: this._soloLayerId ?? null,
@@ -12604,6 +12741,70 @@ export class Engine {
     };
   }
 
+  // ------------------------------------------------------------ Mini Terrain
+
+  getMiniTerrain() {
+    return this.mini?.serialize() ?? null;
+  }
+
+  /**
+   * Edit the Mini document. Each field invalidates only its own category:
+   * water level → water params; vegetation → props; clouds → cloud params;
+   * relief/seed/recipe → composition (terrain field re-bake, no geometry
+   * rebuild); quality → surface resolution + water backend.
+   */
+  setMiniTerrain(patch = {}) {
+    const plan = this.mini?.planChange(patch);
+    if (!plan) return null;
+    this.mini.state = plan.state;
+    const keys = Object.keys(plan.params);
+    if (keys.length) this._clearPendingTerrainParams(keys);
+    for (const [key, value] of Object.entries(plan.params)) this.params[key] = value;
+    if (plan.palette) {
+      this.planetStyle.setStyle(plan.palette);
+      this._syncPlanetStyleToParams();
+      this.planetStyle.applyToUniforms(this.uniforms);
+    }
+    if (plan.changed.includes('quality') || plan.changed.includes('width')) {
+      this.board.setLodSegments(this._boardLodSegments());
+    }
+    const rebuild = keys.some((key) => REBUILD_KEYS.has(key));
+    const terrainDirty = plan.composition || keys.some((key) => TERRAIN_FIELD_KEYS.has(key));
+    this._needsRender = true;
+    this._afterParamChange(rebuild, terrainDirty);
+    if (plan.changed.some((key) => key === 'recipe' || key === 'width' || key === 'shape')) this.mini.frame({ blend: true });
+    this.cb.onParams(this._paramsSnapshot());
+    this.cb.onMiniTerrain?.(this.mini.serialize());
+    return this.mini.serialize();
+  }
+
+  /** New composition from a fresh seed (keeps amounts, quality, presentation). */
+  regenerateMiniTerrain(seed = null) {
+    if (!this.mini?.state) return null;
+    const next = Number.isFinite(Number(seed)) ? Number(seed) >>> 0 : ((Math.random() * 0xffffffff) >>> 0);
+    return this.setMiniTerrain({ seed: next });
+  }
+
+  frameMiniTerrain() {
+    this.mini?.frame({ blend: true });
+  }
+
+  saveMiniView(name) {
+    const state = this.mini?.saveView(name);
+    if (state) this.cb.onMiniTerrain?.(this.mini.serialize());
+    return state ? this.mini.serialize() : null;
+  }
+
+  removeMiniView(index) {
+    const state = this.mini?.removeView(index);
+    if (state) this.cb.onMiniTerrain?.(this.mini.serialize());
+    return state ? this.mini.serialize() : null;
+  }
+
+  goToMiniView(index) {
+    return this.mini?.goToView(index) ?? false;
+  }
+
   setClientState(patch = {}) {
     if ('workspacePreset' in patch) this.workspacePreset = patch.workspacePreset;
     return this.getClientSnapshot();
@@ -12616,7 +12817,7 @@ export class Engine {
     const revision=(this._surfaceBuildRevision||0)+1;this._surfaceBuildRevision=revision;
     const buildKey = this._surfaceBuildKey(source);
     const { prepareSurfaceInBackground, cancelSurfacePreparations } = await import('./terrain/surface/SurfacePreparationClient.js');
-    cancelSurfacePreparations();
+    cancelSurfacePreparations(this);
     this._bgWorkStart('surface-preparation', 'Preparing terrain materials…');
     const layersField = this.manualTerrain?.surfaceField?.layersField;
     let atlas;
@@ -12624,7 +12825,7 @@ export class Engine {
       atlas = await prepareSurfaceInBackground({
         source, document: this.params.surfaceDocument, graph: this.terrainGraph,
         paint: layersField ? { layers: layersField.layers } : null,
-      });
+      }, {owner:this});
     } catch (error) {
       if (error.code !== 'SURFACE_ATLAS_SUPERSEDED') {
         this.cb.onStatus?.('Terrain materials could not be prepared; base terrain remains available', false);
@@ -12840,19 +13041,29 @@ export class Engine {
     this.manualTerrain?.flushUploads();
     this.destructionField?.flushUploads();
     this.propsManager?.tickWind(now * 0.001, this.params);
+    // Mini Terrain places props from its read-back vertex-height grid: the
+    // scatter follows the revision of that grid, rebuilt in budgeted slices
+    // behind the shown one, over the footprint's sectors only.
+    const miniPropField = this.worldMode === 'studio' && this.params.propsEnabled
+      ? this.mini?.propField() : null;
     this.propsManager?.update({
       mode: this.worldMode,
       camera: this.camera,
       params: this.params,
       perf: this.perf,
       boardSize: this.boardSize,
-      sampler: this.worldMode === 'planet' ? null : this._getPropSampler(),
+      sampler: this.worldMode === 'planet' ? null
+        : miniPropField ? this._getMiniPropSampler(miniPropField) : this._getPropSampler(),
       planetSampler: this.worldMode === 'planet' ? this._getPlanetPropSampler() : null,
       paintLayers: this.worldMode === 'studio'
         ? (this.projectMode === 'manual' ? this.manualTerrain?.propField : this.paintMode?.layers)
         : null,
       splineRevision: this.worldMode === 'studio' ? this.splineManager?.baker?.revision : -1,
-      terrainRevision: this._terrainGen,
+      terrainRevision: miniPropField ? miniPropField.revision : this._terrainGen,
+      immediate: !!miniPropField,
+      bounds: miniPropField
+        ? { minX: -miniPropField.half, maxX: miniPropField.half, minZ: -miniPropField.half, maxZ: miniPropField.half }
+        : null,
       containsPoint: this.worldMode === 'studio' ? (x, z) => this._containsPropPoint(x, z) : null,
       centerOverride: this.worldMode === 'studio' && this.exploreMode === 'none'
         ? this.controls?.target : null,
@@ -12925,6 +13136,7 @@ export class Engine {
       causticsEnabled: p.waterUnderwaterCausticsEnabled !== false,
       particlesEnabled: !!p.waterUnderwaterParticles,
       lightShaftsEnabled: !!p.waterUnderwaterLightShafts,
+      volume: this.mini?.underwaterVolume() ?? null,
     });
 
     // terrain caustics (shared uniforms; world-XZ projection → seamless across
@@ -12933,7 +13145,10 @@ export class Engine {
     const causticUser = p.waterUnderwaterCaustics ?? 0.4;
     const causticsOn = waterActive && ctrl.causticsEnabled && quality !== 'off';
     if (u.uCausticStrength) {
-      u.uCausticStrength.value = causticsOn ? causticUser : 0;
+      // Mini Terrain draws caustics in its own water shader (seabed seen
+      // through the water only), so the terrain pass must not add them twice.
+      // The Stylized mode uses the same surface shader on every world.
+      u.uCausticStrength.value = causticsOn && !this.mini?.active && effectiveMode !== 'stylized' ? causticUser : 0;
       // Caustics live on the submerged sea floor and are visible from any
       // viewpoint (above or below water), so they are NOT tied to the camera
       // being underwater — only to water covering the terrain. Depth fade in
@@ -13139,14 +13354,14 @@ export class Engine {
       // fly the camera out and inspect the frozen frustum from outside).
       this.camera.updateMatrixWorld(true);
       this.profiler.begin('culling');
-      if (!this._debug.freezeCulling) this.board.cull(this.camera);
+      if (!this._debug.freezeCulling) updateFiniteTerrainView(this.board, this.camera, { lod: false });
       this.profiler.end('culling');
 
       // LOD selection: throttled, distance-based, internal to the fixed board
       if (now - this._lastLodUpdate > 150 && !this._debug.freezeLod) {
         this._lastLodUpdate = now;
         this.profiler.begin('lod');
-        this.board.updateLOD(this.camera.position);
+        updateFiniteTerrainView(this.board, this.camera, { cull: false });
         this.profiler.end('lod');
         this.cb.onLod(
           [...this.board.lodCounts],
@@ -13164,6 +13379,7 @@ export class Engine {
         }
       }
 
+      this.mini?.beforeRender();
       const cameraPlan = this._prepareCameraPipeline();
       const cameraSceneSize = this._cameraSceneSize(cameraPlan);
       const cameraTarget = cameraPlan.usesSceneTarget ? this.visualPost.inputTarget : null;
@@ -13217,6 +13433,7 @@ export class Engine {
         fps: this._fps,
         triangles: this._lastTris,
         drawCalls: this._lastDraws,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,
@@ -13279,6 +13496,7 @@ export class Engine {
     if (this.infiniteCloud) {
       this.profiler.begin('clouds');
       this.infiniteCloud.update(dt, this.camera.position, this.uniforms.uSunDir.value);
+      this._syncTerrainCloudShadows();
       this.profiler.end('clouds');
     }
     if (!this._needsRender && !this._renderCadenceDue(now)) return;
@@ -13328,6 +13546,7 @@ export class Engine {
         fps: this._fps,
         triangles,
         drawCalls,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,
@@ -13353,9 +13572,11 @@ export class Engine {
       this.profiler.begin('clouds');
       if (this.planetCloudChunks) {
         this.planetCloudChunks.update(dt, this.camera.position, this.uniforms.uSunDir.value, this.camera, this.planetWorld, this._debug);
+        this._syncTerrainCloudShadows();
       }
       if (this.planetCloudLayer) {
         this.planetCloudLayer.update(dt, this.camera.position, this.uniforms.uSunDir.value);
+        this._syncTerrainCloudShadows();
       }
       this.profiler.end('clouds');
     }
@@ -13419,6 +13640,7 @@ export class Engine {
         fps: this._fps,
         triangles,
         drawCalls,
+        waterTransition: this.waterSystem?.getTransitionState?.() ?? null,
         waterCost: this.params.waterShowPerfCost
           ? this.waterSystem?.getPerformanceDiagnostics?.() ?? null
           : null,
@@ -13455,6 +13677,7 @@ export class Engine {
       performance: this.profiler?.snapshot?.() || null,
       version: APP_VERSION,
       mode: this.worldMode,
+      mini: this.mini?.diagnostics() ?? null,
       exploreMode: this.exploreMode,
       state,
       qualityPreset: perf.preset,
@@ -13619,6 +13842,8 @@ export class Engine {
   }
 
   dispose() {
+    import('./terrain/surface/SurfacePreparationClient.js')
+      .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations(this));
     this._cityAbort?.abort();
     this._gpuFramePacer?.dispose();
     for (const entry of Object.values(this.importedMaps || {})) entry?.texture?.dispose();
@@ -13724,10 +13949,12 @@ export class Engine {
     this._nearHeightCache?.dispose();
     this._nearHeightCache = null;
     if (this.proceduralSky) { this.proceduralSky.dispose(); this.proceduralSky = null; }
-    this.board.dispose();
+    if (this.finiteTerrain) this.finiteTerrain.dispose();
+    else this.board.dispose();
     this.minimap.dispose();
     this.underwater.dispose();
     this.visualPost?.dispose();
+    this.mini?.dispose();
     this.waterSystem?.dispose();
     this.water?.geometry?.dispose();
     for (const t of this._matTrash) for (const m of t.mats) m.dispose();

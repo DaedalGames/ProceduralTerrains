@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import surfaceMaterialsApi from './vite-plugins/surfaceMaterialsApi.js';
+import playgroundRuntime from './vite-plugins/playgroundRuntime.js';
 
 export default defineConfig({
   // Be explicit here: without the automatic runtime, JSX is compiled to
@@ -9,7 +10,7 @@ export default defineConfig({
   esbuild: {
     jsx: 'automatic',
   },
-  plugins: [react({ jsxRuntime: 'automatic' }), surfaceMaterialsApi()],
+  plugins: [react({ jsxRuntime: 'automatic' }), surfaceMaterialsApi(), playgroundRuntime()],
   worker: {
     // The render worker loads optional world/export bundles dynamically, so it
     // must remain an ES-module graph rather than Vite's single-file IIFE mode.

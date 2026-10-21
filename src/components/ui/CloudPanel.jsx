@@ -5,9 +5,12 @@ import { FlatPanelContext } from '../panels/PanelContext.js';
 import { shouldForceSectionOpen } from '../panels/sectionUtils.js';
 import { SliderCtl, ToggleRow, SelectRow, ColorInput } from '../controls.jsx';
 import { colorToHex, parseColor } from '../../engine/style/ColorPalette.js';
-import { CLOUD_DEFAULT_PARAMS } from '../../engine/sky/CloudSettings.js';
+import { CLOUD_DEFAULT_PARAMS, CLOUD_NOISE_TYPES } from '../../engine/sky/CloudSettings.js';
+
+const NOISE_TYPE_OPTIONS = CLOUD_NOISE_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }));
 
 const SHAPE_SLIDERS = [
+  { key: 'cloudNoiseSeed', label: 'Noise Variation', min: 0, max: 1000, step: 1, info: 'Choose a different cloud noise pattern without changing the terrain seed. Shared by realistic and legacy clouds.' },
   { key: 'cloudCoverage', label: 'Coverage', min: 0, max: 1, step: 0.01, digits: 2, info: 'Fraction of the sky covered by clouds.' },
   { key: 'cloudDensity', label: 'Density', min: 0.1, max: 3, step: 0.05, digits: 2, info: 'Overall opacity / optical thickness of the clouds.' },
   { key: 'cloudSoftness', label: 'Softness', min: 0.01, max: 0.6, step: 0.01, digits: 2, info: 'Softness of the cloud edges where coverage cuts in.' },
@@ -63,6 +66,30 @@ const RENDER_SCALE_OPTIONS = [
   { value: '0.25', label: 'Quarter res' },
 ];
 
+const RENDER_MODE_OPTIONS = [
+  { value: 'legacy', label: 'Legacy' },
+  { value: 'realistic', label: 'Realistic' },
+];
+
+// Realistic mode: the Procedural Planets cloud settings.
+const REAL_FORM_SLIDERS = [
+  { key: 'cloudSystemScale', label: 'System Scale', min: 1, max: 10, step: 0.1, digits: 1, info: 'Frequency of weather systems and cloud formations. Higher values create smaller clouds; lower values create larger clouds.' },
+  { key: 'cloudErosion', label: 'Erosion', min: 0, max: 1, step: 0.05, digits: 2, info: 'Wispy bottoms / billowy tops.' },
+  { key: 'cloudBillowSize', label: 'Billow Size', min: 0.3, max: 3, step: 0.05, digits: 2, info: 'Size of the billows.' },
+  { key: 'cloudTowering', label: 'Towering', min: 0, max: 1, step: 0.05, digits: 2, info: 'Vertical development: low flat decks to tall towering cumulonimbus.' },
+  { key: 'cloudShear', label: 'Wind Shear', min: 0, max: 1, step: 0.05, digits: 2, info: 'Upper winds carry cloud tops downstream: towers lean.' },
+];
+
+const REAL_LIGHT_SLIDERS = [
+  { key: 'cloudForwardScatter', label: 'Silver Lining', min: 0, max: 2, step: 0.05, digits: 2, info: 'Forward-scattering glow on cloud edges when looking toward the sun.' },
+  { key: 'cloudExposure', label: 'Exposure', min: 0.3, max: 2.5, step: 0.05, digits: 2, info: 'Brightness of the cloud radiance before tone mapping.' },
+];
+
+const REAL_COLOR_FIELDS = [
+  { key: 'cloudColor', label: 'Cloud', info: 'Cloud albedo multiplied by sunlight and sky lighting.', def: [1, 1, 1] },
+  { key: 'cloudSkyTint', label: 'Sky-lit Tint', info: 'Tint of the ambient light the sky scatters into the clouds.', def: [0.78, 0.84, 0.95] },
+];
+
 const COLOR_FIELDS = [
   { key: 'cloudColor', label: 'Cloud Color', info: 'Cloud albedo multiplied by sunlight and sky lighting.', def: [1, 1, 1] },
   { key: 'cloudShadowColor', label: 'Shadow Color', info: 'Artistic tint applied only to self-shadowed cloud regions.', def: [0.42, 0.47, 0.6] },
@@ -114,6 +141,127 @@ export default function CloudPanel({
     else if (v === 'ultra') onPerfSetting('cloudSteps', 48);
   };
 
+  const realistic = params.cloudRenderMode === 'realistic';
+  const noiseTypeControl = (
+    <SelectRow
+      label={translateText('Noise Type')}
+      value={CLOUD_NOISE_TYPES.includes(params.cloudNoiseVariant) ? params.cloudNoiseVariant : 'soft'}
+      options={NOISE_TYPE_OPTIONS}
+      onChange={(v) => onParam('cloudNoiseVariant', v)}
+      info={translateText('Soft: smooth cloud masses. Billowy: rounded, puffy formations. Wispy: thin, feathered clouds. Works with Noise Variation in both renderers.')}
+      settingId="clouds.cloudNoiseVariant"
+    />
+  );
+  const sliders = (defs) => defs.map((def) => (
+    <SliderCtl key={def.key} def={def} value={val(params, def.key)} onChange={(v) => onParam(def.key, v)} settingId={`clouds.${def.key}`} />
+  ));
+
+  const realisticContent = (
+    <>
+      <ControlSection
+        id={`${id}-shape`}
+        title={translateText("Shape")}
+        defaultOpen
+        settingId="clouds.section.shape"
+        forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseVariant', 'clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+      >
+        {noiseTypeControl}
+        {sliders(SHAPE_SLIDERS)}
+      </ControlSection>
+
+      <ControlSection
+        id={`${id}-formation`}
+        title={translateText("Formation")}
+        defaultOpen
+        settingId="clouds.section.formation"
+        forceOpen={forceSection('clouds.section.formation', 'Formation', ['clouds.cloudSystemScale', 'clouds.cloudErosion', 'clouds.cloudBillowSize', 'clouds.cloudTowering', 'clouds.cloudShear'])}
+      >
+        {sliders(REAL_FORM_SLIDERS)}
+      </ControlSection>
+
+      <ControlSection
+        id={`${id}-shell`}
+        title={translateText("Shell")}
+        defaultOpen={false}
+        settingId="clouds.section.shell"
+        forceOpen={forceSection('clouds.section.shell', 'Shell', ['clouds.cloudAltitude', 'clouds.cloudThickness'])}
+      >
+        {sliders(SHELL_SLIDERS)}
+      </ControlSection>
+
+      <ControlSection
+        id={`${id}-motion`}
+        title={translateText("Motion")}
+        defaultOpen={false}
+        settingId="clouds.section.motion"
+        forceOpen={forceSection('clouds.section.motion', 'Motion', ['clouds.cloudWind', 'clouds.cloudRotation', 'clouds.cloudEvolve'])}
+      >
+        {sliders(MOTION_SLIDERS.filter((def) => worldMode === 'planet' || def.key !== 'cloudRotationSpeed'))}
+      </ControlSection>
+
+      <ControlSection
+        id={`${id}-lighting`}
+        title={translateText("Lighting")}
+        defaultOpen={false}
+        settingId="clouds.section.lighting"
+        forceOpen={forceSection('clouds.section.lighting', 'Lighting', ['clouds.cloudForwardScatter', 'clouds.cloudExposure', 'clouds.cloudColor', 'clouds.cloudSkyTint'])}
+      >
+        {sliders(REAL_LIGHT_SLIDERS)}
+        {REAL_COLOR_FIELDS.map(({ key, label, info, def }) => (
+          <div className="color-field" key={key} data-setting-id={`clouds.${key}`}>
+            <div className="label-with-icon" data-tooltip={translateText(info)}>
+              <span className="setting-label">{translateText(label)}</span>
+            </div>
+            <ColorInput
+              label={label}
+              value={colorToHex(val(params, key) ?? def)}
+              onChange={(v) => onParam(key, parseColor(v))}
+            />
+          </div>
+        ))}
+      </ControlSection>
+
+      <ControlSection
+        id={`${id}-performance`}
+        title={translateText("Performance")}
+        defaultOpen={false}
+        settingId="clouds.section.performance"
+        forceOpen={forceSection('clouds.section.performance', 'Performance', ['performance.cloudRealisticSteps', 'performance.cloudRenderScale', 'performance.cloudFallback', 'performance.cloudMaxDistance'])}
+      >
+        <SliderCtl
+          def={{ key: 'cloudRealisticSteps', label: 'Ray Steps', min: 24, max: 128, step: 4, digits: 0, info: 'Maximum raymarch steps through the cloud layer. Shared with Performance settings.' }}
+          value={p.cloudRealisticSteps ?? 64}
+          onChange={(v) => onPerfSetting('cloudRealisticSteps', Math.round(v))}
+          settingId="performance.cloudRealisticSteps"
+        />
+        <SelectRow
+          label={translateText("Render Scale")}
+          value={String(p.cloudRenderScale ?? 1)}
+          options={RENDER_SCALE_OPTIONS}
+          onChange={(v) => onPerfSetting('cloudRenderScale', parseFloat(v))}
+          info={translateText("Render clouds at lower resolution, then upscale with a depth-aware (bilateral) filter. Big FPS win since clouds are fill-rate bound; edges stay crisp against terrain and noise is smoothed. Shared with Performance settings.")}
+          settingId="performance.cloudRenderScale"
+        />
+        <SelectRow
+          label={translateText("Fallback Mode")}
+          value={p.cloudFallback ?? 'none'}
+          options={FALLBACK_OPTIONS}
+          onChange={(v) => onPerfSetting('cloudFallback', v)}
+          info={translateText("Safe modes for weaker devices: Lite caps steps and disables self-shadowing; Off hides clouds.")}
+          settingId="performance.cloudFallback"
+        />
+        {worldMode !== 'infinite' && (
+          <SliderCtl
+            def={{ key: 'cloudMaxDistance', label: 'Max Distance', min: 1.5, max: 12, step: 0.5, digits: 1, unit: '×', info: distInfo }}
+            value={p.cloudMaxDistance ?? 6.0}
+            onChange={(v) => onPerfSetting('cloudMaxDistance', v)}
+            settingId="performance.cloudMaxDistance"
+          />
+        )}
+      </ControlSection>
+    </>
+  );
+
   const content = (
     <>
       <ToggleRow
@@ -125,14 +273,30 @@ export default function CloudPanel({
       />
 
       {enabled && (
+        <SelectRow
+          label={translateText("Rendering")}
+          value={realistic ? 'realistic' : 'legacy'}
+          options={RENDER_MODE_OPTIONS}
+          onChange={(v) => onParam('cloudRenderMode', v)}
+          info={translateText("Legacy: the original procedural cloud renderer. Realistic: the Procedural Planets renderer (weather systems, towering cumulus, multiple scattering).")}
+          settingId="clouds.cloudRenderMode"
+        />
+      )}
+
+      {enabled && realistic && realisticContent}
+
+      {enabled && !realistic && <p className="section-hint">{translateText("Clouds hiding the terrain? Raise Altitude in Shell or try Realistic rendering.")} <button type="button" className="action-btn" onClick={() => onParam('cloudRenderMode', 'realistic')}>{translateText("Try Realistic clouds")}</button></p>}
+
+      {enabled && !realistic && (
         <>
           <ControlSection
             id={`${id}-shape`}
             title={translateText("Shape")}
             defaultOpen
             settingId="clouds.section.shape"
-            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
+            forceOpen={forceSection('clouds.section.shape', 'Shape', ['clouds.cloudNoiseVariant', 'clouds.cloudNoiseSeed', 'clouds.cloudCoverage', 'clouds.cloudDensity', 'clouds.cloudSoftness'])}
           >
+            {noiseTypeControl}
             {SHAPE_SLIDERS.map((def) => (
               <SliderCtl key={def.key} def={def} value={val(params, def.key)} onChange={(v) => onParam(def.key, v)} settingId={`clouds.${def.key}`} />
             ))}
@@ -190,6 +354,7 @@ export default function CloudPanel({
                   <span className="setting-label">{translateText(label)}</span>
                 </div>
                 <ColorInput
+                  label={label}
                   value={colorToHex(val(params, key) ?? def)}
                   onChange={(v) => onParam(key, parseColor(v))}
                 />

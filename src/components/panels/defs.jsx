@@ -44,6 +44,11 @@ export const NOISE_SLIDERS = [
     icon: (<svg viewBox="0 0 16 16" fill="none"><path d="M2 12h12M2 8h12M2 4h12" stroke="currentColor" strokeWidth="1.2" /></svg>),
   },
   {
+    key: 'terrainDetail', label: 'Terrain Detail', min: 0, max: 1, step: 0.01, digits: 2,
+    info: 'Amount of fine relief. Lower values fade out the smallest noise layers and round sharp ridge creases for smoother, more natural terrain; 1 keeps every detail. Live, no rebuild',
+    icon: (<svg viewBox="0 0 16 16" fill="none"><path d="M1.5 11c1.5-3 3-3 4.5-1s3 2 4.5-1 2.5-3 4-1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M1.5 6.5c1-1 2-1 3 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>),
+  },
+  {
     key: 'persistence', label: 'Persistence', min: 0.15, max: 0.85, step: 0.01, digits: 2,
     info: 'Amplitude retention factor of successive octave passes (higher = rougher terrain)',
     icon: (<svg viewBox="0 0 16 16" fill="none"><path d="M1 8h3v1h3v1h3v1h5" stroke="currentColor" strokeWidth="1.2" /></svg>),
@@ -169,7 +174,7 @@ export function ColorField({ label, icon, info, value, onChange }) {
         <span className="setting-label">{translateText(label)}</span>
         {info && <InfoDot />}
       </div>
-      <ColorInput value={value} onChange={(hex) => onChange({ target: { value: hex } })} />
+      <ColorInput label={label} value={value} onChange={(hex) => onChange({ target: { value: hex } })} />
     </div>
   );
 }

@@ -248,7 +248,10 @@ describe('stack output finalization shader contract', () => {
   it('uses the shared output finalizer for terrain and planet height', () => {
     const stack2d = 'float stackHeight2D(vec2 xz) { return 0.0; }';
     const stack3d = 'float stackHeight3D(vec3 dir) { return 0.0; }';
-    expect(buildHeightGLSL(stack2d)).toContain('finalizeStackHeight(h) * uHeightScale');
+    // Tile finalizes in h01 first so the Mini Terrain composition can sit
+    // between the shared finalizer and the world-height scale.
+    expect(buildHeightGLSL(stack2d)).toContain('float finalH01 = finalizeStackHeight(h);');
+    expect(buildHeightGLSL(stack2d)).toContain('float finalH = finalH01 * uHeightScale;');
     expect(buildPlanetHeightGLSL(stack3d)).toContain('finalizeStackHeight(h) * uHeightScale');
   });
 });

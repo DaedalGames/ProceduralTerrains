@@ -163,16 +163,12 @@ void main() {
   float targetStep = slabSpan / float(CLOUD_STEPS) / clamp(uCloudStepScale, 0.05, 1.0);
   float segLen = slabEnd - slabStart;
   int effSteps = int(clamp(segLen / targetStep, 8.0, float(CLOUD_STEPS)) + 0.5);
-  // Stable, ordered start-offset dither (spatial only, no time term) so the
-  // sampling lattice never crawls — see cl_ign / the spherical shader.
-  float dither = cl_ign(gl_FragCoord.xy);
 
   float transmittance = 1.0;
   vec3 scatter = vec3(0.0);
 
-  // Near-biased integration spends more samples close to the camera, where
-  // under-sampling is most visible. Each interval has its own physical length;
-  // that exact length must drive both Beer extinction and scattering.
+  // Integrate every interval exactly once, including the clipped last one.
+  // Symmetric density taps avoid screen-space stripes and stipple.
   //
   // Occupancy still gates every expensive density evaluation, but it never
   // rejects or leaps over a whole ray. Sparse three-point rejection and coarse
@@ -181,18 +177,20 @@ void main() {
   for (int i = 0; i < CLOUD_STEPS + uLoopGuard; i++) {
     float sampleIndex = float(i);
     if (sampleIndex < float(effSteps) && transmittance > 0.01) {
-      float a = (sampleIndex + dither) / float(effSteps);
-      float b = (sampleIndex + 1.0 + dither) / float(effSteps);
-      float ta = pow(clamp(a, 0.0, 1.0), 1.35);
-      float tb = pow(clamp(b, 0.0, 1.0), 1.35);
-      float t = slabStart + segLen * ta;
-      float stepLength = min(segLen * (tb - ta), max(t1 - t, 0.0));
+      float ta = sampleIndex / float(effSteps);
+      float tb = (sampleIndex + 1.0) / float(effSteps);
+      float intervalStart = slabStart + segLen * ta;
+      float stepLength = min(segLen * (tb - ta), max(t1 - intervalStart, 0.0));
+      float t = intervalStart + stepLength * 0.5;
       if (t < t1 && stepLength > 0.0) {
         vec3 P = ro + rd * t;
         float occ = uUseOccupancy > 0.5 ? occAt(P) : 1.0;
         if (occ >= 0.5) {
-          vec2 sampleData = cloudSample(P);
-          float dens = sampleData.x;
+          // Symmetric quadrature resolves the interval without screen-space
+          // random offsets, which made dense side views look like stipple.
+          vec3 offset = rd * (stepLength * 0.288675);
+          vec2 sampleData = cloudSample(P - offset);
+          float dens = 0.5 * (sampleData.x + cloudDensity(P + offset));
           if (dens > 0.001) {
             float light = uCloudSelfShadow > 0.5 ? cl_lightTransmittance(P) : 1.0;
             vec3 lit = cl_resolveLighting(P, rd, light, sampleData.y);
@@ -245,6 +243,8 @@ export function createCloudSlabMaterial(steps = 24, lightSteps = 6, octaves = 5,
       uCloudSilverLining:    { value: 0.25 },
       uCloudWind:            { value: new THREE.Vector3() },
       uCloudNoiseOffset:     { value: new THREE.Vector3() },
+      uCloudVariationOffset: { value: new THREE.Vector3() },
+      uCloudNoiseType: { value: 0 },
       uCloudDomainOrigin:    { value: new THREE.Vector3() },
       uCloudRotation:        { value: 0.0 },
       uCloudTime:            { value: 0.0 },

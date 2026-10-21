@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createCloudMaterial } from './CloudVolumeShader.js';
-import { resolveCloudQuality } from './CloudSettings.js';
+import { resolveCloudQuality, cloudNoiseOffset, resolveCloudNoiseType } from './CloudSettings.js';
+import { renderTerrainCloudShadow } from './CloudShadowPass.js';
 import { buildOccupancyOctahedral } from './cloudFieldCPU.js';
 import { CloudLowResPass } from './CloudLowResPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
@@ -87,8 +88,9 @@ export class PlanetCloudLayer {
     this._occBuiltAt = 0;
     this._occupancyPass = null;
 
-    this.material = createCloudMaterial(this._steps, this._lightSteps, this._octaves, this._detailOctaves, this._useErosion, this._lightMode);
-    if (opts.renderer) {
+    this._renderer = opts.renderer || null;
+    this.material = this._createMaterial();
+    if (opts.renderer && this._usesOccupancy) {
       this._occupancyPass = new CloudOccupancyPass(
         opts.renderer,
         this.material.uniforms,
@@ -101,6 +103,14 @@ export class PlanetCloudLayer {
     this.mesh.renderOrder = 20;        // after terrain (default) + water (10)
     this.mesh.visible = false;
     this.scene.add(this.mesh);
+  }
+
+  // Subclass hooks (the realistic renderer swaps the material and has no
+  // occupancy grid).
+  get _usesOccupancy() { return true; }
+
+  _createMaterial() {
+    return createCloudMaterial(this._steps, this._lightSteps, this._octaves, this._detailOctaves, this._useErosion, this._lightMode);
   }
 
   /** True when clouds are enabled, in range, and not in the 'off' fallback. */
@@ -145,6 +155,9 @@ export class PlanetCloudLayer {
     u.uCloudScale.value = (params.cloudScale ?? 2.2) * fScale;
     u.uCloudDetailScale.value = (params.cloudDetailScale ?? 7.0) * fScale;
     u.uCloudErosionScale.value = (params.cloudErosionScale ?? 15.0) * fScale;
+    u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+    u.uCloudNoiseType.value = resolveCloudNoiseType(params);
+    this._occBuiltAt = 0;
     u.uCloudDetailStrength.value = params.cloudDetailStrength ?? 0.35;
     u.uCloudErosionStrength.value = params.cloudErosionStrength ?? 0.30;
 
@@ -292,6 +305,10 @@ export class PlanetCloudLayer {
     const w = u.uCloudWind.value;
     const occupancyRatio = buildOccupancyOctahedral(this._occData, OCC_SIZE, inner, outer, {
       scale: u.uCloudScale.value,
+      noiseType: u.uCloudNoiseType.value,
+      offsetX: u.uCloudVariationOffset.value.x,
+      offsetY: u.uCloudVariationOffset.value.y,
+      offsetZ: u.uCloudVariationOffset.value.z,
       windX: w.x, windY: w.y, windZ: w.z,
       time: u.uCloudTime.value,
       rotation: u.uCloudRotation.value,
@@ -467,7 +484,12 @@ export class PlanetCloudLayer {
     this._depthTarget.texture.generateMipmaps = false;
   }
 
+  renderTerrainShadow(sun, tiles) {
+    return renderTerrainCloudShadow(this, sun, true, tiles);
+  }
+
   dispose() {
+    this._shadowPass?.dispose();
     if (this._depthTarget) {
       this._depthTarget.dispose();
       this._depthTarget = null;

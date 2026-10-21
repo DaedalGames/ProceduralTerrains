@@ -9,22 +9,29 @@ export const SURFACE_PACK_URL='/textures/terrain/pbr/';
 let catalogPromise;
 const preparedChains = new Map();
 const MAX_PREPARED_CHAINS = 8;
-function cachedChain(key, prepare) {
-  if (preparedChains.has(key)) {
-    const chain = preparedChains.get(key);
-    preparedChains.delete(key);
-    preparedChains.set(key, chain);
+function cachedChain(key, prepare, cache = preparedChains) {
+  // Provider scopes share completed assets, not cancellable in-flight requests.
+  // A signal from one consumer must not reject another consumer's request.
+  if(cache !== preparedChains){
+    if(cache.has(key))return Promise.resolve(cache.get(key));
+    return Promise.resolve().then(prepare).then(chain=>{cache.set(key,chain);while(cache.size>MAX_PREPARED_CHAINS)cache.delete(cache.keys().next().value);return chain;});
+  }
+  if (cache.has(key)) {
+    const chain = cache.get(key);
+    cache.delete(key);
+    cache.set(key, chain);
     return chain;
   }
   const chain = Promise.resolve().then(prepare).catch((error) => {
-    preparedChains.delete(key);
+    cache.delete(key);
     throw error;
   });
-  preparedChains.set(key, chain);
-  while (preparedChains.size > MAX_PREPARED_CHAINS) preparedChains.delete(preparedChains.keys().next().value);
+  cache.set(key, chain);
+  while (cache.size > MAX_PREPARED_CHAINS) cache.delete(cache.keys().next().value);
   return chain;
 }
-export function loadSurfaceCatalog() {
+export function loadSurfaceCatalog(provider, signal) {
+  if (provider?.loadCatalog) return provider.loadCatalog({ signal });
   return catalogPromise ||= fetch(`${SURFACE_PACK_URL}catalog.json`).then(r=>{if(!r.ok)throw new Error(`Material pack unavailable (${r.status})`);return r.json();}).catch(e=>{catalogPromise=null;throw e;});
 }
 export function decodeSurfaceMipChain(bytes,resolution) {
@@ -46,8 +53,8 @@ export function createMipArray(chains,key,colorSpace=THREE.NoColorSpace) {
   texture.minFilter=THREE.LinearMipmapLinearFilter;texture.magFilter=THREE.LinearFilter;
   texture.generateMipmaps=false;texture.needsUpdate=true;return texture;
 }
-export async function buildSurfaceResources({document:input,signal,references,extraReferences=[],graph,paint}={}) {
-  const document=createSurfaceDocument({...input,...(paint?{layers:paint.layers}:{})}),catalog=await loadSurfaceCatalog();
+export async function buildSurfaceResources({document:input,signal,references,extraReferences=[],graph,paint,provider}={}) {
+  const document=createSurfaceDocument({...input,...(paint?{layers:paint.layers}:{})}),catalog=await loadSurfaceCatalog(provider, signal);
   extraReferences=[...extraReferences,...(paint?.layers||[]).map(l=>l.materialInstanceId)];
   const graphPlan=compileSurfaceGraph(graph,document);
   if(graphPlan)extraReferences=[...extraReferences,...graphPlan.assets];
@@ -57,29 +64,29 @@ export async function buildSurfaceResources({document:input,signal,references,ex
   for(const id of ids) {
     signal?.throwIfAborted();const asset=catalog.assets.find(a=>a.id===id);
     if(id.startsWith('legacy:')) {
-      const name=id.slice(7),base=`/textures/terrain/${name}/base/${name}`;
+      const name=id.slice(7),base=`${provider?.legacyBaseUrl ?? "/textures/terrain"}/${name}/base/${name}`;
       chains.push(await cachedChain(`${id}:${budget.resolution}`, () =>
-        prepareSurfaceMaps({albedo:base+'_diffuse.jpg',normal:base+'_normal_dx.jpg',roughness:base+'_roughness.jpg',ao:base+'_ao.jpg'},budget.resolution,{normalConvention:'DX'})));continue;
+        prepareSurfaceMaps({albedo:base+'_diffuse.jpg',normal:base+'_normal_dx.jpg',roughness:base+'_roughness.jpg',ao:base+'_ao.jpg'},budget.resolution,{normalConvention:'DX'}), provider?.cache));continue;
     }
     if(id.startsWith('user:')) {
       const local=document.assets[id];if(!local)throw new Error(`Missing local material ${id}`);
       const contentKey=JSON.stringify([budget.resolution,local.normalConvention,Object.entries(local.maps).map(([slot,ref])=>[slot,ref.hash]).sort()]);
       chains.push(await cachedChain(`user:${contentKey}`, async () => {
-        const {getSurfaceBlob}=await import('../../../project/SurfaceAssetStore.js');const urls={};
-        try {for(const [slot,ref] of Object.entries(local.maps)){const blob=await getSurfaceBlob(ref.hash);if(!blob)throw new Error(`Missing local map ${local.name}: ${slot}`);urls[slot]=URL.createObjectURL(blob);}return await prepareSurfaceMaps(urls,budget.resolution,{normalConvention:local.normalConvention});}
+        if (!provider?.loadUserAsset) throw new Error('Provide loadUserAsset for local surface maps'); const urls={};
+        try {for(const [slot,ref] of Object.entries(local.maps)){const blob=await provider.loadUserAsset(ref.hash, {signal});if(!blob)throw new Error(`Missing local map ${local.name}: ${slot}`);urls[slot]=URL.createObjectURL(blob);}return await prepareSurfaceMaps(urls,budget.resolution,{normalConvention:local.normalConvention});}
         finally{Object.values(urls).forEach(url=>URL.revokeObjectURL(url));}
-      }));continue;
+      }, provider?.cache));continue;
     }
     if(!asset)throw new Error(`Material files unavailable: ${id}`);
     const file=asset.resolutions[budget.resolution];
     chains.push(await cachedChain(`${file.sha256}:${budget.resolution}`, async () => {
-      const response=await fetch(`${SURFACE_PACK_URL}${file.path}`,{signal});
+      const response=await (provider?.fetch ?? fetch)(provider?.resolveUrl ? provider.resolveUrl(file.path) : `${SURFACE_PACK_URL}${file.path}`,{signal});
       if(!response.ok)throw new Error(`${asset.name}: HTTP ${response.status}`);
       const bytes=new Uint8Array(await response.arrayBuffer());
       const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
       if(digest!==file.sha256)throw new Error(`${asset.name}: pack hash mismatch`);
       return decodeSurfaceMipChain(bytes,budget.resolution);
-    }));
+    }, provider?.cache));
   }
   signal?.throwIfAborted();
   const diffuse=createMipArray(chains,'color',THREE.SRGBColorSpace);let props;
@@ -92,6 +99,6 @@ export async function buildSurfaceResources({document:input,signal,references,ex
   return {backend:'array',document,paint,graph:compileSurfaceGraph(graph,document,slots),diffuse,props,slots,ids,mapping,tints,sizes,budget,
     present:new Array(SURFACE_TEXTURE_ROWS).fill(1),rolePresent:SURFACE_TEXTURE_ROLES.map(()=>1),
     tile:SURFACE_TEXTURE_ROLES.map(()=>12),anyPresent:true,bakedAt:Date.now(),
-    coverage:{diffuseReady:ids.length,total:ids.length,missingDiffuse:0,missingOptional:ids.filter(id=>catalog.assets.find(a=>a.id===id)?.missingOptional.length).length},
+    coverage:{diffuseReady:ids.length,total:ids.length,missingDiffuse:0,missingOptional:ids.filter(id=>catalog.assets.find(a=>a.id===id)?.missingOptional?.length).length},
     layers:ids.map(id=>({id,hasDiffuse:true})),};
 }

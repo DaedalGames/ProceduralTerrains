@@ -5,7 +5,7 @@
 // uTime tick animates them all. Heavy props (rocks, crystals, cactus) simply do
 // not use a wind material, so they never move.
 //
-// The displacement runs in the vertex shader (see GrassMaterial.js): the
+// The displacement runs in the vertex shader (see PropModels.js): the
 // per-vertex `aBend` attribute (0 at the rooted base → 1 at the tip) scales the
 // sway so the base stays glued to the terrain while the top bends — props never
 // detach from the ground.

@@ -16,6 +16,14 @@
 const f = Math.fround;
 function fract32(v) { return f(v - Math.floor(v)); }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+// Terrain Detail twins of octaveKeep / creaseAbs (TERRAIN_DETAIL_GLSL), f32.
+function octaveKeep32(i, n, cut) {
+  return clamp(f(f(n - i) - f(cut * f(n - 1))), 0, 1);
+}
+function creaseAbs32(x, cut) {
+  const s = f(f(cut * cut) * 0.04);
+  return s > 0 ? f(f(Math.sqrt(f(f(x * x) + s))) - f(Math.sqrt(s))) : Math.abs(x);
+}
 function mix32(a, b, t) { return f(a + f(f(b - a) * t)); }
 function smoothstep32(e0, e1, x) {
   const t = clamp(f(f(x - e0) / f(e1 - e0)), 0, 1);
@@ -72,6 +80,7 @@ function vnoise3(px, py, pz) {
 }
 
 import { evalStack3D } from './noise/noiseStackCodegen.js';
+import { setNoiseDetailCut } from './noise/cpuNoise.js';
 import { isLegacyStack } from './noise/NoiseStack.js';
 
 export class PlanetHeightSampler {
@@ -95,13 +104,16 @@ export class PlanetHeightSampler {
     return this._ctxObj;
   }
 
-  _fbm3D(px, py, pz, octaves) {
+  // detail = false: the 4-octave warp FBM, never thinned (fbm3D4 in GLSL)
+  _fbm3D(px, py, pz, octaves, detail = true) {
     const pers = f(this.u.uPersistence.value);
     const lac = f(this.u.uLacunarity.value);
+    const cut = detail ? f(this.u.uTerrainDetailCut?.value ?? 0) : 0;
     let amp = 0.5, sum = 0, norm = 0;
     for (let i = 0; i < octaves; i++) {
-      sum = f(sum + f(amp * vnoise3(px, py, pz)));
-      norm = f(norm + amp);
+      const w = f(amp * octaveKeep32(i, octaves, cut));
+      sum = f(sum + f(w * vnoise3(px, py, pz)));
+      norm = f(norm + w);
       amp = f(amp * pers);
       const nx = f(rot3x(px, py, pz) * lac);
       const ny = f(rot3y(px, py, pz) * lac);
@@ -111,7 +123,7 @@ export class PlanetHeightSampler {
     return f(sum / Math.max(norm, 1e-4));
   }
 
-  _fbm3D4(px, py, pz) { return this._fbm3D(px, py, pz, 4); }
+  _fbm3D4(px, py, pz) { return this._fbm3D(px, py, pz, 4, false); }
 
   _fbm3Dc(px, py, pz) {
     let v = f(vnoise3(px, py, pz) * 0.55);
@@ -125,13 +137,15 @@ export class PlanetHeightSampler {
   _ridgedFBM3D(px, py, pz, octaves) {
     const pers = f(this.u.uPersistence.value);
     const lac = f(this.u.uLacunarity.value);
+    const cut = f(this.u.uTerrainDetailCut?.value ?? 0);
     let amp = 0.5, sum = 0, norm = 0, carry = 1;
     for (let i = 0; i < octaves; i++) {
-      let v = f(1 - Math.abs(f(f(vnoise3(px, py, pz) * 2) - 1)));
+      const w = f(amp * octaveKeep32(i, octaves, cut));
+      let v = f(1 - creaseAbs32(f(f(vnoise3(px, py, pz) * 2) - 1), cut));
       v = f(v * v);
-      sum = f(sum + f(f(amp * v) * carry));
+      sum = f(sum + f(f(w * v) * carry));
       carry = clamp(f(v * 1.4), 0, 1);
-      norm = f(norm + amp);
+      norm = f(norm + w);
       amp = f(amp * pers);
       const nx = f(rot3x(px, py, pz) * lac);
       const ny = f(rot3y(px, py, pz) * lac);
@@ -204,6 +218,7 @@ export class PlanetHeightSampler {
 
   _rawStackHeightAt3D(dx, dy, dz) {
     const u = this.u;
+    setNoiseDetailCut(u.uTerrainDetailCut?.value ?? 0);
     return (this.stack && !isLegacyStack(this.stack))
       ? evalStack3D(this.stack, dx, dy, dz, this._ctx())
       : f(this._legacyShape3D(dx, dy, dz) * f(u.uAmplitude.value));

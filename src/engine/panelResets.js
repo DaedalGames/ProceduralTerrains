@@ -16,7 +16,7 @@ import { EARTH_PALETTE } from './style/ColorPalette.js';
 
 export const TERRAIN_RESET_KEYS = [
   'preset', 'heightScale', 'seaLevel', 'falloff', 'edgeFalloffMode',
-  'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'persistence', 'lacunarity', 'ridge', 'warp',
+  'noiseScale', 'noiseStrength', 'terrainSmoothing', 'octaves', 'terrainDetail', 'persistence', 'lacunarity', 'ridge', 'warp',
   'noisePreset', 'normalStrength', 'aoStrength', 'aoRidge',
   'surfaceTextureSource', 'surfaceTextureMode', 'surfaceTextureAmount', 'surfaceTextureTint', 'surfaceTextureScale',
   'surfaceTextureBreakup', 'surfaceTextureBlend', 'surfaceTextureTransition', 'surfaceTextureRawColor', 'surfaceTexturePaletteInfluence',
@@ -35,7 +35,7 @@ export const BIOME_RESET_KEYS = [
 
 export const PROPS_RESET_KEYS = [
   'propsEnabled', 'propsDensity', 'propsGrassDensity', 'propsFlowers', 'propsGrass',
-  'propsRocks', 'propsRockScale', 'propsTreeDensity', 'propsTreeScale',
+  'propsRocks', 'propsRockScale', 'propsTreeDensity', 'propsForest', 'propsTreeScale',
   'propsWind', 'propsWindSpeed', 'propsGust', 'propsCullDistance', 'propsLodDistance',
   'propsAssets',
 ];

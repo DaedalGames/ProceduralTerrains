@@ -37,8 +37,10 @@ export class PlayerController {
    * @param {function} opts.getWaterLevel   () => number | null
    * @param {object} [opts.config]          overrides of DEFAULT_PLAYER_CONFIG
    */
-  constructor({ controls, camera, sampler, getWaterLevel, config = {} }) {
+  constructor({ controls, camera, sampler, getWaterLevel, config = {}, bounds = null }) {
     this.controls = controls;
+    // optional walkable rectangle { minX, maxX, minZ, maxZ } (Mini diorama)
+    this.bounds = bounds;
     this.camera = camera;
     this.sampler = sampler;
     this.getWaterLevel = getWaterLevel;
@@ -56,6 +58,7 @@ export class PlayerController {
 
     // spawn standing on the terrain under the current camera position
     // (land immediately — no long initial fall from a fly-cam altitude)
+    this._clampToBounds();
     this.pos.y = sampler.heightAt(this.pos.x, this.pos.z);
 
     // route the mouse wheel to the speed multiplier instead of fly speed
@@ -82,6 +85,40 @@ export class PlayerController {
   }
 
   // ------------------------------------------------------------------ update
+
+  // Keep the walker on a bounded footprint; the wall stops horizontal speed
+  // instead of letting the player step into the void past the cut.
+  _clampToBounds() {
+    const b = this.bounds;
+    if (!b) return;
+    if (this.pos.x < b.minX) { this.pos.x = b.minX; this.vel.x = Math.max(0, this.vel.x); }
+    if (this.pos.x > b.maxX) { this.pos.x = b.maxX; this.vel.x = Math.min(0, this.vel.x); }
+    if (this.pos.z < b.minZ) { this.pos.z = b.minZ; this.vel.z = Math.max(0, this.vel.z); }
+    if (this.pos.z > b.maxZ) { this.pos.z = b.maxZ; this.vel.z = Math.min(0, this.vel.z); }
+    const r = Math.hypot(this.pos.x, this.pos.z);
+    if (b.hexagonHalf) {
+      const a = b.hexagonHalf * Math.sqrt(3) / 2;
+      for (let i = 0; i < 6; i++) {
+        const angle = i * Math.PI / 3;
+        const nx = Math.cos(angle); const nz = Math.sin(angle);
+        const outside = this.pos.x * nx + this.pos.z * nz - a;
+        if (outside <= 0) continue;
+        this.pos.x -= outside * nx;
+        this.pos.z -= outside * nz;
+        const out = this.vel.x * nx + this.vel.z * nz;
+        if (out > 0) { this.vel.x -= out * nx; this.vel.z -= out * nz; }
+      }
+    }
+    if (b.radius && r > b.radius) {
+      // round footprint: project back onto the rim, drop the outward speed
+      const nx = this.pos.x / r;
+      const nz = this.pos.z / r;
+      this.pos.x = nx * b.radius;
+      this.pos.z = nz * b.radius;
+      const out = this.vel.x * nx + this.vel.z * nz;
+      if (out > 0) { this.vel.x -= out * nx; this.vel.z -= out * nz; }
+    }
+  }
 
   update(dt) {
     const cfg = this.cfg;
@@ -206,6 +243,7 @@ export class PlayerController {
     // --- integrate ---
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
+    this._clampToBounds();
     this.pos.y += this.vel.y * dt;
 
     // --- ground collision + snap (re-sample at the new XZ) ---
@@ -261,6 +299,7 @@ export class PlayerController {
 
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
+    this._clampToBounds();
     this.pos.y += this.vel.y * dt;
 
     // don't float above the surface while still in swim mode

@@ -33,7 +33,24 @@ export function macroDensity(x, z, seed, salt = 0) {
   return top + (bottom - top) * sz;
 }
 
-export function densityForType(desc, params, sample) {
+// Forest coverage also lets trees climb steeper ground (wooded hillsides);
+// the widened descriptor is memoised per type and coverage value.
+const forestDescCache = new Map();
+function forestDescriptor(desc, forest) {
+  if (!(forest > 0) || (desc.id !== 'broadleaf' && desc.id !== 'conifer') || !desc.slopeRange) return desc;
+  let byForest = forestDescCache.get(desc);
+  if (!byForest) forestDescCache.set(desc, (byForest = new Map()));
+  let out = byForest.get(forest);
+  if (!out) {
+    out = { ...desc, slopeRange: [desc.slopeRange[0], desc.slopeRange[1] * (1 + forest * 0.9)] };
+    if (byForest.size > 64) byForest.clear();
+    byForest.set(forest, out);
+  }
+  return out;
+}
+
+export function densityForType(rawDesc, params, sample) {
+  const desc = forestDescriptor(rawDesc, clamp(params.propsForest ?? 0, 0, 1));
   const master = clamp(params.propsDensity ?? 0.65, 0, 2);
   let typeDensity = clamp(params[desc.densityParam] ?? 1, 0, 2);
   const paint = sample.mask;
@@ -57,12 +74,16 @@ export function densityForType(desc, params, sample) {
 export function shouldPlaceType(desc, sample, params, { roll, macro = 0.5 } = {}) {
   const density = densityForType(desc, params, sample);
   if (density <= 0) return false;
+  // Forest coverage widens the tree patches (clearings remain where the macro
+  // field is low); 0 reproduces the historical grove distribution exactly.
+  const forest = clamp(params.propsForest ?? 0, 0, 1);
   const patch = desc.id === 'rock'
     ? 0.35 + macro * 0.9
     : desc.id === 'broadleaf' || desc.id === 'conifer'
-      ? clamp01((macro - 0.2) * 1.35)
+      ? clamp01((macro - 0.2 * (1 - forest)) * (1.35 + forest * 1.4))
       : 0.42 + macro * 0.72;
-  return (roll ?? 0) < clamp01(density * patch);
+  const forestBoost = desc.id === 'broadleaf' || desc.id === 'conifer' ? 1 + forest * 1.2 : 1;
+  return (roll ?? 0) < clamp01(density * patch * forestBoost);
 }
 
 // Backward-compatible weighted selector used by older callers/tests. New

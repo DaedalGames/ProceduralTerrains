@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bindTouchLook, requestMouseLock } from '../FirstPersonInput.js';
 
 const DEG = Math.PI / 180;
 const PITCH_LIMIT = 70 * DEG;
@@ -64,7 +65,7 @@ export class PlaneController {
 
     this._initPose();
 
-    this._onClick = () => { if (!this._locked) this.dom.requestPointerLock(); };
+    this._onClick = (event) => { if (!this._locked) requestMouseLock(this.dom, event); };
     this._onLockChange = () => {
       this._locked = document.pointerLockElement === this.dom;
       if (!this._locked) {
@@ -74,11 +75,12 @@ export class PlaneController {
       }
     };
     this._onMouseMove = (e) => {
-      if (!this._locked) return;
+      if (!this._locked && e.pointerType !== 'touch') return;
       this._mouseX = Math.max(-1, Math.min(1, this._mouseX + e.movementX * this.cfg.mouseSensitivity));
       this._mouseY = Math.max(-1, Math.min(1, this._mouseY + e.movementY * this.cfg.mouseSensitivity));
     };
     this._onKeyDown = (e) => { if (this._locked) this._keys.add(e.code); };
+    this._disposeTouchLook = bindTouchLook(this.dom, this._onMouseMove);
     this._onKeyUp = (e) => this._keys.delete(e.code);
     this._onWheel = (e) => {
       e.preventDefault();
@@ -94,6 +96,7 @@ export class PlaneController {
   }
 
   dispose() {
+    this._disposeTouchLook();
     this.dom.removeEventListener('click', this._onClick);
     this.dom.removeEventListener('wheel', this._onWheel);
     document.removeEventListener('pointerlockchange', this._onLockChange);

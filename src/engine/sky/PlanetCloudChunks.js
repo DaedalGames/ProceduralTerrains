@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { createCloudMaterial } from './CloudVolumeShader.js';
-import { resolveCloudQuality } from './CloudSettings.js';
+import { resolveCloudQuality, cloudNoiseOffset, resolveCloudNoiseType } from './CloudSettings.js';
 import { cloudCoverageAt } from './cloudFieldCPU.js';
+import { CloudShadowPass } from './CloudShadowPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
 
 // ============================================================================
@@ -44,7 +45,7 @@ const SHARED_KEYS = [
   'uCloudColor', 'uCloudShadowColor', 'uCloudDirectLight', 'uCloudAmbientTop',
   'uCloudAmbientBottom', 'uCloudGroundBounce', 'uCloudAtmosphereInfluence',
   'uCloudSunResponse', 'uCloudAmbientResponse', 'uCloudSilverLining',
-  'uCloudWind', 'uCloudNoiseOffset', 'uCloudDomainOrigin',
+  'uCloudWind', 'uCloudNoiseOffset', 'uCloudDomainOrigin', 'uCloudVariationOffset', 'uCloudNoiseType',
   'uCloudRotation', 'uCloudTime', 'uCloudEvolve',
   'uCloudSelfShadow', 'uCloudSunDir', 'uCloudStepScale',
   'tSceneDepth', 'uDepthResolution', 'uProjectionMatrixInverse', 'uViewMatrixInverse',
@@ -56,6 +57,7 @@ const _sphere = new THREE.Sphere();
 export class PlanetCloudChunks {
   constructor(scene, opts = {}) {
     this.scene = scene;
+    this._renderer = opts.renderer || null;
     this.planetRadius = opts.planetRadius || 16000;
     this._compile = opts.compile || null;
     this.faceGrid = opts.faceGrid || 4;
@@ -248,6 +250,8 @@ export class PlanetCloudChunks {
     u.uCloudScale.value = (params.cloudScale ?? 2.2) * fScale;
     u.uCloudDetailScale.value = (params.cloudDetailScale ?? 7.0) * fScale;
     u.uCloudErosionScale.value = (params.cloudErosionScale ?? 15.0) * fScale;
+    u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+    u.uCloudNoiseType.value = resolveCloudNoiseType(params);
     u.uCloudDetailStrength.value = params.cloudDetailStrength ?? 0.35;
     u.uCloudErosionStrength.value = params.cloudErosionStrength ?? 0.30;
 
@@ -392,6 +396,11 @@ export class PlanetCloudChunks {
     if (now - this._coverEvalAt > 180) { this._coverEvalAt = now; evalCover = true; }
     const field = evalCover ? {
       scale: u.uCloudScale.value,
+      noiseType: u.uCloudNoiseType.value,
+      offsetX: u.uCloudVariationOffset.value.x,
+      offsetY: u.uCloudVariationOffset.value.y,
+      offsetZ: u.uCloudVariationOffset.value.z,
+      evolve: u.uCloudEvolve.value,
       windX: u.uCloudWind.value.x, windY: u.uCloudWind.value.y, windZ: u.uCloudWind.value.z,
       time: u.uCloudTime.value, rotation: u.uCloudRotation.value,
       coverage: u.uCloudCoverage.value, softness: u.uCloudSoftness.value,
@@ -523,9 +532,16 @@ export class PlanetCloudChunks {
     this._depthTarget.texture.generateMipmaps = false;
   }
 
+  renderTerrainShadow(sun, tiles) {
+    if (!this._renderer || !this.active) return null;
+    this._shadowPass ??= new CloudShadowPass({ planet: true });
+    return this._shadowPass.render(this._renderer, this.shared, sun, tiles);
+  }
+
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._shadowPass?.dispose();
     // Retire every in-flight compile before releasing live materials. Candidate
     // sets are disposed now (rather than waiting for a driver promise that may
     // never settle), and their late callbacks are idempotent.

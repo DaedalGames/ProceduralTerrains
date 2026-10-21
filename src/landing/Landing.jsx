@@ -1,16 +1,18 @@
 import { matchesTranslatedSearch } from '../i18n/language.js';
 import { translateText, useLanguage } from '../i18n/LanguageContext.jsx';
+import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import SurfacePackCredits from '../components/ui/SurfacePackCredits.jsx';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, Box, Boxes, CircleHelp, Clock, CloudCheck, CloudOff, Copy, Earth, EllipsisVertical, Eye, EyeOff, FilePlus2, FolderOpen, Globe2, Layers3, LayoutTemplate, Lock, LogIn, LogOut, Mail, Menu, Mountain, Orbit, Palette, Pencil, Plus, RefreshCw, Route, Search, ShieldCheck, SlidersHorizontal, SquareArrowOutUpRight, Trash2, Upload, UserPlus, UserRound, Waves, X } from 'lucide-react';
 import { FaDiscord, FaGithub, FaXTwitter } from 'react-icons/fa6';
 import { SiKofi } from 'react-icons/si';
 import { APP_NAME, APP_VERSION, AUTHOR_PORTFOLIO_URL, AUTHOR_X_URL, CURSOR_PACK_AUTHOR, CURSOR_PACK_URL, GITHUB_REPO_URL } from '../constants/app.js';
 import { projectStore, projectSyncStore, normalizeProject } from '../project/ProjectStore.js';
 import { projectApi } from '../project/projectApi.js';
 import { buildUnifiedProjectIndex } from '../project/projectSync.js';
-import { PROJECT_TEMPLATES, getProjectTemplate, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
+import { PROJECT_TEMPLATES, projectTemplatePreviewCacheKey } from '../project/ProjectTemplates.js';
 import { NODE_PROJECT_TEMPLATES, getNodeProjectTemplate, nodeTemplatePreviewCacheKey } from '../project/NodeProjectTemplates.js';
+import { MINI_COMPOSITION_IDS, MINI_RECIPES } from '../engine/mini/MiniTerrainSettings.js';
 import { TERRAIN_GRADIENT_OPTIONS, terrainGradientCss } from '../engine/terrain/graph/TerrainGradientPresets.js';
 import { BUILDING_SOURCE, BUILDING_SOURCE_URL } from '../engine/terrain/RealWorldBuildings.js';
 import { Logo } from './shared.jsx';
@@ -27,10 +29,26 @@ import PluginsPage from './plugins/PluginsPage.jsx';
 import LanguageSwitch from '../i18n/LanguageSwitch.jsx';
 import { formatRelativeTime } from '../i18n/language.js';
 
+const DocsPage = lazy(() => import('../docs/DocsPage.jsx'));
+
 const NODE_TEMPLATE_ICONS = { boxes: Boxes, mountain: Mountain, layers: Layers3, waves: Waves, orbit: Orbit, route: Route };
+const MINI_TEMPLATES = [
+  ...PROJECT_TEMPLATES.map((template) => ({ ...template, name: template.id === 'blank' ? 'Procedural' : template.name })),
+  ...MINI_COMPOSITION_IDS.map((id) => ({
+    id,
+    name: MINI_RECIPES[id].labelEn,
+    description: {
+      cove: 'A sheltered cove framed by cliffs and tropical water.',
+      islet: 'A wooded island with sandy shores and shallow water.',
+      lake: 'A quiet lake surrounded by mountain peaks and forest.',
+    }[id],
+    icon: id === 'lake' ? 'mountain' : 'waves',
+  })),
+];
+const templateCatalog = (kind) => kind === 'mini' ? MINI_TEMPLATES : kind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
 const VISIBILITY_ICONS = { private: Lock, unlisted: Eye, public: Globe2 };
 const AUTH_VIEWS = new Set(['login', 'register']);
-const HASH_VIEWS = new Set(['login', 'register', 'profile', 'community', 'plugins', 'unity', 'blender', 'admin', 'confidentiality']);
+const HASH_VIEWS = new Set(['login', 'register', 'profile', 'community', 'plugins', 'unity', 'blender', 'admin', 'confidentiality', 'docs']);
 const PLUGIN_VIEWS = new Set(['plugins', 'unity', 'blender']);
 const BOOT_READY_HOLD_MS = 320;
 const BOOT_REVEAL_MS = 680;
@@ -79,6 +97,7 @@ function BootTerrainProgress({ bootProgress, complete = false }) {
 
 function viewFromHash() {
   const value = window.location.hash.replace(/^#\/?/, '').split('?')[0].toLowerCase();
+  if (value.split('/')[0] === 'docs') return 'docs';
   return HASH_VIEWS.has(value) ? value : null;
 }
 
@@ -97,7 +116,7 @@ function initialTemplateThumbs() {
 
 const relTime = formatRelativeTime;
 
-export default function Landing({ exiting, bootReady, bootError, bootProgress, onRetryBoot, onLaunch }) {
+export default function Landing({ exiting, bootReady, bootError, bootProgress, onRetryBoot, onLaunch, onRequestEditor }) {
   useLanguage();
   const { user, status: authStatus, logout } = useAuth();
   const { showPrompt, showPopup } = usePopup();
@@ -123,6 +142,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
   const [nodeColorPreset, setNodeColorPreset] = useState('alpine');
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const creditsRef = useRef(null);
+  useDialogFocus(creditsOpen, creditsRef, () => setCreditsOpen(false));
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [projectActionBusy, setProjectActionBusy] = useState(false);
@@ -267,9 +288,10 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       .map((entry) => [entry.localProject.id, entry]),
   ), [cloudProjects, projects, syncBindings]);
 
-  const template = templateKind === 'nodes' ? getNodeProjectTemplate(selectedTemplateId) : getProjectTemplate(selectedTemplateId);
+  const template = templateCatalog(templateKind).find((item) => item.id === selectedTemplateId) ?? templateCatalog(templateKind)[0];
   const dispatch = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
   const showView = (nextView) => {
+    if (nextView !== 'docs') onRequestEditor?.();
     setMobileMenuOpen(false);
     if (HASH_VIEWS.has(nextView)) {
       const nextHash = `#/${nextView}`;
@@ -305,7 +327,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
   const openApp = () => projects.length ? open(projects[0]) : setCreateOpen(true);
   const goHome = () => { showView('home'); setSelectedProjectId(projects[0]?.id ?? null); };
   const selectTemplate = (id, editorMode = templateKind) => {
-    const nextKind = editorMode === 'nodes' ? 'nodes' : 'procedural';
+    const nextKind = ['nodes', 'mini'].includes(editorMode) ? editorMode : 'procedural';
     const nextTemplate = nextKind === 'nodes' ? getNodeProjectTemplate(id) : null;
     setTemplateKind(nextKind);
     setSelectedTemplateId(id);
@@ -318,8 +340,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
     if (nextKind === 'nodes') import('../components/nodes/NodeWorkspace.jsx').catch(() => {});
   };
   const openTemplates = (editorMode = templateKind) => {
-    const nextKind = editorMode === 'nodes' ? 'nodes' : 'procedural';
-    const catalog = nextKind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
+    const nextKind = ['nodes', 'mini'].includes(editorMode) ? editorMode : 'procedural';
+    const catalog = templateCatalog(nextKind);
     const currentExists = catalog.some((item) => item.id === selectedTemplateId);
     const nextTemplateId = currentExists ? selectedTemplateId : catalog[0].id;
     setTemplateKind(nextKind);
@@ -330,6 +352,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       setNodeColorPreset(nextTemplate.colorPreset || 'alpine');
     }
     setSelectedProjectId(null);
+    setQuery('');
     showView('templates');
     if (nextKind === 'nodes') import('../components/nodes/NodeWorkspace.jsx').catch(() => {});
   };
@@ -419,8 +442,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
           <SyncIcon size={13} aria-hidden />
           {cloudProject && <span className={`lp-card-visibility-icon ${cloudProject.visibility}`}><VisibilityIcon size={12} aria-hidden /></span>}
         </span>
-        <span className={`lp-template-kind-badge ${project.terrain.workspacePreset === 'real-terrain' ? 'real' : project.terrain.editorMode}`}>
-          {translateText(project.terrain.workspacePreset === 'real-terrain' ? 'Real terrain' : project.terrain.editorMode === 'nodes' ? 'Nodes' : project.terrain.editorMode === 'manual' ? 'Manual' : 'Procedural')}
+        <span className={`lp-template-kind-badge ${project.terrain.miniTerrain ? 'mini' : project.terrain.workspacePreset === 'real-terrain' ? 'real' : project.terrain.editorMode}`}>
+          {translateText(project.terrain.miniTerrain ? 'Mini terrain' : project.terrain.workspacePreset === 'real-terrain' ? 'Real terrain' : project.terrain.editorMode === 'nodes' ? 'Nodes' : project.terrain.editorMode === 'manual' ? 'Manual' : 'Procedural')}
         </span>
         <span className="lp-card-info">
           <strong>{project.metadata.name}</strong>
@@ -458,7 +481,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
   return (
     <div
-      className={`landing landing-overlay lp boot-${visualBootStage}${AUTH_VIEWS.has(view) ? ' lp--auth' : ''}${view === 'profile' ? ' lp--profile' : ''}${view === 'community' ? ' lp--community' : ''}${PLUGIN_VIEWS.has(view) ? ' lp--unity' : ''}${view === 'admin' ? ' lp--admin' : ''}${view === 'confidentiality' ? ' lp--legal' : ''}${exiting ? ' exiting' : ''}`}
+      className={`landing landing-overlay lp boot-${visualBootStage}${AUTH_VIEWS.has(view) ? ' lp--auth' : ''}${view === 'profile' ? ' lp--profile' : ''}${view === 'community' ? ' lp--community' : ''}${PLUGIN_VIEWS.has(view) ? ' lp--unity' : ''}${view === 'admin' ? ' lp--admin' : ''}${view === 'confidentiality' ? ' lp--legal' : ''}${view === 'docs' ? ' lp--docs' : ''}${exiting ? ' exiting' : ''}`}
       onDragEnter={onFileDragEnter}
       onDragOver={onFileDragOver}
       onDragLeave={onFileDragLeave}
@@ -492,7 +515,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
           <button type="button" className={view === 'templates' ? 'active' : ''} onClick={() => openTemplates()}>{translateText("Templates")}</button>
           <button type="button" className={view === 'community' ? 'active' : ''} onClick={() => showView('community')}>{translateText("Community")}</button>
           <button type="button" className={PLUGIN_VIEWS.has(view) ? 'active' : ''} onClick={() => showView('plugins')}>{translateText("Plugins")}</button>
-          <a href={GITHUB_REPO_URL} target="_blank" rel="noopener noreferrer">{translateText("Docs")}</a>
+          <a href="#/docs/overview" className={view === 'docs' ? 'active' : ''} aria-current={view === 'docs' ? 'page' : undefined}>{translateText("Docs")}</a>
           <a href="https://procedural-planets.com" target="_blank" rel="noopener noreferrer">Procedural Planets</a>
         </nav>
         <div className="lp-nav-actions">
@@ -517,7 +540,8 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
       <div className="lp-scroll" inert={mobileMenuOpen ? '' : undefined}>
         <main className="lp-content">
-          <div key={view} className="lp-content-scroll">
+          <div key={view} className={`lp-content-scroll${view === 'docs' ? ' lp-docs-scroll' : ''}`}>
+          {view === 'docs' && <Suspense fallback={<p role="status">{translateText("Loading documentation…")}</p>}><DocsPage /></Suspense>}
           {AUTH_VIEWS.has(view) && (
             <AuthPage
               key={view}
@@ -622,32 +646,33 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
 
           {view === 'templates' && (() => {
             const q = query.trim().toLowerCase();
-            const catalog = templateKind === 'nodes' ? NODE_PROJECT_TEMPLATES : PROJECT_TEMPLATES;
+            const catalog = templateCatalog(templateKind);
             const filtered = catalog.filter((item) => matchesTranslatedSearch(q, item.name, item.description));
             return (
             <section className="lp-section lp-view">
               <div className="lp-section-head lp-template-section-head">
-                <div><h2>{translateText("Terrain templates")}</h2><p>{translateText("Choose one authoring workflow. Procedural selections preview live; Nodes opens straight into the editor.")}</p></div>
+                <div><h2>{translateText(templateKind === 'mini' ? 'Mini Terrain templates' : 'Terrain templates')}</h2><p>{translateText(templateKind === 'mini' ? 'Choose a procedural base or a composed scene for your diorama.' : 'Choose one authoring workflow. Procedural selections preview live; Nodes opens straight into the editor.')}</p></div>
                 <div className="lp-template-kind-switch" role="tablist" aria-label={translateText("Template type")}>
                   <button type="button" role="tab" aria-selected={templateKind === 'procedural'} className={templateKind === 'procedural' ? 'active' : ''} onClick={() => openTemplates('procedural')}><SlidersHorizontal size={13} />{translateText(" Procedural")}</button>
                   <button type="button" role="tab" aria-selected={templateKind === 'nodes'} className={templateKind === 'nodes' ? 'active' : ''} onClick={() => openTemplates('nodes')}><Boxes size={13} />{translateText(" Nodes")}</button>
+                  <button type="button" role="tab" aria-selected={templateKind === 'mini'} className={templateKind === 'mini' ? 'active' : ''} onClick={() => openTemplates('mini')}><Box size={13} />{translateText("Mini Terrain")}</button>
                 </div>
               </div>
               <div className="lp-search">
                 <Search size={14} aria-hidden />
-                <input type="search" placeholder={translateText(`Search ${templateKind === 'nodes' ? 'Nodes' : 'procedural'} templates…`)} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={translateText("Search templates")} />
+                <input type="search" placeholder={translateText(templateKind === 'mini' ? 'Search Mini Terrain templates…' : `Search ${templateKind === 'nodes' ? 'Nodes' : 'procedural'} templates…`)} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={translateText("Search templates")} />
               </div>
               {filtered.length === 0 && <p className="lp-no-results">{translateText("No template matches “")}{query.trim()}&rdquo;.</p>}
               <div className="lp-card-grid">
                 {filtered.map((item) => (
                   <article className={`lp-card${item.id === selectedTemplateId ? ' selected' : ''}`} key={item.id}>
                     <button type="button" className="lp-card-main" onClick={() => selectTemplate(item.id, templateKind)} onDoubleClick={() => create(item.id, templateKind)}>
-                      <span className={`lp-card-thumb${templateKind === 'nodes' ? ' nodes' : ''}`}>{templateThumbs[item.id] ? <img src={templateThumbs[item.id]} alt="" /> : (() => { const Icon = NODE_TEMPLATE_ICONS[item.icon] || LayoutTemplate; return <Icon size={22} />; })()}</span>
+                      <span className={`lp-card-thumb ${templateKind}`}>{templateKind !== 'mini' && templateThumbs[item.id] ? <img src={templateThumbs[item.id]} alt="" /> : (() => { const Icon = NODE_TEMPLATE_ICONS[item.icon] || (templateKind === 'mini' ? Box : LayoutTemplate); return <Icon size={22} />; })()}</span>
                       <span className="lp-card-info">
                         <strong>{translateText(item.name)}</strong>
                         <small>{translateText(item.description)}</small>
                       </span>
-                      <span className={`lp-template-kind-badge ${templateKind}`}>{translateText(templateKind === 'nodes' ? 'Nodes' : 'Procedural')}</span>
+                      <span className={`lp-template-kind-badge ${templateKind}`}>{translateText(templateKind === 'mini' ? 'Mini Terrain' : templateKind === 'nodes' ? 'Nodes' : 'Procedural')}</span>
                     </button>
                   </article>
                 ))}
@@ -679,7 +704,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
                   </label>
                 </section>
               ) : null}
-              <p className="lp-template-hint">{translateText(templateKind === 'nodes' ? 'Node templates load instantly; open the 2D preview when you need it.' : 'Selecting a template previews it live in the background.')}</p>
+              <p className="lp-template-hint">{translateText(templateKind === 'mini' ? 'Select a template, then create your Mini Terrain diorama.' : templateKind === 'nodes' ? 'Node templates load instantly; open the 2D preview when you need it.' : 'Selecting a template previews it live in the background.')}</p>
               <button type="button" className="lp-primary lp-template-create" onClick={() => create(template.id, templateKind)} disabled={!menuReady || exiting}><FilePlus2 size={15} />{translateText(" Create ")}{translateText(template.name)}</button>
             </section>
             );
@@ -733,7 +758,7 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
       {createOpen && <div className="landing-credits-backdrop landing-create-backdrop" role="presentation" onMouseDown={() => setCreateOpen(false)}>
         <section className="landing-create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-terrain-title" onMouseDown={(event) => event.stopPropagation()}>
           <header>
-            <div><span>{translateText("New project")}</span><h2 id="create-terrain-title">{translateText("Choose how to build your terrain")}</h2><p>{translateText("Each project uses one authoring workflow. All four can be saved and exported.")}</p></div>
+            <div><span>{translateText("New project")}</span><h2 id="create-terrain-title">{translateText("Choose how to build your terrain")}</h2><p>{translateText("Each project uses one authoring workflow. All modes can be saved and exported.")}</p></div>
             <button type="button" onClick={() => setCreateOpen(false)} aria-label={translateText("Close")}><X size={16} /></button>
           </header>
           <div className="landing-create-options">
@@ -761,10 +786,16 @@ export default function Landing({ exiting, bootReady, bootError, bootProgress, o
               <small>{translateText("Choose any real-world location and work in a focused import workspace with geographic elevation, imagery, and buildings.")}</small>
               <span className="landing-create-action">{translateText("Select a location ")}<ArrowRight size={13} /></span>
             </button>
+            <button type="button" onClick={() => chooseTemplateWorkflow('mini')} disabled={!menuReady || exiting}>
+              <span className="landing-create-icon mini"><Box size={22} /></span>
+              <strong>{translateText("Mini Terrain")}</strong>
+              <small>{translateText("A composed procedural diorama on a cut-away base, with water that stops at its edges. Opens already composed.")}</small>
+              <span className="landing-create-action">{translateText("Choose a Mini Terrain template ")}<ArrowRight size={13} /></span>
+            </button>
           </div>
         </section>
       </div>}
-      {creditsOpen && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => setCreditsOpen(false)}><section className="landing-credits-dialog" role="dialog" aria-modal="true" aria-labelledby="credits-title" onMouseDown={(event) => event.stopPropagation()}><div><span>{translateText("Credits")}</span><h2 id="credits-title">{translateText("Sources & credits")}</h2></div><p>{translateText("The editor cursor set is based on the Windows 11 Light Theme cursor pack by ")}<strong>{translateText(CURSOR_PACK_AUTHOR)}</strong>.</p><a href={CURSOR_PACK_URL} target="_blank" rel="noopener noreferrer">{translateText("View cursor pack")}</a><p>{translateText("Real-world 3D building data: ")}<a href={BUILDING_SOURCE_URL} target="_blank" rel="noopener noreferrer">{translateText(BUILDING_SOURCE)}</a>.</p><SurfacePackCredits /><div className="landing-credits-socials"><a href={AUTHOR_X_URL} target="_blank" rel="noopener noreferrer"><FaXTwitter size={14} />{translateText(" X / Twitter")}</a><a href={AUTHOR_PORTFOLIO_URL} target="_blank" rel="noopener noreferrer"><Globe2 size={14} />{translateText(" Portfolio")}</a></div><button type="button" onClick={() => setCreditsOpen(false)}>{translateText("Close")}</button></section></div>}
+      {creditsOpen && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => setCreditsOpen(false)}><section ref={creditsRef} tabIndex={-1} className="landing-credits-dialog" role="dialog" aria-modal="true" aria-labelledby="credits-title" onMouseDown={(event) => event.stopPropagation()}><div><span>{translateText("Credits")}</span><h2 id="credits-title">{translateText("Sources & credits")}</h2></div><p>{translateText("The editor cursor set is based on the Windows 11 Light Theme cursor pack by ")}<strong>{translateText(CURSOR_PACK_AUTHOR)}</strong>.</p><a href={CURSOR_PACK_URL} target="_blank" rel="noopener noreferrer">{translateText("View cursor pack")}</a><p>{translateText("Real-world 3D building data: ")}<a href={BUILDING_SOURCE_URL} target="_blank" rel="noopener noreferrer">{translateText(BUILDING_SOURCE)}</a>.</p><SurfacePackCredits /><div className="landing-credits-socials"><a href={AUTHOR_X_URL} target="_blank" rel="noopener noreferrer"><FaXTwitter size={14} />{translateText(" X / Twitter")}</a><a href={AUTHOR_PORTFOLIO_URL} target="_blank" rel="noopener noreferrer"><Globe2 size={14} />{translateText(" Portfolio")}</a></div><button type="button" data-dialog-close onClick={() => setCreditsOpen(false)}>{translateText("Close")}</button></section></div>}
       {deleteTarget && <div className="landing-credits-backdrop" role="presentation" onMouseDown={() => !projectActionBusy && setDeleteTarget(null)}>
         <section className="landing-credits-dialog landing-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title" onMouseDown={(event) => event.stopPropagation()}>
           <div><span>{translateText("Delete project")}</span><h2 id="delete-project-title">{translateText("Delete “")}{deleteTarget.metadata.name}&rdquo;?</h2></div>

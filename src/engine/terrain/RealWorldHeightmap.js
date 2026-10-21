@@ -335,11 +335,11 @@ async function previewDataUrl(canvas) {
   return `data:image/png;base64,${btoa(binary)}`;
 }
 
-async function loadTile(url, signal) {
+async function loadTile(url, signal, fetcher = globalThis.fetch) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   if (typeof createImageBitmap === 'function') {
     try {
-      const response = await fetch(url, { signal, mode: 'cors' });
+      const response = await fetcher(url, { signal, mode: 'cors' });
       if (!response.ok) return null;
       return await createImageBitmap(await response.blob(), { colorSpaceConversion: 'none' });
     } catch (error) {
@@ -372,7 +372,7 @@ function elevationTileUrl(z, x, y) {
  * Stitch + crop slippy tiles covering a lat/lon bbox at a fixed zoom.
  * @returns {Promise<{imageData:ImageData,width:number,height:number,ok:number}>}
  */
-async function fetchBboxStitched(bbox, z, tileUrl, missingFill, { onProgress, signal } = {}) {
+async function fetchBboxStitched(bbox, z, tileUrl, missingFill, { onProgress, signal, fetch: fetcher } = {}) {
   const fx0 = lonToTileX(bbox.minLon, z);
   const fx1 = lonToTileX(bbox.maxLon, z);
   const fy0 = latToTileY(bbox.maxLat, z);   // north edge → smaller tile-Y
@@ -389,7 +389,7 @@ async function fetchBboxStitched(bbox, z, tileUrl, missingFill, { onProgress, si
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const img = await loadTile(tileUrl(z, tx, ty), signal);
+      const img = await loadTile(tileUrl(z, tx, ty), signal, fetcher);
       const dx = (tx - tx0) * TILE, dy = (ty - ty0) * TILE;
       if (img) {
         try {
@@ -465,9 +465,9 @@ export function effectiveZoomFor(loc) { return pickZoom(loc); }
  * @returns {Promise<{elev:Float32Array,width:number,height:number}>}
  * @throws if every tile failed to load (likely CORS or offline).
  */
-export async function fetchBboxElevation(bbox, z, { onProgress, signal } = {}) {
+export async function fetchBboxElevation(bbox, z, { onProgress, signal, tileUrl = elevationTileUrl, fetch: fetcher } = {}) {
   const { imageData, width: W, height: H, ok } = await fetchBboxStitched(
-    bbox, z, elevationTileUrl, SEA_FILL, { onProgress, signal },
+    bbox, z, tileUrl, SEA_FILL, { onProgress, signal, fetch: fetcher },
   );
   if (ok === 0) {
     throw new Error('No elevation tiles could be loaded (network or CORS blocked).');
@@ -486,10 +486,10 @@ export async function fetchBboxElevation(bbox, z, { onProgress, signal } = {}) {
  * @returns {Promise<{rgba:Uint8ClampedArray,width:number,height:number,style:string}>}
  * @throws if every tile failed to load (likely CORS or offline).
  */
-export async function fetchBboxImagery(bbox, z, { style, onProgress, signal } = {}) {
+export async function fetchBboxImagery(bbox, z, { style, onProgress, signal, tileUrl, fetch: fetcher } = {}) {
   const styleDef = resolveImageryStyle(style);
   const { imageData, width: W, height: H, ok } = await fetchBboxStitched(
-    bbox, z, styleDef.tileUrl.bind(styleDef), styleDef.missingFill, { onProgress, signal },
+    bbox, z, tileUrl ?? styleDef.tileUrl.bind(styleDef), styleDef.missingFill, { onProgress, signal, fetch: fetcher },
   );
   if (ok === 0) {
     throw new Error(`No ${styleDef.shortLabel} tiles could be loaded (network or CORS blocked).`);

@@ -68,6 +68,11 @@ export class UnderwaterController {
    *   blendBand            transition band width (world units)
    *   transitionSpeed      transition speed multiplier
    *   causticsEnabled / particlesEnabled / lightShaftsEnabled
+   *   volume               optional bounded water volume (Mini Terrain):
+   *                        { minX, maxX, minZ, maxZ, floorY }. When present the
+   *                        camera is submerged only INSIDE the footprint and
+   *                        above its floor — a camera outside looking at the
+   *                        cut faces is never treated as underwater.
    */
   update(dt, ctx) {
     const {
@@ -76,6 +81,7 @@ export class UnderwaterController {
       fellBack = false, planetRadius = 0,
       blendBand, transitionSpeed,
       causticsEnabled = false, particlesEnabled = false, lightShaftsEnabled = false,
+      volume = null,
     } = ctx;
 
     if (blendBand != null) this.blendBand = Math.max(0.2, blendBand);
@@ -99,6 +105,33 @@ export class UnderwaterController {
         submerge = oceanRadius - camRadius;
       } else if (Number.isFinite(seaLevel)) {
         submerge = seaLevel - cameraPos.y;
+        if (volume && submerge > -1e8) {
+          // Signed distance to the footprint walls / floor (positive inside):
+          // fades the activation across the cut faces instead of popping.
+          let inside = Math.min(
+            cameraPos.x - volume.minX,
+            volume.maxX - cameraPos.x,
+            cameraPos.z - volume.minZ,
+            volume.maxZ - cameraPos.z,
+            cameraPos.y - (volume.floorY ?? -Infinity),
+          );
+          if (volume.hexagon) {
+            const x = Math.abs(cameraPos.x - (volume.minX + volume.maxX) * 0.5);
+            const z = Math.abs(cameraPos.z - (volume.minZ + volume.maxZ) * 0.5);
+            const a = (volume.maxX - volume.minX) * Math.sqrt(3) / 4;
+            inside = Math.min(inside, a - Math.max(x, x * 0.5 + z * Math.sqrt(3) / 2));
+          } else if (volume.bevel > 0) {
+            const cx = (volume.minX + volume.maxX) * 0.5;
+            const cz = (volume.minZ + volume.maxZ) * 0.5;
+            const span = (volume.maxX - volume.minX + volume.maxZ - volume.minZ) * 0.5;
+            const cornerX = Math.max(Math.abs(cameraPos.x - cx) - (volume.maxX - volume.minX) * 0.5 + volume.bevel, 0);
+            const cornerZ = Math.max(Math.abs(cameraPos.z - cz) - (volume.maxZ - volume.minZ) * 0.5 + volume.bevel, 0);
+            const cornerDistance = volume.rounded ? volume.bevel - Math.hypot(cornerX, cornerZ)
+              : (span - volume.bevel - Math.abs(cameraPos.x - cx) - Math.abs(cameraPos.z - cz)) * Math.SQRT1_2;
+            inside = Math.min(inside, cornerDistance);
+          }
+          submerge = Math.min(submerge, inside);
+        }
       }
     }
 

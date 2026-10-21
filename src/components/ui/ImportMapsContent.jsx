@@ -123,7 +123,7 @@ function ImportMapSection({ type, map, ctx, forceOpen = false }) {
       <div className="stat-row">
         <span className="stat-label">{translateText("Resolution")}</span>
         <span className="stat-value stat-mono">
-          {translateText(map ? `${map.width}×${map.height}` : '—')}
+          {translateText(Number.isFinite(map?.width) && Number.isFinite(map?.height) ? `${map.width}×${map.height}` : '—')}
         </span>
       </div>
       {map?.error && <p className="section-hint import-map-error">{translateText(map.error)}</p>}

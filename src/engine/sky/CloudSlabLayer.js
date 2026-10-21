@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createCloudSlabMaterial } from './CloudSlabShader.js';
-import { resolveCloudQuality } from './CloudSettings.js';
+import { resolveCloudQuality, cloudNoiseOffset, resolveCloudNoiseType } from './CloudSettings.js';
+import { renderTerrainCloudShadow } from './CloudShadowPass.js';
 import { buildOccupancyPlanar } from './cloudFieldCPU.js';
 import { CloudLowResPass } from './CloudLowResPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
@@ -95,15 +96,9 @@ export class CloudSlabLayer {
     this._occBuiltAt = 0;
     this._occupancyPass = null;
 
-    this.material = createCloudSlabMaterial(
-      this._steps,
-      this._lightSteps,
-      this._octaves,
-      this._detailOctaves,
-      this._useErosion,
-      this._lightMode
-    );
-    if (opts.renderer) {
+    this._renderer = opts.renderer || null;
+    this.material = this._createMaterial();
+    if (opts.renderer && this._usesOccupancy) {
       this._occupancyPass = new CloudOccupancyPass(
         opts.renderer,
         this.material.uniforms,
@@ -125,6 +120,21 @@ export class CloudSlabLayer {
 
   get active() {
     return this._enabled && this._inScene && this._inRange && this._ready;
+  }
+
+  // Subclass hooks (the realistic renderer swaps the material and has no
+  // occupancy grid).
+  get _usesOccupancy() { return true; }
+
+  _createMaterial() {
+    return createCloudSlabMaterial(
+      this._steps,
+      this._lightSteps,
+      this._octaves,
+      this._detailOctaves,
+      this._useErosion,
+      this._lightMode
+    );
   }
 
   get ready() {
@@ -160,7 +170,7 @@ export class CloudSlabLayer {
    * @param {number} maxHeight terrain height ceiling (unused — kept for API parity)
    * @param {number} boardSize world size of ONE cell (drives noise feature size)
    * @param {object} [perf] centralized performance settings
-   * @param {object} [layout] tile-assembly coverage: { extent, center:{x,z} }.
+   * @param {object} [layout] coverage: { extent, radius?, center:{x,z} }.
    *   extent = world span the clouds must cover (union of cells); center =
    *   world-space middle of that span. Defaults to a single origin-centred cell.
    */
@@ -190,7 +200,7 @@ export class CloudSlabLayer {
     u.uCloudBottom.value = bottom;
     u.uCloudTop.value = top;
 
-    const radius = extent * 0.62;
+    const radius = Math.max(1, layout.radius ?? extent * 0.62);
     u.uCloudRadius.value = radius;
     u.uCloudFar.value = extent * 4.0;   // bound horizon marching
     u.uCloudCenter.value.set(cx, 0, cz);
@@ -213,6 +223,9 @@ export class CloudSlabLayer {
     u.uCloudScale.value = (params.cloudScale ?? 2.2) * fScale;
     u.uCloudDetailScale.value = (params.cloudDetailScale ?? 7.0) * fScale;
     u.uCloudErosionScale.value = (params.cloudErosionScale ?? 15.0) * fScale;
+    u.uCloudVariationOffset.value.fromArray(cloudNoiseOffset(params.cloudNoiseSeed));
+    u.uCloudNoiseType.value = resolveCloudNoiseType(params);
+    this._occBuiltAt = 0;
     u.uCloudDetailStrength.value = params.cloudDetailStrength ?? 0.35;
     u.uCloudErosionStrength.value = params.cloudErosionStrength ?? 0.30;
 
@@ -415,6 +428,10 @@ export class CloudSlabLayer {
       u.uCloudBottom.value, u.uCloudTop.value,
       {
         scale: u.uCloudScale.value,
+        noiseType: u.uCloudNoiseType.value,
+        offsetX: u.uCloudVariationOffset.value.x,
+        offsetY: u.uCloudVariationOffset.value.y,
+        offsetZ: u.uCloudVariationOffset.value.z,
         windX: w.x, windY: w.y, windZ: w.z,
         time: u.uCloudTime.value,
         rotation: u.uCloudRotation.value,
@@ -447,6 +464,10 @@ export class CloudSlabLayer {
       rotation: u.uCloudRotation.value,
       evolve: u.uCloudEvolve.value,
     };
+  }
+
+  renderTerrainShadow(sun, tiles) {
+    return renderTerrainCloudShadow(this, sun, false, tiles);
   }
 
   _rebuildMaterial(steps, lightSteps, octaves, detailOctaves, useErosion, lightMode = this._lightMode) {
@@ -633,6 +654,7 @@ export class CloudSlabLayer {
   }
 
   dispose() {
+    this._shadowPass?.dispose();
     if (this._depthTarget) {
       this._depthTarget.dispose();
       this._depthTarget = null;

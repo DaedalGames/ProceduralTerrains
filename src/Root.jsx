@@ -9,6 +9,7 @@ import './landing/landing.css';
 import { adminApi } from './admin/adminApi.js';
 
 const EXIT_MS = 720;
+const isDocsRoute = () => /^#\/?docs(?:\/|$)/i.test(window.location.hash);
 const INITIAL_BOOT_PROGRESS = Object.freeze({
   stage: 'planning',
   label: 'Planning final frame…',
@@ -16,12 +17,19 @@ const INITIAL_BOOT_PROGRESS = Object.freeze({
 });
 
 export default function Root() {
+  const [editorRequested, setEditorRequested] = useState(() => !isDocsRoute());
   const [visible, setVisible] = useState(true);
   const [exiting, setExiting] = useState(false);
   const [bootReady, setBootReady] = useState(false);
   const [bootError, setBootError] = useState(null);
   const [bootProgress, setBootProgress] = useState(INITIAL_BOOT_PROGRESS);
   const [sessionSeed] = useState(() => randomSessionSeed());
+
+  useEffect(() => {
+    const requestEditor = () => { if (!isDocsRoute()) setEditorRequested(true); };
+    window.addEventListener('hashchange', requestEditor);
+    return () => window.removeEventListener('hashchange', requestEditor);
+  }, []);
 
   const dismiss = useCallback(() => {
     if (!bootReady || exiting) return;
@@ -61,7 +69,7 @@ export default function Root() {
     <PopupProvider>
       <AuthProvider>
         <LandingProvider value={landing}>
-          <App />
+          {editorRequested && <App />}
           {visible && (
             <Landing
               exiting={exiting}
@@ -71,6 +79,7 @@ export default function Root() {
               onRetryBoot={retryBoot}
               onLaunch={dismiss}
               sessionSeed={sessionSeed}
+              onRequestEditor={() => setEditorRequested(true)}
             />
           )}
         </LandingProvider>

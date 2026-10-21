@@ -15,32 +15,31 @@ import { createCloudMaterial } from '../src/engine/sky/CloudVolumeShader.js';
 import { InfiniteCloudLayer } from '../src/engine/sky/InfiniteCloudLayer.js';
 
 describe('cloud performance pipeline', () => {
-  it('normalizes legacy formations to the compiled soft formation', () => {
-    expect(normalizeCloudFormation({ cloudNoiseVariant: 'wispy' }).cloudNoiseVariant)
-      .toBe('soft');
-    expect(normalizeCloudFormation({ cloudNoiseVariant: 'soft' }).cloudNoiseVariant)
-      .toBe('soft');
+  it('preserves supported formations and normalizes unknown saved values', () => {
+    for (const cloudNoiseVariant of ['soft', 'billowy', 'wispy']) {
+      expect(normalizeCloudFormation({ cloudNoiseVariant }).cloudNoiseVariant).toBe(cloudNoiseVariant);
+    }
+    expect(normalizeCloudFormation({ cloudNoiseVariant: 'unknown' }).cloudNoiseVariant).toBe('soft');
   });
 
-  it('contains no runtime formation uniform or variant branch', () => {
+  it('shares the noise type uniform and shape helpers with GPU occupancy', () => {
     for (const material of [createCloudSlabMaterial(), createCloudMaterial()]) {
-      expect(material.uniforms.uCloudNoiseVariant).toBeUndefined();
-      expect(material.fragmentShader).not.toContain('uCloudNoiseVariant');
-      expect(material.fragmentShader).not.toContain('float variant =');
+      expect(material.uniforms.uCloudNoiseType.value).toBe(0);
+      expect(material.fragmentShader).toContain('cl_formationBase(baseP, cl_fbm_base(baseP))');
       material.dispose();
     }
-    const occupancySource = createCloudSlabMaterial();
-    const occupancy = new CloudOccupancyPass({}, occupancySource.uniforms);
-    expect(occupancy.generateMaterial.fragmentShader).not.toContain('uCloudNoiseVariant');
-    expect(occupancy.generateMaterial.fragmentShader).not.toContain('float variant =');
-    occupancy.dispose();
-    occupancySource.dispose();
+    const source = createCloudSlabMaterial();
+    const occupancy = new CloudOccupancyPass({}, source.uniforms);
+    expect(occupancy.generateMaterial.uniforms.uCloudNoiseType).toBe(source.uniforms.uCloudNoiseType);
+    expect(occupancy.generateMaterial.fragmentShader).toContain('cl_formationBase(q, cl_fbm_base(q))');
+    occupancy.dispose(); source.dispose();
   });
 
-  it('uses near-biased intervals and their physical length for extinction', () => {
+  it('uses disjoint quadrature intervals and their physical length for extinction', () => {
     for (const material of [createCloudSlabMaterial(), createCloudMaterial()]) {
-      expect(material.fragmentShader).toContain('pow(clamp(a, 0.0, 1.0), 1.35)');
-      expect(material.fragmentShader).toContain('pow(clamp(b, 0.0, 1.0), 1.35)');
+      expect(material.fragmentShader).toContain('float ta = sampleIndex / float(effSteps);');
+      expect(material.fragmentShader).toContain('float tb = (sampleIndex + 1.0) / float(effSteps);');
+      expect(material.fragmentShader).toContain('intervalStart + stepLength * 0.5');
       expect(material.fragmentShader).toContain('dens * stepLength * uCloudExtinction');
       expect(material.fragmentShader).not.toContain('skipped += 1.0');
       material.dispose();
@@ -53,7 +52,7 @@ describe('cloud performance pipeline', () => {
     expect(source).toContain('float slabStart = t0;');
     expect(source).toContain('float slabEnd = t1;');
     expect(source).toContain('float segLen = slabEnd - slabStart;');
-    expect(source).toContain('max(t1 - t, 0.0)');
+    expect(source).toContain('max(t1 - intervalStart, 0.0)');
     expect(source).not.toContain('whole-ray reject');
     material.dispose();
   });

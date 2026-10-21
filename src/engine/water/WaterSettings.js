@@ -10,6 +10,7 @@ export const WATER_MODES = [
   { value: 'realistic', label: 'Realistic / Medium' },
   { value: 'volumetric', label: 'Volumetric / High' },
   { value: 'cinematic', label: 'Cinematic / Ultra' },
+  { value: 'stylized', label: 'Stylized / Diorama' },
 ];
 
 export const WATER_QUALITY_PRESETS = [
@@ -39,8 +40,8 @@ export function isRealisticWaterMode(mode) {
   return mode === 'realistic' || mode === 'volumetric' || mode === 'cinematic';
 }
 
-export function isWaterActive(mode, seaLevel) {
-  return mode !== 'off' && seaLevel > 0.5;
+export function isWaterActive(mode, seaLevel, hideAtZero = true) {
+  return mode !== 'off' && (hideAtZero === false || seaLevel > 0.5);
 }
 
 export const WATER_LIGHTING_PARAM_KEYS = [
@@ -73,7 +74,7 @@ export const UNDERWATER_MODES = [
 export function resolveUnderwaterMode(params, effectiveWaterMode, perfEnabled = true) {
   if (perfEnabled === false) return 'off';
   if (params.waterUnderwaterEnabled === false) return 'off';
-  if (!isWaterActive(effectiveWaterMode, params.seaLevel ?? 100)) return 'off';
+  if (!isWaterActive(effectiveWaterMode, params.seaLevel ?? 100, params.waterHideAtZero)) return 'off';
 
   const requested = params.waterUnderwaterMode ?? 'auto';
   if (requested === 'off') return 'off';
@@ -93,6 +94,7 @@ export function underwaterModeFellBack(params, effectiveWaterMode) {
 
 export const WATER_DEFAULT_PARAMS = {
   waterEnabled: true,
+  waterHideAtZero: true,
   waterMode: 'legacy',
   waterQualityPreset: 'legacy',
   waterAutoDowngradeInfinite: true,
@@ -112,6 +114,19 @@ export const WATER_DEFAULT_PARAMS = {
   // Realistic modes: 0 = palette colours only, 1 = physically plausible clear
   // water (turquoise shallows, ocean-blue depths) with per-biome variants.
   waterNaturalColor: 0.7,
+
+  // Mini Terrain diorama / Stylized water. Defaults reproduce the original
+  // stylized look; 'realistic' swaps in the classic worlds' waves and optics.
+  waterDioramaShader: 'stylized',
+  // auto = sky + terrain with Realistic, sky only with Stylized
+  waterDioramaReflections: 'auto',
+  waterDioramaReflectionStrength: 1.0,
+  waterDioramaReflectionBlur: 0.0,
+  waterDioramaReflectionDistortion: 1.0,
+  // transparency: 0.5 keeps the authored absorption; tint only in Realistic
+  waterDioramaTransparency: 0.5,
+  waterDioramaTint: 1.0,
+  waterDioramaShoreClarity: 0.0,
 
   // lighting — shared by Legacy, Realistic, Volumetric, Cinematic, and Planet.
   // Atmosphere Influence = 0 restores each shader's previous independent light.
@@ -200,7 +215,7 @@ export function migrateWaterParams(params) {
   if (!params || typeof params !== 'object') return params;
   if ('waterMode' in params) return params;
   const next = { ...params };
-  if (next.waterEnabled === false || (next.seaLevel ?? 100) <= 0.5) {
+  if (next.waterEnabled === false || (next.waterHideAtZero !== false && (next.seaLevel ?? 100) <= 0.5)) {
     next.waterMode = 'off';
     next.waterEnabled = false;
   } else {
@@ -214,11 +229,16 @@ export function migrateWaterParams(params) {
 export function resolveEffectiveWaterMode(params, worldMode) {
   let mode = params.waterMode ?? 'legacy';
   if (!params.waterEnabled) mode = 'off';
-  if (params.seaLevel <= 0.5) mode = 'off';
+  if (params.waterHideAtZero !== false && params.seaLevel <= 0.5) mode = 'off';
 
   if (worldMode === 'infinite' && params.waterAutoDowngradeInfinite) {
     if (mode === 'cinematic') mode = 'realistic';
     else if (mode === 'volumetric') mode = 'realistic';
+  }
+
+  if (worldMode === 'planet' && mode === 'stylized') {
+    // The stylized surface is a flat water plane; the sphere keeps Legacy.
+    mode = 'legacy';
   }
 
   if (worldMode === 'planet' && isRealisticWaterMode(mode)) {

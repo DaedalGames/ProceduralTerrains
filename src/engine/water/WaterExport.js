@@ -3,7 +3,7 @@
 // ============================================================================
 
 import * as THREE from 'three';
-import { generateWaterMasks, maskToPngBytes } from './WaterMasks.js';
+import { generateWaterMasks, maskToPngBytes } from './WaterMaskArtifacts.js';
 import { isWaterActive } from './WaterSettings.js';
 
 /**

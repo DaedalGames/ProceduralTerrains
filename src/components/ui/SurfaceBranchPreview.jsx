@@ -14,7 +14,7 @@ export default function SurfaceBranchPreview({graph,nodeId}) {
       ]);
       const branch={...graph,edges:[...graph.edges.filter(e=>!(e.target==='terrain-output'&&e.targetHandle==='surface')),{id:'preview-output',source:nodeId,sourceHandle:'surface',target:'terrain-output',targetHandle:'surface',type:'surface'}]};
       const doc=createSurfaceDocument({settings:{profile:'eco'}});
-      resources=await buildSurfaceResources({document:doc,graph:branch,references:[]});
+      resources=await buildSurfaceResources({document:doc,graph:branch,references:[],provider:{loadUserAsset:(hash)=>import('../../project/SurfaceAssetStore.js').then(m=>m.getSurfaceBlob(hash))}});
       if(current!==revision.current)return;
       const canvas=document.createElement('canvas');renderer=new THREE.WebGLRenderer({canvas,preserveDrawingBuffer:true});renderer.setSize(256,256);
       renderer.debug.onShaderError=()=>{throw new Error('Surface preview shader failed to compile');};

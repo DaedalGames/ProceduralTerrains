@@ -1,3 +1,4 @@
+import { TERRAIN_CLOUD_SHADOW_GLSL } from '../sky/CloudShadowPass.js';
 import { installSurfaceMaterialBackend } from './surface/SurfaceArrayGLSL.js';
 import * as THREE from 'three';
 import {
@@ -16,6 +17,8 @@ import {
 } from './terrainGLSL.js';
 import { BIOME_GLSL } from './biomeGLSL.js';
 import { generateStackGLSL } from './noise/noiseStackCodegen.js';
+import { MINI_CUT_GLSL } from '../mini/miniCutGLSL.js';
+import { MINI_BEVEL_GLSL } from '../mini/MiniBevel.js';
 import { defaultLegacyStack, MAX_LAYERS } from './noise/NoiseStack.js';
 import {
   PALETTE_UNIFORMS_GLSL,
@@ -150,97 +153,6 @@ vec3 applyTerrainGraphColor(vec3 fallback, vec2 xz, float h01, float slope, floa
 }
 `;
 
-const TERRAIN_CLOUD_SHADOW_GLSL = /* glsl */ `
-uniform float uTerrainCloudShadowEnabled;
-uniform float uTerrainCloudShadowStrength;
-uniform vec2 uTerrainCloudShadowCenter;
-uniform float uTerrainCloudShadowExtent;
-uniform float uTerrainCloudShadowAltitude;
-uniform float uTerrainCloudShadowScale;
-uniform float uTerrainCloudShadowCoverage;
-uniform float uTerrainCloudShadowSoftness;
-uniform vec3 uTerrainCloudShadowWind;
-uniform float uTerrainCloudShadowTime;
-uniform float uTerrainCloudShadowRotation;
-uniform float uTerrainCloudShadowEvolve;
-
-float terrainCloudHash13(vec3 p3) {
-  p3 = fract(p3 * 0.1031);
-  p3 += dot(p3, p3.zyx + 31.32);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-float terrainCloudNoise(vec3 p) {
-  vec3 i = floor(p);
-  vec3 f = fract(p);
-  vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  float n000 = terrainCloudHash13(i + vec3(0.0, 0.0, 0.0));
-  float n100 = terrainCloudHash13(i + vec3(1.0, 0.0, 0.0));
-  float n010 = terrainCloudHash13(i + vec3(0.0, 1.0, 0.0));
-  float n110 = terrainCloudHash13(i + vec3(1.0, 1.0, 0.0));
-  float n001 = terrainCloudHash13(i + vec3(0.0, 0.0, 1.0));
-  float n101 = terrainCloudHash13(i + vec3(1.0, 0.0, 1.0));
-  float n011 = terrainCloudHash13(i + vec3(0.0, 1.0, 1.0));
-  float n111 = terrainCloudHash13(i + vec3(1.0, 1.0, 1.0));
-  return mix(
-    mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
-    mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y),
-    u.z
-  );
-}
-
-float terrainCloudFbm(vec3 p) {
-  const mat3 rot = mat3(
-     0.00,  0.80,  0.60,
-    -0.80,  0.36, -0.48,
-    -0.60, -0.48,  0.64
-  );
-  float amp = 0.5, sum = 0.0, norm = 0.0;
-  for (int i = 0; i < 3; i++) {
-    sum += amp * terrainCloudNoise(p);
-    norm += amp;
-    amp *= 0.5;
-    p = rot * p * 2.02;
-  }
-  return sum / max(norm, 1e-4);
-}
-
-float terrainCloudShadow(vec3 worldPos) {
-  if (uTerrainCloudShadowEnabled < 0.5 || uSunDir.y <= 0.01) return 0.0;
-
-  // Project the terrain point toward the sun until it reaches the middle of
-  // the cloud slab, then evaluate the same animated base cloud field there.
-  float rise = max(uTerrainCloudShadowAltitude - worldPos.y, 0.0);
-  vec2 cloudXZ = worldPos.xz + uSunDir.xz * (rise / max(uSunDir.y, 0.08));
-  float radius = max(uTerrainCloudShadowExtent, 1.0);
-  float radialDistance = length(cloudXZ - uTerrainCloudShadowCenter);
-  float edge = 1.0 - smoothstep(radius * 0.65, radius, radialDistance);
-  if (edge <= 0.0) return 0.0;
-
-  float c = cos(uTerrainCloudShadowRotation);
-  float s = sin(uTerrainCloudShadowRotation);
-  vec3 point = vec3(cloudXZ.x, uTerrainCloudShadowAltitude, cloudXZ.y);
-  vec3 domain = vec3(
-    c * point.x + s * point.z,
-    point.y,
-    -s * point.x + c * point.z
-  );
-  vec3 drift = uTerrainCloudShadowWind * uTerrainCloudShadowTime;
-  vec3 samplePoint = domain * uTerrainCloudShadowScale
-    + drift
-    + vec3(0.0, uTerrainCloudShadowTime * uTerrainCloudShadowEvolve, 0.0);
-  float base = terrainCloudFbm(samplePoint);
-  float threshold = 1.0 - uTerrainCloudShadowCoverage;
-  float softness = max(uTerrainCloudShadowSoftness, 0.08);
-  float mask = smoothstep(threshold, threshold + softness, base) * edge;
-
-  float sunAboveHorizon = smoothstep(0.01, 0.16, uSunDir.y);
-  return smoothstep(0.04, 0.82, mask)
-    * clamp(uTerrainCloudShadowStrength, 0.0, 0.85)
-    * sunAboveHorizon;
-}
-`;
-
 export const TERRAIN_DETAIL_STUB_GLSL = /* glsl */ `
 uniform float uTerrainDetailDebug;
 uniform float uTerrainDetailNormalStrength;
@@ -366,11 +278,13 @@ const buildVertex = (heightGLSL, variant = 'full', requestedWorldMode = 'studio'
   const preview = variant === 'preview';
   return /* glsl */ `
 ${commonUniformsGLSL}
+${TERRAIN_CLOUD_SHADOW_GLSL}
 ${NOISE_GLSL}
 ${BIOME_GLSL}
 ${heightGLSL}
 ${terrainCacheGLSL}
 
+${MINI_BEVEL_GLSL}
 uniform float uSkirtDepth;
 uniform float uPlinthBaseY;
 uniform float uWallThickness;
@@ -424,6 +338,7 @@ varying float vLod;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;   // surface height above this column (Mini cut strata)
 ${preview ? 'varying vec3 vTerrainPreviewNormal;' : ''}
 
 void main() {
@@ -432,6 +347,10 @@ void main() {
     localPosition = instanceMatrix * localPosition;
   #endif
   vec4 wp = modelMatrix * localPosition;
+  vec2 squareXZ = wp.xz;
+  if ((uMiniTerrainBevel > 0.0 || uMiniHexagon > 0.5) && uInfiniteMode < 0.5) {
+    wp.xz = miniBevelPoint(wp.xz, uBoardHalf, uMiniTerrainBevel, uMiniBevelRounded);
+  }
   float h = terrainCachedHeightAt(wp.xz);
 ${preview ? /* glsl */ `
   // Smooth lighting for the lightweight Node preview. Two extra height
@@ -466,7 +385,7 @@ ${preview ? /* glsl */ `
       } else {
         // multi-cell square assembly: only skirts on a cell edge facing empty
         // space become the plinth wall; shared seams stay continuous terrain.
-        vec3 tw = tileWall(wp.xz);
+        vec3 tw = tileWall(squareXZ);
         float onOuter = step(0.5, tw.x);
         skirt = aSkirt;
         wall = aSkirt * onOuter;
@@ -474,8 +393,8 @@ ${preview ? /* glsl */ `
         wp.xz += tw.yz * (wall * uWallThickness);
       }
     } else {
-      float bx = abs(wp.x);
-      float bz = abs(wp.z);
+      float bx = abs(squareXZ.x);
+      float bz = abs(squareXZ.y);
       float onOuter = step(uBoardHalf - 1.0, bx) + step(uBoardHalf - 1.0, bz);
       // outer-edge skirt verts become the plinth wall; interior skirts unchanged
       wall = skirt * step(0.5, onOuter);
@@ -499,6 +418,7 @@ ${preview ? /* glsl */ `
   vSkirt = max(skirt, wall);
   vWall = wall;
   vWallMesh = aWall;
+  vCutRimH = h;
 
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
@@ -529,6 +449,7 @@ const buildFragmentSource = (
 precision highp float;
 
 ${commonUniformsGLSL}
+${TERRAIN_CLOUD_SHADOW_GLSL}
 ${features.manual ? '' : features.manualSurface && features.tileOnly ? /* glsl */ `
 #ifdef SURFACE_ARRAYS
 vec3 applyImportedImageryAlbedo(vec3 baseAlbedo, vec2 xz) { return baseAlbedo; }
@@ -558,6 +479,7 @@ uniform float uColorMode;
 uniform float uEps;
 ${worldMode === 'studio' && !features.manual ? 'uniform int uTerrainNormalSampleCount;' : ''}
 uniform vec3  uPlinthColor;
+${MINI_CUT_GLSL}
 uniform float uAnalysisEnabled;
 uniform float uAnalysisMode;
 uniform float uAnalysisOpacity;
@@ -596,6 +518,7 @@ varying float vLod;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;
 
 const vec3 LOD_COLORS[4] = vec3[4](
   vec3(0.90, 0.28, 0.30),
@@ -972,6 +895,10 @@ ${features.manual ? '' : /* glsl */ `
   // so a small threshold colours the whole wall, leaving only a hairline of
   // terrain colour at the rim where it meets the surface (a natural transition).
   if (vWall > 0.02) {
+    if (uMiniCut > 0.5) {
+      gl_FragColor = vec4(miniCutShade(vWorldPos, vCutRimH, uSeaLevel, uSunDir), 1.0);
+      return;
+    }
     float wd = length(cameraPosition - vWorldPos);
     float wfog = 1.0 - exp(-uFogDensity * uFogDensity * wd * wd);
     vec3 wcol = mix(uPlinthColor, uFogColor, clamp(wfog, 0.0, 1.0));
@@ -1066,6 +993,10 @@ ${features.manual ? '' : /* glsl */ `
     proceduralSheen, viewDir
   );
 
+  // Attenuate direct sun while preserving sky light and ground bounce.
+  col -= td.albedo * uTerrainSunCol * uTerrainSunIntensity
+    * max(dot(n, uSunDir), 0.0) * ao * terrainCloudShadow(vWorldPos);
+
   // sampled roughness -> subtle view-dependent sheen (smoother materials glint)
   if (surf.amount > 0.001) {
     float ssp = pow(max(dot(reflect(-uSunDir, n), viewDir), 0.0), 24.0);
@@ -1148,6 +1079,7 @@ const buildMinimalFragment = (graphColorGLSL = DEFAULT_TERRAIN_GRAPH_COLOR_GLSL)
 precision highp float;
 
 ${COMMON_UNIFORMS_GLSL}
+${TERRAIN_CLOUD_SHADOW_GLSL}
 ${TERRAIN_HEIGHT_TEX_GLSL}
 ${NEAR_BAKE_BLOCK}
 ${PALETTE_UNIFORMS_GLSL}
@@ -1157,11 +1089,13 @@ uniform float uColorMode;
 uniform float uEps;
 uniform float uNormalStrength;
 uniform vec3  uPlinthColor;
+${MINI_CUT_GLSL}
 
 varying vec3  vWorldPos;
 varying float vSkirt;
 varying float vWall;
 varying float vWallMesh;
+varying float vCutRimH;
 varying vec3  vTerrainPreviewNormal;
 
 // The preview has no live per-pixel field: wherever the camera-centred near
@@ -1218,6 +1152,10 @@ void main() {
   float dist = length(cameraPosition - vWorldPos);
 
   if (vWall > 0.02) {
+    if (uMiniCut > 0.5) {
+      gl_FragColor = vec4(miniCutShade(vWorldPos, vCutRimH, uSeaLevel, uSunDir), 1.0);
+      return;
+    }
     float wfog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
     gl_FragColor = vec4(mix(uPlinthColor, uFogColor, clamp(wfog, 0.0, 1.0)), 1.0);
     return;
@@ -1250,7 +1188,7 @@ void main() {
   vec3 sunCol = uTerrainSunCol * uTerrainSunIntensity;
   vec3 skyAmb = uTerrainSkyAmb * 0.50 * (n.y * 0.5 + 0.5);
   vec3 bounce = uTerrainBounce * 0.25 * (1.0 - n.y * 0.5);
-  vec3 col = albedo * (sunCol * diff + skyAmb + bounce);
+  vec3 col = albedo * (sunCol * diff * (1.0 - terrainCloudShadow(vWorldPos)) + skyAmb + bounce);
 
   float skirtDarken = 0.0;
   col *= 1.0 - skirtDarken;
@@ -1272,7 +1210,7 @@ function surfFallbackTexture() {
   return _surfFallbackTex;
 }
 
-export function createTerrainUniforms() {
+export function createTerrainUniforms({ surfaceFallback = null } = {}) {
   const paletteUniforms = createPaletteUniforms();
   const defaults = {
     ...DEFAULT_PLANET_STYLE,
@@ -1291,6 +1229,7 @@ export function createTerrainUniforms() {
     uStackOutMin:    { value: 0.0 },
     uStackOutMax:    { value: 1.35 },
     uTerrainSmoothing: { value: 0.0 },
+    uTerrainDetailCut: { value: 0.0 },   // 1 - params.terrainDetail (0 = full detail)
     uPersistence:    { value: 0.5 },
     uLacunarity:     { value: 2.05 },
     uRidge:          { value: 0.65 },
@@ -1300,6 +1239,13 @@ export function createTerrainUniforms() {
     uInfiniteMode:   { value: 0.0 },
     uBoardHalf:      { value: 1024 },
     uChunkSize:      { value: 128 },
+    // Mini Terrain composition (uMiniShape 0 = off: every other mode/project).
+    uMiniShape:      { value: 0.0 },
+    uMiniFrame:      { value: new THREE.Vector4(0, 1, 0, 0) },
+    uMiniGeometry:   { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniHeights:    { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniWobble:     { value: new THREE.Vector4(0, 0, 0, 0) },
+    uMiniDetail:     { value: new THREE.Vector4(0, 0, 0, 0) },
     // Tile mode (multi-cell studio assembly). Defaults reproduce a single
     // origin-centred board (uUseTiles=0 -> legacy falloff/wall path).
     uTileOccupancy:  { value: null },
@@ -1332,6 +1278,17 @@ export function createTerrainUniforms() {
     uSkirtDepth:     { value: 40 },
     uPlinthBaseY:    { value: -40 },
     uPlinthColor:    { value: new THREE.Color(0x14110d) },
+    // Mini Terrain section strata (uMiniCut 0 = legacy flat plinth colour).
+    uMiniCut:        { value: 0.0 },
+    uMiniTerrainBevel: { value: 0.0 },
+    uMiniHexagon: { value: 0.0 },
+    uMiniBevelRounded: { value: 0.0 },
+    uMiniCutTopsoil: { value: new THREE.Vector3(0.05, 0.03, 0.02) },
+    uMiniCutBandA:   { value: new THREE.Vector3(0.31, 0.23, 0.15) },
+    uMiniCutBandB:   { value: new THREE.Vector3(0.20, 0.14, 0.09) },
+    uMiniCutDeep:    { value: new THREE.Vector3(0.07, 0.06, 0.05) },
+    uMiniCutSediment:{ value: new THREE.Vector3(0.51, 0.40, 0.21) },
+    uMiniCutParams:  { value: new THREE.Vector4(8, -70, 12, 330) },
     uAnalysisEnabled: { value: 0.0 },
     uAnalysisMode: { value: 1.0 },
     uAnalysisOpacity: { value: 0.72 },
@@ -1342,18 +1299,13 @@ export function createTerrainUniforms() {
     uAnalysisContourSpacing: { value: 50.0 },
     uAnalysisContourStrength: { value: .35 },
     uWallThickness:  { value: 12 },
+    uTerrainCloudShadowTex: { value: null },
+    uTerrainCloudShadowPlanet: { value: 0.0 },
     uTerrainCloudShadowEnabled: { value: 0.0 },
     uTerrainCloudShadowStrength: { value: 0.45 },
     uTerrainCloudShadowCenter: { value: new THREE.Vector2() },
     uTerrainCloudShadowExtent: { value: 1.0 },
     uTerrainCloudShadowAltitude: { value: 1000.0 },
-    uTerrainCloudShadowScale: { value: 0.001 },
-    uTerrainCloudShadowCoverage: { value: 0.5 },
-    uTerrainCloudShadowSoftness: { value: 0.16 },
-    uTerrainCloudShadowWind: { value: new THREE.Vector3() },
-    uTerrainCloudShadowTime: { value: 0.0 },
-    uTerrainCloudShadowRotation: { value: 0.0 },
-    uTerrainCloudShadowEvolve: { value: 0.0 },
     // Underwater caustics (shared by every terrain material — studio/infinite
     // declare + use them; the planet material harmlessly ignores them). Default
     // off; the engine enables uCausticBlend while water caustics are active.
@@ -1560,8 +1512,8 @@ export function createTerrainUniforms() {
     uSurfaceRoleMap: { value: Array.from({length:13},()=>new THREE.Vector4(0,-1,0,1)) },
     uSurfaceRoleTint: { value: Array.from({length:13},()=>new THREE.Vector3(1,1,1)) },
     uSurfaceAssetSize: { value: new Array(64).fill(2) },
-    uSurfDiffuse:    { value: surfFallbackTexture() },
-    uSurfProps:      { value: surfFallbackTexture() },
+    uSurfDiffuse:    { value: surfaceFallback ?? surfFallbackTexture() },
+    uSurfProps:      { value: surfaceFallback ?? surfFallbackTexture() },
     uSurfMode:       { value: 0.0 },
     uSurfAmount:     { value: 1.0 },
     uSurfReveal:     { value: 0.0 },

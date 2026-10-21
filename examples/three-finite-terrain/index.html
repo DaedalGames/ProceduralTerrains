@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Procedural Terrains — Three.js example</title>
+    <style>
+      body { margin: 0; background: #16232b; color: #fff; font: 14px system-ui; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      aside { position: absolute; top: 20px; left: 20px; padding: 16px; background: #182027eb; border: 1px solid #60717c; max-width: 320px; }
+      h1 { font-size: 18px; margin: 0 0 8px; }
+      button { font: inherit; padding: 8px 12px; cursor: pointer; }
+      #status { margin: 10px 0 0; }
+    </style>
+  </head>
+  <body>
+    <canvas></canvas>
+    <aside>
+      <h1>Procedural Terrains</h1>
+      <p>Drag to orbit · scroll to zoom</p>
+      <button id="regenerate" disabled>New seed</button>
+      <p id="status">Preparing terrain…</p>
+    </aside>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

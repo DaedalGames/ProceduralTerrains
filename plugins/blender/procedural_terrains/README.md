@@ -1,6 +1,6 @@
 # Procedural Terrains for Blender 5.2
 
-Version 0.4.0 creates editable procedural terrain directly in Blender and
+Version 0.4.1 creates editable procedural terrain directly in Blender and
 imports validated Procedural Terrains ZIP/`.ptrterrain` exports. Both workflows
 produce ordinary Blender mesh objects with UVs and source metadata.
 
@@ -8,7 +8,7 @@ produce ordinary Blender mesh objects with UVs and source metadata.
 
 1. Open **Edit > Preferences > Get Extensions** in Blender 5.2.
 2. Open the extensions menu and choose **Install from Disk**.
-3. Select `procedural-terrains-blender-0.4.0.zip` and enable the extension.
+3. Select `procedural-terrains-blender-0.4.1.zip` and enable the extension.
 4. Open **3D View > Sidebar > Terrain**.
 
 ## Create terrain

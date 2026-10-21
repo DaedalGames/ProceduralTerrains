@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0-alpha.2
+
+- Refresh the release archive with the current generation, erosion, surface and water implementations.
+- Match the bundled sources and installation guide for the studio 2.0.0 release.
+
 ## 0.4.0-alpha.1
 
 - Added density-aware fine detail and conservative thermal erosion over the full assembly.

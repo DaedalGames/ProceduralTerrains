@@ -120,7 +120,7 @@ const ATMOSPHERE_COLORS = [
   },
 ];
 
-export default function EnvironmentPanel({ params, planetStyle, onParam, onTuning, settingsTarget }) {
+export default function EnvironmentPanel({ params, planetStyle, onParam, onTuning, settingsTarget, miniActive = false }) {
   useLanguage();
   const flat = useContext(FlatPanelContext);
   const style = planetStyle ?? {};
@@ -153,6 +153,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
             </span>
           </div>
           <ColorInput
+            label="Sun Color"
             value={colorToHex(style.sunColor ?? [1.0, 0.94, 0.82])}
             onChange={(v) => onTuning('sunColor', parseColor(v))}
           />
@@ -227,6 +228,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
               )}
             </div>
             <ColorInput
+              label={label}
               value={colorToHex(style[key] ?? [0.5, 0.5, 0.5])}
               onChange={(v) => onTuning(key, parseColor(v))}
             />
@@ -234,7 +236,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
         ))}
       </ControlSection>
 
-      <ControlSection
+      {!miniActive && <ControlSection
         id="inspector-environment-water-lighting"
         title={translateText("Water Lighting")}
         defaultOpen={false}
@@ -255,7 +257,7 @@ export default function EnvironmentPanel({ params, planetStyle, onParam, onTunin
           />
         ))}
         <p className="section-hint">{translateText("Applies to Legacy, Realistic, Volumetric, Cinematic, Infinite World, and the Planet ocean.")}</p>
-      </ControlSection>
+      </ControlSection>}
     </>
   );
 

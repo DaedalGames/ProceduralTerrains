@@ -1,4 +1,5 @@
 import { exportError } from '../../export/ExportDiagnostics.js';
+import { captureRendererState } from '../../runtime/resources/RendererState.js';
 
 /**
  * Backend-neutral render-target readback. WebGLRenderer accepts a caller-owned
@@ -21,7 +22,11 @@ export async function readRenderTargetPixelsAsync(
     if (typeof renderer.readRenderTargetPixelsAsync === 'function') {
       try {
         if (renderer.getContext?.()?.isContextLost?.()) throw new Error('Graphics context is lost');
-        await renderer.readRenderTargetPixelsAsync(
+        const gl = renderer.getContext?.();
+        const pack = gl?.PIXEL_PACK_BUFFER_BINDING
+          ? gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING)
+          : undefined;
+        const pending = renderer.readRenderTargetPixelsAsync(
           renderTarget,
           x,
           y,
@@ -31,8 +36,15 @@ export async function readRenderTargetPixelsAsync(
           faceIndex,
           textureIndex,
         );
+        // Three r185 leaves its async readback buffer bound while waiting on
+        // the fence. The host must be able to submit another frame/readback.
+        if (pack !== undefined) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pack);
+        await pending;
       } catch (reason) {
-        const error = exportError(reason, 'GPU readback failed without an error message (the graphics device may have been lost)');
+        const error = exportError(
+          reason,
+          'GPU readback failed without an error message (the graphics device may have been lost)',
+        );
         error.code ||= 'GPU_READBACK_FAILED';
         throw error;
       }
@@ -61,11 +73,26 @@ export async function readRenderTargetPixelsAsync(
 // Restore the caller's target and free temporary GPU storage even on rejection.
 export async function withExportRenderTarget(renderer, target, operation) {
   const previous = renderer.getRenderTarget();
+  const restore =
+    typeof renderer.getViewport === 'function'
+      ? captureRendererState(renderer)
+      : () => renderer.setRenderTarget(previous);
+  let restored = false;
+  const reset = () => {
+    if (!restored) {
+      restored = true;
+      restore();
+    }
+  };
   try {
     renderer.setRenderTarget(target);
-    return await operation();
+    const pending = operation();
+    // GPU submission is synchronous; the fence/encoding wait must not leave
+    // the temporary target installed into the caller's render loop.
+    reset();
+    return await pending;
   } finally {
-    renderer.setRenderTarget(previous);
+    reset();
     target.dispose();
   }
 }

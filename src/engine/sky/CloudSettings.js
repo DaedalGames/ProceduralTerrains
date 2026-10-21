@@ -31,9 +31,9 @@ export const CLOUD_DEFAULT_PARAMS = {
   cloudCoverage: 0.50,        // 0..1 — fraction of sky covered (higher = more)
   cloudDensity: 1.0,          // overall opacity / optical thickness multiplier
   cloudSoftness: 0.16,        // edge softness of the coverage threshold
-  // Kept in serialized params for backwards compatibility. The renderer now
-  // compiles one soft formation only; legacy values are normalized on load.
+  // Shared noise character for both renderers; changes without recompilation.
   cloudNoiseVariant: 'soft',
+  cloudNoiseSeed: 0,         // independent cloud pattern variation (both renderers)
 
   // shell geometry (world units, relative to the planet radius)
   cloudAltitude: 240,         // height of the inner shell above the surface
@@ -64,7 +64,41 @@ export const CLOUD_DEFAULT_PARAMS = {
   cloudShadowOpacity: 0.45,
   cloudColor: [1.0, 1.0, 1.0],
   cloudShadowColor: [0.42, 0.47, 0.60],
+
+  // Rendering mode: 'legacy' = the procedural slab/shell renderer above,
+  // 'realistic' = the Procedural Planets renderer (sky/realistic/). Shape,
+  // shell, motion and colour keys above are shared; the keys below only drive
+  // the realistic renderer (defaults = Procedural Planets).
+  cloudRenderMode: 'legacy',
+  cloudSystemScale: 3.2,      // weather / formation frequency (higher = smaller clouds)
+  cloudErosion: 0.7,          // wispy bottoms / billowy tops
+  cloudBillowSize: 1.0,       // size of the billows
+  cloudTowering: 0.55,        // low flat decks .. tall towering cumulonimbus
+  cloudShear: 0.25,           // upper winds carry the tops downstream
+  cloudForwardScatter: 1.0,   // silver lining toward the sun
+  cloudSkyTint: [0.78, 0.84, 0.95],   // ambient (sky-lit) tint
+  cloudExposure: 1.0,
 };
+
+export const CLOUD_RENDER_MODES = ['legacy', 'realistic'];
+export const CLOUD_NOISE_TYPES = ['soft', 'billowy', 'wispy'];
+
+export function resolveCloudNoiseType(params) {
+  return Math.max(0, CLOUD_NOISE_TYPES.indexOf(params?.cloudNoiseVariant));
+}
+
+export function cloudNoiseOffset(seed = 0) {
+  let s = Number(seed) >>> 0;
+  if (!s) return [0, 0, 0];
+  return [0, 1, 2].map(() => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return (s / 4294967296 - 0.5) * 64;
+  });
+}
+
+export function resolveCloudRenderMode(params) {
+  return params?.cloudRenderMode === 'realistic' ? 'realistic' : 'legacy';
+}
 
 // Legacy quality/perf keys that used to live in params. Old saves may still
 // carry them; loadSeedJSON ports them into `perf` once (see Engine).
@@ -73,7 +107,7 @@ export const CLOUD_LEGACY_PERF_KEYS = [
 ];
 
 export function normalizeCloudFormation(params) {
-  if (!params || params.cloudNoiseVariant === 'soft') return params;
+  if (!params || CLOUD_NOISE_TYPES.includes(params.cloudNoiseVariant)) return params;
   return { ...params, cloudNoiseVariant: 'soft' };
 }
 

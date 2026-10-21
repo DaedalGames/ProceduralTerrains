@@ -32,6 +32,53 @@ function pointerEvent(type, properties) {
 }
 
 describe('InputFrameBridge', () => {
+  it('requests real mouse lock during a canvas click only in first-person modes', () => {
+    const canvas = new FakeCanvas();
+    const doc = installBrowserGlobals();
+    canvas.focus = vi.fn();
+    canvas.requestPointerLock = vi.fn();
+    doc.exitPointerLock = vi.fn();
+    const bridge = new InputFrameBridge({ canvas, send: vi.fn() });
+    const click = () => canvas.dispatchEvent(pointerEvent('click', { button: 0, pointerType: 'mouse' }));
+    click();
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    bridge.setPointerLockEnabled(true);
+    canvas.dispatchEvent(pointerEvent('click', { button: 0, pointerType: 'touch' }));
+    expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+    click();
+    expect(canvas.requestPointerLock).toHaveBeenCalledTimes(1);
+    expect(canvas.focus).toHaveBeenCalled();
+    doc.pointerLockElement = canvas;
+    bridge.setPointerLockEnabled(false);
+    expect(doc.exitPointerLock).toHaveBeenCalledTimes(1);
+    doc.pointerLockElement = null;
+    bridge.dispose();
+    click();
+    expect(canvas.requestPointerLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards actual lock state, relative mouse look and Escape unlock', () => {
+    const canvas = new FakeCanvas();
+    const doc = installBrowserGlobals();
+    const send = vi.fn();
+    const bridge = new InputFrameBridge({ canvas, send });
+    doc.dispatchEvent(pointerEvent('mousemove', { movementX: 50, movementY: 5 }));
+    expect(bridge.pointerEvents).toEqual([]);
+    doc.pointerLockElement = canvas;
+    doc.dispatchEvent(new Event('pointerlockchange'));
+    expect(send).toHaveBeenLastCalledWith('applyInputFrame', [expect.objectContaining({ pointerLocked: true })]);
+    doc.dispatchEvent(pointerEvent('mousemove', { movementX: 12, movementY: -8 }));
+    bridge._flush();
+    expect(send).toHaveBeenLastCalledWith('applyInputFrame', [expect.objectContaining({
+      pointerLocked: true,
+      pointerEvents: [expect.objectContaining({ type: 'mousemove', movementX: 12, movementY: -8 })],
+    })]);
+    doc.pointerLockElement = null;
+    doc.dispatchEvent(new Event('pointerlockchange'));
+    expect(send).toHaveBeenLastCalledWith('applyInputFrame', [expect.objectContaining({ pointerLocked: false })]);
+    bridge.dispose();
+  });
+
   it('prevents the native context menu on the worker-backed viewport', () => {
     const canvas = new FakeCanvas();
     installBrowserGlobals();
@@ -117,6 +164,7 @@ describe('InputFrameBridge', () => {
       ],
       keyEvents: [],
       wheel: null,
+      pointerLocked: false,
       visible: true,
     }]);
 

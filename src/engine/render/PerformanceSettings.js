@@ -68,6 +68,7 @@ export const PERF_LIMITS = {
   cloudDetailOctaves:    { min: 0,       max: 5 },
   cloudRenderScale:      { min: 0.25,    max: 1.0 },
   cloudMaxDistance:      { min: 1.5,     max: 12.0 },
+  cloudRealisticSteps:   { min: 24,      max: 128 },
 };
 
 // Each preset is a complete snapshot of every tunable value. 'high' matches
@@ -91,6 +92,7 @@ export const PERF_PRESETS = {
     cloudOctaves: 3, cloudDetailOctaves: 0, cloudUseErosion: false,
     cloudMaxDistance: 3.0, cloudFallback: 'lite',
     cloudLightMode: 1, cloudStepLOD: true, cloudRenderScale: 0.5,
+    cloudRealisticSteps: 32,
   },
   balanced: {
     label: 'Balanced',
@@ -110,6 +112,7 @@ export const PERF_PRESETS = {
     cloudOctaves: 4, cloudDetailOctaves: 2, cloudUseErosion: true,
     cloudMaxDistance: 4.5, cloudFallback: 'none',
     cloudLightMode: 1, cloudStepLOD: true, cloudRenderScale: 0.5,
+    cloudRealisticSteps: 48,
   },
   high: {
     label: 'High',
@@ -129,6 +132,7 @@ export const PERF_PRESETS = {
     cloudOctaves: 5, cloudDetailOctaves: 4, cloudUseErosion: true,
     cloudMaxDistance: 6.0, cloudFallback: 'none',
     cloudLightMode: 1, cloudStepLOD: true, cloudRenderScale: 0.67,
+    cloudRealisticSteps: 64,
   },
   ultra: {
     label: 'Ultra',
@@ -148,6 +152,7 @@ export const PERF_PRESETS = {
     cloudOctaves: 5, cloudDetailOctaves: 5, cloudUseErosion: true,
     cloudMaxDistance: 8.0, cloudFallback: 'none',
     cloudLightMode: 0, cloudStepLOD: false, cloudRenderScale: 1.0,
+    cloudRealisticSteps: 96,
   },
 };
 
@@ -327,6 +332,7 @@ export function sanitizePerfSettings(settings) {
   s.cloudStepLOD = !!s.cloudStepLOD;
   s.cloudMaxDistance = clamp(+s.cloudMaxDistance || 6.0, PERF_LIMITS.cloudMaxDistance);
   s.cloudFallback = s.cloudFallback || 'none';
+  s.cloudRealisticSteps = Math.round(clamp(+s.cloudRealisticSteps || 64, PERF_LIMITS.cloudRealisticSteps));
   if (s.preset === 'performance') {
     s.cloudSteps = Math.min(s.cloudSteps, 12);
   }

@@ -110,6 +110,8 @@ export const ENGINE_METHODS = Object.freeze([
   'setTileDebug', 'setTileMapSetting', 'setTimeOfDay', 'setTouchInput', 'setViewport',
   'smoothExplosionEdges', 'startEmptyTerrain', 'transitionMode', 'updateManualShape',
   'updateManualShapeLayer', 'updateSpline', 'applyInputFrame',
+  'getMiniTerrain', 'setMiniTerrain', 'regenerateMiniTerrain', 'frameMiniTerrain',
+  'saveMiniView', 'removeMiniView', 'goToMiniView',
 ]);
 
 const cloneError = (payload) => {
@@ -192,7 +194,10 @@ export class WorkerEngineTransport {
       canvas,
       send: (method, args) => this.invoke(method, args),
     });
-    return initialized;
+    return initialized.then((snapshot) => {
+      this.inputBridge?.setPointerLockEnabled(snapshot?.pointerLockEnabled);
+      return snapshot;
+    });
   }
 
   invoke(method, args = [], { transfer = [], signal } = {}) {
@@ -262,11 +267,16 @@ export class WorkerEngineTransport {
   }
 
   _message(data) {
+    if (data?.type === 'exitPointerLock') {
+      this.inputBridge?.exitPointerLock();
+      return;
+    }
     if (data?.type === 'callback') {
       this.remoteCallbacks.get(data.callbackId)?.(...(data.args || []));
       return;
     }
     if (data?.type === 'event') {
+      if (data.snapshot) this.inputBridge?.setPointerLockEnabled(data.snapshot.pointerLockEnabled);
       this.onEvent?.(data.event, data.args || [], data.snapshot || null, data.seq);
       if (data.event === 'onCamera' || data.event === 'onParams' || data.event === 'onTiles') {
         void this.minimapPresenter.refresh();
@@ -406,6 +416,7 @@ export class EngineClient {
       if (args[0]) savePerfSettings(args[0]);
     }
     if (name === 'onProjectMode') patch.projectMode = args[0];
+    if (name === 'onMiniTerrain') patch.miniTerrain = args[0];
     if (name === 'onTimeOfDayChange') patch.timeOfDay = args[0];
     if (name === 'onBootShaderStats') recordBootShaderStats(args[0]);
     this._setSnapshot({ ...this.snapshot, ...patch });
@@ -438,6 +449,7 @@ const snapshotGetters = {
   params: 'params', perf: 'perf', gpuName: 'gpuName', rendererConfig: 'rendererConfig',
   rendererCapabilities: 'rendererCapabilities', worldMode: 'worldMode',
   projectMode: 'projectMode', realWorldSource: 'realWorldSource', timeOfDay: 'timeOfDay',
+  miniTerrain: 'miniTerrain',
   _soloLayerId: 'soloLayerId', _disposed: 'disposed',
 };
 for (const [property, snapshotKey] of Object.entries(snapshotGetters)) {

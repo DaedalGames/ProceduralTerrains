@@ -435,7 +435,7 @@ export default function AdminDashboard({ user, onBack }) {
   return (
     <section className="admin-dashboard" aria-labelledby="admin-title">
       <aside className="admin-sidebar">
-        <div className="admin-sidebar-heading"><span className="admin-shield"><ShieldCheck size={18} /></span><span><strong>{translateText("Admin console")}</strong><small>{translateText("Three Terrain")}</small></span></div>
+        <div className="admin-sidebar-heading"><span className="admin-shield"><ShieldCheck size={18} /></span><span><strong>{translateText("Admin console")}</strong><small>{translateText("Procedural Terrains")}</small></span></div>
         <nav aria-label={translateText("Administration")}>
           {TABS.map(({ id, label, icon: Icon }) => <button type="button" key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon size={15} /><span>{translateText(label)}</span></button>)}
         </nav>
@@ -446,7 +446,7 @@ export default function AdminDashboard({ user, onBack }) {
           <div className="admin-topbar-content">
             <div className="admin-topbar-title">
               <button type="button" className="admin-back" onClick={onBack}><ArrowLeft size={15} />{translateText(" Exit admin")}</button>
-              <div><span>{translateText("Three Terrain back office")}</span><h1 id="admin-title">{translateText(title)}</h1></div>
+              <div><span>{translateText("Procedural Terrains back office")}</span><h1 id="admin-title">{translateText(title)}</h1></div>
             </div>
             <div className="admin-secure-indicator"><LockKeyhole size={13} /><span>{translateText("Secure admin session")}</span></div>
           </div>
