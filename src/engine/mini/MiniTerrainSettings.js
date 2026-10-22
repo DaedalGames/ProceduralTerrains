@@ -674,10 +674,20 @@ export function resolveMiniCloudLayout(state) {
   };
 }
 
-/** Terrain LOD segments for the single Mini surface (all four LOD slots). */
+// The footprint stays one board cell (chunkCount 1, chunkSize = width), but
+// the board splits it into this many chunks per side so each picks its own
+// geometry LOD from camera distance, like every other terrain.
+export const MINI_CHUNKS_PER_SIDE = 4;
+
+/**
+ * Per-chunk LOD ladder (quads per chunk side, LOD 0..3). LOD0 keeps the
+ * quality profile's full surface resolution; each level halves it (an exact
+ * 2:1 ladder, so geomorphing hides the swaps).
+ */
 export function miniLodSegments(state) {
   const { segments } = resolveMiniLayout(state);
-  return [segments, segments, segments, segments];
+  const lod0 = Math.max(8, Math.round(segments / MINI_CHUNKS_PER_SIDE));
+  return [lod0, lod0 / 2, lod0 / 4, lod0 / 8];
 }
 
 // ---------------------------------------------------------------------------

@@ -88,7 +88,7 @@ import {
   createBoardPlinthMaterial,
 } from './terrain/BoardPlinth.js';
 import { MiniTerrainController } from './mini/MiniTerrainController.js';
-import { MINI_TERRAIN_VERSION, normalizeMiniTerrainState } from './mini/MiniTerrainSettings.js';
+import { MINI_CHUNKS_PER_SIDE, MINI_TERRAIN_VERSION, normalizeMiniTerrainState } from './mini/MiniTerrainSettings.js';
 import { miniStylePatch } from './mini/MiniLook.js';
 import { PlanetStyleManager } from './style/PlanetStyleManager.js';
 import { TerrainHeightSampler } from './terrain/TerrainHeightSampler.js';
@@ -4512,8 +4512,7 @@ export class Engine {
     const p = this.params;
     const maxHeight = this._maxHeight();
     const result = this.board.syncCells({
-      chunkCount: p.chunkCount,
-      chunkSize: p.chunkSize,
+      ...this._boardChunkLayout(),
       maxHeight,
       skirtDepth: this._skirtDepth(),
       lodSegments: this._boardLodSegments(),
@@ -4524,6 +4523,7 @@ export class Engine {
     if (result?.rebuilt) {
       this.appliedChunkCount = p.chunkCount;
       this.appliedChunkSize = p.chunkSize;
+      this._syncBoardMerge();
     }
 
     this._applyStudioAssemblyLayout(maxHeight);
@@ -4553,16 +4553,18 @@ export class Engine {
     this._needsRender = true;
     if (terrainDirty) this._markTerrainFieldDirty();
     const p = this.params;
+    const layout = this._boardChunkLayout();
     const rebuildNeeded = force
       || p.chunkCount !== this.appliedChunkCount
-      || p.chunkSize !== this.appliedChunkSize;
+      || p.chunkSize !== this.appliedChunkSize
+      || layout.chunkCount !== this.board.chunkCount
+      || layout.chunkSize !== this.board.chunkSize;
 
     if (rebuildNeeded) {
       this.cb.onStatus('Rebuilding board…', true);
       const maxHeight = this._maxHeight();
       this.board.build({
-        chunkCount: p.chunkCount,
-        chunkSize: p.chunkSize,
+        ...layout,
         maxHeight,
         skirtDepth: this._skirtDepth(),
         lodSegments: this._boardLodSegments(),
@@ -4572,6 +4574,7 @@ export class Engine {
       });
       this.appliedChunkCount = p.chunkCount;
       this.appliedChunkSize = p.chunkSize;
+      this._syncBoardMerge();
 
       this._applyStudioAssemblyLayout(maxHeight);
 
@@ -4634,7 +4637,7 @@ export class Engine {
     this._lastLodUpdate = now;
     this.cb.onLod(
       [...this.board.lodCounts],
-      this.params.chunkCount,
+      this.board.chunkCount ?? this.params.chunkCount,
       this.board.visibleChunkCount,
       this.board.culledChunkCount
     );
@@ -4664,8 +4667,30 @@ export class Engine {
     return Math.max(10, (this.boardSize || 0) * 0.006);
   }
 
-  // Board LOD segments: Mini uses one fixed-resolution surface (all four LOD
-  // slots equal, so geomorphing stays inert); every other mode keeps the
+  // Board chunk grid. A Mini keeps its one-cell footprint in params
+  // (chunkCount 1, chunkSize = width) but the board splits it into a finer
+  // grid so each chunk picks its own LOD like every other terrain.
+  _boardChunkLayout() {
+    const p = this.params;
+    if (!this.mini?.active) return { chunkCount: p.chunkCount, chunkSize: p.chunkSize };
+    return {
+      chunkCount: p.chunkCount * MINI_CHUNKS_PER_SIDE,
+      chunkSize: p.chunkSize / MINI_CHUNKS_PER_SIDE,
+    };
+  }
+
+  // A Mini is too small to gain from folding chunks into coarse proxies, and
+  // its light decal draws on the detailed chunk meshes only.
+  _boardMergeEnabled() {
+    return !!this.perf?.terrainMerge && !this.mini?.active;
+  }
+
+  _syncBoardMerge() {
+    this.board.setMergeOptions({ enabled: this._boardMergeEnabled() });
+  }
+
+  // Board LOD segments: Mini derives its ladder from the quality profile
+  // (LOD0 = full surface resolution); every other mode keeps the
   // performance-driven ladder.
   _boardLodSegments() {
     if (this.mini?.active) return this.mini.lodSegments();
@@ -8278,7 +8303,7 @@ export class Engine {
     this._lastLodUpdate = performance.now();
     this.cb.onLod(
       [...this.board.lodCounts],
-      this.params.chunkCount,
+      this.board.chunkCount ?? this.params.chunkCount,
       this.board.visibleChunkCount,
       this.board.culledChunkCount
     );
@@ -11001,8 +11026,7 @@ export class Engine {
     this.board.setLodDistanceScale(s.lodDistanceScale);
     this.board.cullingAggressiveness = s.cullingAggressiveness;
     this.board.setMergeOptions({
-      // a Mini surface is one fixed mesh: never fold it into a coarse proxy
-      enabled: s.terrainMerge && !this.mini?.active,
+      enabled: this._boardMergeEnabled(),
       quadsPerChunk: s.terrainMergeQuads,
       mergeDistance: s.terrainMergeDistance,
       macroEnabled: s.terrainMacroProxy,
@@ -13460,7 +13484,7 @@ export class Engine {
         this.profiler.end('lod');
         this.cb.onLod(
           [...this.board.lodCounts],
-          this.params.chunkCount,
+          this.board.chunkCount ?? this.params.chunkCount,
           this.board.visibleChunkCount,
           this.board.culledChunkCount
         );
