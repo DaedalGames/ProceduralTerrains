@@ -176,6 +176,14 @@ export class CloudShadowPass {
   }
 }
 
+export function cloudShadowPreparationPass(layer, planet = false) {
+  layer._shadowPass ??= new CloudShadowPass({ realistic: layer.renderMode === 'realistic', planet });
+  const pass = layer._shadowPass;
+  pass.material.uniforms = { ...layer.material.uniforms, ...pass.uniforms };
+  return { material: pass.material, source: pass.mesh, camera: pass.camera,
+    targetScene: pass.scene, renderTarget: pass.target };
+}
+
 export function renderTerrainCloudShadow(layer, sun, planet = false, tiles = null) {
   if (!layer._renderer || !layer.active) return null;
   if (layer.renderMode === 'realistic' && !layer.material.uniforms.uCloudNoise.value) return null;

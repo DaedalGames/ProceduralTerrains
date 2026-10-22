@@ -23,6 +23,12 @@ export class InfiniteTerrainBatches {
   // The LOD geometries are owned by this batch set, so the instanced
   // attribute lives directly on them.
   _attachMorphAttribute(geometry) {
+    const edge = geometry.getAttribute('aEdgeLod');
+    if (!edge || edge.count < this.capacity) {
+      const attribute = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4);
+      attribute.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute('aEdgeLod', attribute);
+    }
     const current = geometry.getAttribute('aMorphK');
     if (current && current.count >= this.capacity) return current;
     const attribute = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity), 1);
@@ -78,6 +84,8 @@ export class InfiniteTerrainBatches {
       this.meshes[lod].setMatrixAt(slot, this._matrix);
       const morph = this.meshes[lod].geometry.getAttribute('aMorphK');
       if (morph) morph.array[slot] = chunk.morph || 0;
+      const edges = this.meshes[lod].geometry.getAttribute('aEdgeLod');
+      edges.array.set(chunk.edgeLod || [lod, lod, lod, lod], slot * 4);
     }
 
     for (let lod = 0; lod < LOD_COUNT; lod++) {
@@ -87,6 +95,7 @@ export class InfiniteTerrainBatches {
         mesh.instanceMatrix.needsUpdate = true;
         const morph = mesh.geometry.getAttribute('aMorphK');
         if (morph) morph.needsUpdate = true;
+        mesh.geometry.getAttribute('aEdgeLod').needsUpdate = true;
       }
     }
     this.counts = counts;

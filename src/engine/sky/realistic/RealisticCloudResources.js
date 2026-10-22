@@ -102,7 +102,7 @@ export function retainRealisticNoiseVolumes(renderer) {
     if (count > 0) { _owners.set(renderer, count); return; }
     _owners.delete(renderer);
     const entry = _shared.get(renderer);
-    if (entry) { entry.noiseRT.dispose(); entry.erosionRT.dispose(); entry.blitter.dispose(); _shared.delete(renderer); }
+    if (entry) { entry.material.dispose(); entry.noiseRT.dispose(); entry.erosionRT.dispose(); entry.blitter.dispose(); _shared.delete(renderer); }
   };
 }
 
@@ -110,7 +110,7 @@ export function retainRealisticNoiseVolumes(renderer) {
  * Shared noise volumes for a renderer (baked on first use). Returns
  * { noise, erosion } 3D textures.
  */
-export function getRealisticNoiseVolumes(renderer) {
+function noiseEntry(renderer) {
   let entry = _shared.get(renderer);
   if (!entry) {
     const volume = (format) => {
@@ -128,15 +128,27 @@ export function getRealisticNoiseVolumes(renderer) {
       noiseRT: volume(THREE.RGFormat),
       erosionRT: volume(THREE.RedFormat),
       baked: false,
+      material: screenMaterial(NOISE_VOLUME_FRAGMENT, {
+        uLayer: { value: 0 }, uSize: { value: NOISE_SIZE },
+      }),
       blitter: new Blitter(),
     };
     _shared.set(renderer, entry);
   }
+  return entry;
+}
+
+/** Describe the exact noise bake without drawing or forcing a program link. */
+export function realisticNoisePreparationPass(renderer) {
+  const entry = noiseEntry(renderer);
+  return { material: entry.material, source: entry.blitter.quad,
+    camera: entry.blitter.camera, targetScene: entry.blitter.scene, renderTarget: entry.noiseRT };
+}
+
+export function getRealisticNoiseVolumes(renderer) {
+  const entry = noiseEntry(renderer);
   if (!entry.baked) {
-    const mat = screenMaterial(NOISE_VOLUME_FRAGMENT, {
-      uLayer: { value: 0 },
-      uSize: { value: NOISE_SIZE },
-    });
+    const mat = entry.material;
     withBakeState(renderer, () => {
       for (const rt of [entry.noiseRT, entry.erosionRT]) {
         for (let layer = 0; layer < NOISE_SIZE; layer++) {
@@ -145,7 +157,6 @@ export function getRealisticNoiseVolumes(renderer) {
         }
       }
     });
-    mat.dispose();
     entry.baked = true;
   }
   return { noise: entry.noiseRT.texture, erosion: entry.erosionRT.texture, blitter: entry.blitter };

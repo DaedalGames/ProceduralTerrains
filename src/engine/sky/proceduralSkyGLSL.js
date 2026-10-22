@@ -62,7 +62,7 @@ vec3 evaluateProceduralSkyLinear(
   skyCol += uSkySunColor * horizonWarmth * uSkyLightIntensity * (1.0 + uSkyHorizonGlow);
   skyCol += uSkyHorizon * hazeBand * uSkyHorizonGlow * 0.35;
 
-  float nightFactor = smoothstep(0.15, -0.1, uSkySunDir.y)
+  float nightFactor = (1.0 - smoothstep(-0.1, 0.15, uSkySunDir.y))
     * uSkyStars * starStrength;
   if (nightFactor > 0.01 && y > 0.0) {
     vec3 starGrid = floor(dir * 300.0);

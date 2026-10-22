@@ -52,6 +52,27 @@ describe('scheduled shader submission', () => {
     expect(engine.renderer.getRenderTarget()).toBe(nextFrameTarget);
   });
 
+  it('warms a hidden source without changing its visibility or camera layers', async () => {
+    const { engine, jobs } = harness();
+    const source = new THREE.InstancedMesh(new THREE.PlaneGeometry(), new THREE.ShaderMaterial(), 1);
+    source.visible = false;
+    source.layers.set(3);
+    source.setColorAt(0, new THREE.Color('white'));
+    engine.renderer.compile.mockImplementation(group => {
+      const probe = group.children[0];
+      expect(probe.visible).toBe(true);
+      expect(probe.layers.mask).toBe(engine.camera.layers.mask);
+      expect(probe.isInstancedMesh).toBe(true);
+      expect(probe.instanceColor).toBeTruthy();
+      return new Set();
+    });
+    const task = engine._compileMaterialVariants([source.material], { canvasOnly: true, sources: [source] });
+    jobs.shift()();
+    expect((await task).ready).toBe(true);
+    expect(source.visible).toBe(false);
+    expect(source.layers.mask).toBe(1 << 3);
+  });
+
   it('does not submit obsolete queued shaders', async () => {
     const { engine, jobs } = harness();
     let current = true;

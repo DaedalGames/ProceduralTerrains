@@ -294,8 +294,16 @@ attribute float aSkirt;
 attribute float aLod;
 attribute float aWall;   // 1 on the dedicated circular radial-wall mesh, else 0
 attribute float aMorph;  // 1 on the shared per-LOD chunk grids (absent = 0)
+uniform vec4 uLodGridSegments;   // quads per chunk side, LOD 0..3
 #ifdef USE_INSTANCING
 attribute float aMorphK; // Infinite World: per-chunk temporal geomorph factor
+attribute vec4 aEdgeLod; // north/east/south/west shared edge shape (level + morph)
+
+float infiniteGridSegments(float level) {
+  return level < 0.5 ? uLodGridSegments.x : level < 1.5 ? uLodGridSegments.y
+    : level < 2.5 ? uLodGridSegments.z : uLodGridSegments.w;
+}
+
 #endif
 
 // CDLOD geomorphing. A vertex of LOD L slides its odd grid indices onto the
@@ -307,9 +315,62 @@ attribute float aMorphK; // Infinite World: per-chunk temporal geomorph factor
 // metric matches the CPU selection: horizontal distance + camera height.
 uniform vec3 uLodMorphStart;
 uniform vec3 uLodMorphEnd;
-uniform vec4 uLodGridSegments;   // quads per chunk side, LOD 0..3
+
+
+#ifdef USE_INSTANCING
+// Corners stay at their analytic height. Along a shared border both chunks
+// use exactly the same knots and temporal blend, even during LOD transitions.
+float infiniteEdgeState(vec3 grid, out vec2 axis) {
+  axis = vec2(0.0);
+  float state = -1.0;
+  if (uInfiniteMode > 0.5) {
+    if (grid.z < 0.00001) { axis = vec2(1.0, 0.0); state = aEdgeLod.x; }
+    else if (grid.x > 0.99999) { axis = vec2(0.0, 1.0); state = aEdgeLod.y; }
+    else if (grid.z > 0.99999) { axis = vec2(1.0, 0.0); state = aEdgeLod.z; }
+    else if (grid.x < 0.00001) { axis = vec2(0.0, 1.0); state = aEdgeLod.w; }
+  }
+  return state;
+}
+
+float infiniteEdgeCurve(vec2 origin, vec2 axis, float t, float segments) {
+  float index = min(floor(t * segments), segments - 1.0);
+  float a = index / segments;
+  float b = (index + 1.0) / segments;
+  return mix(terrainCachedHeightAt(origin + axis * (a * uChunkSize)),
+    terrainCachedHeightAt(origin + axis * (b * uChunkSize)),
+    clamp((t - a) * segments, 0.0, 1.0));
+}
+
+float infiniteStitchedHeight(vec2 xz, vec3 grid, float height) {
+  vec2 axis;
+  float state = infiniteEdgeState(grid, axis);
+  float result = height;
+  if (state >= 0.0) {
+    float level = floor(state);
+    float t = dot(grid.xz, axis);
+    vec2 origin = xz - axis * (t * uChunkSize);
+    float fine = infiniteEdgeCurve(origin, axis, t, infiniteGridSegments(level));
+    float coarse = infiniteEdgeCurve(origin, axis, t, infiniteGridSegments(min(3.0, level + 1.0)));
+    result = mix(fine, coarse, fract(state));
+  }
+  return result;
+}
+#endif
 
 vec3 terrainMorphedGrid(vec3 grid) {
+  #ifdef USE_INSTANCING
+    vec2 edgeAxis;
+    float edgeState = infiniteEdgeState(grid, edgeAxis);
+    if (aMorph > 0.5 && edgeState >= 0.0) {
+      // Collapse extra boundary vertices onto shared knots. This also handles
+      // custom segment ladders that are not exact powers of two.
+      float edgeSegments = infiniteGridSegments(floor(edgeState));
+      float t = dot(grid.xz, edgeAxis);
+      float snapped = floor(t * edgeSegments + 0.0001) / edgeSegments;
+      grid.xz += edgeAxis * (snapped - t);
+      return grid;
+    }
+  #endif
   if (aMorph < 0.5 || aLod > 2.5) return grid;
   float segments = aLod < 0.5 ? uLodGridSegments.x : aLod < 1.5 ? uLodGridSegments.y : uLodGridSegments.z;
   float coarser = aLod < 0.5 ? uLodGridSegments.y : aLod < 1.5 ? uLodGridSegments.z : uLodGridSegments.w;
@@ -342,7 +403,8 @@ varying float vCutRimH;   // surface height above this column (Mini cut strata)
 ${preview ? 'varying vec3 vTerrainPreviewNormal;' : ''}
 
 void main() {
-  vec4 localPosition = vec4(terrainMorphedGrid(position), 1.0);
+  vec3 terrainGrid = terrainMorphedGrid(position);
+  vec4 localPosition = vec4(terrainGrid, 1.0);
   #ifdef USE_INSTANCING
     localPosition = instanceMatrix * localPosition;
   #endif
@@ -352,6 +414,9 @@ void main() {
     wp.xz = miniBevelPoint(wp.xz, uBoardHalf, uMiniTerrainBevel, uMiniBevelRounded);
   }
   float h = terrainCachedHeightAt(wp.xz);
+  #ifdef USE_INSTANCING
+    if (aMorph > 0.5 && uInfiniteMode > 0.5) h = infiniteStitchedHeight(wp.xz, terrainGrid, h);
+  #endif
 ${preview ? /* glsl */ `
   // Smooth lighting for the lightweight Node preview. Two extra height
   // samples per vertex are much cheaper than evaluating the graph per pixel,
@@ -755,22 +820,11 @@ ${features.manual ? /* glsl */ `
   // same field sample as the climate above (terrainCachedHeightAt, strict)
   if (infiniteFieldAvailable > 0.5) hC = infiniteField.r * uHeightScale;
   else hC = 0.0;
-  float normalDistance = length(cameraPosition - vWorldPos);
-  bool farInfiniteNormal = vLod > 1.5 || normalDistance > max(uChunkSize * 7.0, 900.0);
-  // Screen derivatives are taken in uniform control flow: a gradient inside the
-  // divergent branch would make the compiler flatten it and always pay for the
-  // two neighbour samples below.
-  vec3 faceNormal = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-  if (farInfiniteNormal) {
-    hX = hC;
-    hZ = hC;
-    nGeo = faceNormal;
-    if (nGeo.y < 0.0) nGeo = -nGeo;
-  } else {
-    hX = terrainCachedHeightAt(xz + vec2(eps, 0.0));
-    hZ = terrainCachedHeightAt(xz + vec2(0.0, eps));
-    nGeo = normalize(vec3(-(hX - hC) / eps, 1.0, -(hZ - hC) / eps));
-  }
+  // The same continuous field defines shading at every LOD. Switching to
+  // triangle normals in the far ring exposed both its coarse grid and a seam.
+  hX = terrainCachedHeightAt(xz + vec2(eps, 0.0));
+  hZ = terrainCachedHeightAt(xz + vec2(0.0, eps));
+  nGeo = normalize(vec3(-(hX - hC) / eps, 1.0, -(hZ - hC) / eps));
 ` : /* glsl */ `
   // Live/baked hybrid (see terrainBakeBlendWeight). Near the camera the exact
   // procedural field is evaluated per pixel; once a pixel spans about a bake
@@ -1031,7 +1085,7 @@ ${features.manual ? '' : /* glsl */ `
     vec2 gw = fwidth(xz) + 1e-5;
     vec2 gp = abs(fract(xz / uChunkSize - 0.5) - 0.5) * uChunkSize / gw;
     float line = 1.0 - min(min(gp.x, gp.y), 1.0);
-    float gridFade = smoothstep(420.0, 60.0, length(cameraPosition - vWorldPos) / 8.0);
+    float gridFade = 1.0 - smoothstep(60.0, 420.0, length(cameraPosition - vWorldPos) / 8.0);
     float gridMul = 1.0;
     if (uInfiniteMode < 0.5 && uUseTiles > 0.5) gridMul = 1.0 - tileInteriorSeam(xz);
     // Grid lines recolour over folded terrain so the chunk grid also shows

@@ -125,7 +125,7 @@ void main() {
   col = (col - 0.5) * uContrast + 0.5;
   float y = luma(col);
   col = mix(vec3(y), col, uSaturation);
-  float vig = smoothstep(0.95, 0.28, length(vUv - 0.5));
+  float vig = 1.0 - smoothstep(0.28, 0.95, length(vUv - 0.5));
   col *= mix(1.0 - uVignette, 1.0, vig);
   gl_FragColor = vec4(max(col, vec3(0.0)), 1.0);
 }
@@ -263,7 +263,7 @@ void main() {
     vec3 mask = maskCell < 1.0 ? vec3(1.0, 0.86, 0.86)
       : (maskCell < 2.0 ? vec3(0.86, 1.0, 0.86) : vec3(0.86, 0.86, 1.0));
     float noise = (hash21(gl_FragCoord.xy + floor(uTime * 30.0)) - 0.5) * 0.035;
-    float edge = smoothstep(1.25, 0.38, length(centered));
+    float edge = 1.0 - smoothstep(0.38, 1.25, length(centered));
     col *= mix(vec3(1.0), mask * scan, crtStrength);
     col += noise * crtStrength;
     col *= mix(1.0, edge, crtStrength * 0.45);

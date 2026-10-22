@@ -1,3 +1,4 @@
+import { FirstFrameShaderPreparation } from './render/FirstFrameShaderPreparation.js';
 import { applyTerrainDetailUniforms, applyTerrainVisualUniforms } from '../runtime/TerrainAppearance.js';
 import { normalizeMarkers } from './terrain/RealWorldMarkers.js';
 import { fetchCityMarkers } from './terrain/RealWorldCities.js';
@@ -3016,6 +3017,7 @@ export class Engine {
 
     this.controls.reset(this.boardSize);
     this.cb.onMiniTerrain?.(this.mini?.serialize() ?? null);
+    this._prepareFirstFrameShaders();
     if (!silent) {
       const label = this.mini?.state ? 'New Mini Terrain' : this.projectMode === 'nodes'
         ? 'New Nodes terrain'
@@ -5150,6 +5152,53 @@ export class Engine {
       && a.usesSceneTarget === b.usesSceneTarget
       && a.renderTarget === b.renderTarget;
   }
+  _prepareFirstFrameShaders() {
+    if (!this.renderer || this._disposed || this.worldMode !== 'studio') return null;
+    const renderTarget = this._resolveCameraCompileTarget().renderTarget;
+    const passes = [
+      ...(this.mini?.preparationPasses?.(renderTarget) || []),
+      ...(this.params?.cloudsEnabled ? this.studioCloud?.preparationPasses?.(renderTarget) || [] : []),
+    ];
+    if (!passes.length) {
+      this._firstFrameShaderPreparation?.cancel();
+      return null;
+    }
+    const post = this.visualPost;
+    if (post?._plan?.lookEnabled && post._lookMaterial) passes.push({
+      material: post._lookMaterial, source: post._quad, camera: post._quadCam,
+      targetScene: post._quadScene, renderTarget: post._plan.needsFinalPass ? post._lookRT : null,
+    });
+    if (post?._plan?.needsFinalPass && post._cameraMaterial) passes.push({
+      material: post._cameraMaterial, source: post._quad, camera: post._quadCam,
+      targetScene: post._quadScene, renderTarget: null,
+    });
+    this._applyShaderColdRun(passes.map(pass => pass.material));
+    this._firstFrameShaderPreparation ||= new FirstFrameShaderPreparation();
+    const renderer = this.renderer;
+    return this._firstFrameShaderPreparation.request(passes, {
+      renderer, isCurrent: () => !this._disposed && !this._contextLost
+        && this.renderer === renderer && this.worldMode === 'studio'
+        && this._resolveCameraCompileTarget().renderTarget === renderTarget,
+      compile: (pass, isCurrent) => this._compileMaterialVariants([pass.material], {
+        canvasOnly: true, timeoutMs: 120000, logCompile: false, isCurrent,
+        sources: [pass.source], camera: pass.camera, targetScene: pass.targetScene,
+        renderTarget: pass.renderTarget,
+      }),
+    });
+  }
+
+  async _waitForFirstFrameShaders() {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const state = this._prepareFirstFrameShaders();
+      if (!state) return;
+      await state.promise;
+      if (this._disposed) throw new Error('Renderer was disposed during shader preparation');
+      if (state.error) throw state.error;
+      if (state.ready && this._prepareFirstFrameShaders() === state) return;
+    }
+    throw new Error('First-frame shader preparation was superseded');
+  }
+
   _compileCameraTargetMaterials(mats, { timeoutMs = 120000, stagger = false, isCurrent = () => true } = {}) {
     const { renderTarget } = this._resolveCameraCompileTarget();
     return this._compileMaterialVariants(mats, {
@@ -5724,6 +5773,9 @@ export class Engine {
       } else {
         probe = new THREE.Mesh(source?.geometry || this._warmGeometryFor(material), material);
       }
+      // Hidden preparation meshes still need their exact topology compiled.
+      probe.visible = true;
+      if (camera?.layers && probe.layers) probe.layers.mask = camera.layers.mask;
       probe.castShadow = Boolean(source?.castShadow);
       probe.receiveShadow = Boolean(source?.receiveShadow);
       probe.frustumCulled = false;
@@ -6401,6 +6453,7 @@ export class Engine {
       ? [...(this.waterSystem?.prepareInitialMaterials(bootParams, this.worldMode) || [])]
       : [];
 
+    const firstFramePreparation = this._prepareFirstFrameShaders();
     if (this.params.cloudsEnabled) {
       const cloudReady = await this.studioCloud?.waitUntilReady?.({
         isCurrent: () => !this._disposed && context.runId === this._bootPipeline?.runId,
@@ -6408,6 +6461,9 @@ export class Engine {
       context.assertCurrent();
       if (cloudReady === false) throw new Error('Final cloud material did not become ready');
     }
+
+    if (firstFramePreparation) await this._waitForFirstFrameShaders();
+    context.assertCurrent();
 
     // Shader linking is independent from the incremental visible-chunk build.
     // Submit the exact final set now so KHR_parallel_shader_compile can work
@@ -7224,6 +7280,7 @@ export class Engine {
   async waitForTerrainReady({ timeoutMs = 120000 } = {}) {
     if (this.worldMode !== 'studio') return !this._disposed;
     const startedAt = performance.now();
+    await this._waitForFirstFrameShaders();
     while (!this._disposed) {
       if (this._contextLost) {
         throw new Error('Graphics context was lost while loading terrain');
@@ -8212,6 +8269,8 @@ export class Engine {
   _renderInitialStudioFrame({ frozen = false } = {}) {
     if (this.worldMode !== 'studio' || !this.board?.chunks?.length) return null;
     if (this._bootShaderPending) return null;
+    const preparation = this._prepareFirstFrameShaders();
+    if (preparation && !preparation.ready) return null;
     const t0 = performance.now();
 
     this.controls.update(frozen ? 0 : 0.016);
@@ -9323,6 +9382,8 @@ export class Engine {
       if (result?.error) throw result.error;
     }
     context.assertCurrent();
+    await this._waitForFirstFrameShaders();
+    context.assertCurrent();
     context.keepaliveMaterials = result?.keepaliveMaterials || [];
     context.keepaliveMaterials.forEach((material, index) => {
       context.bundle?.own(`keepalive:${index}`, material);
@@ -9690,8 +9751,8 @@ export class Engine {
     this._applyCloudSettings();
 
     const clipmapResolutions = this.gpuTier === 'low'
-      ? [256, 192, 128]
-      : (this.gpuTier === 'medium' ? [384, 256, 192] : [512, 384, 256]);
+      ? [512, 384, 256]
+      : (this.gpuTier === 'medium' ? [768, 512, 384] : [1024, 768, 512]);
     this.infiniteTerrainClipmap = new InfiniteTerrainClipmap({
       renderer: this.renderer,
       uniforms: this.uniforms,
@@ -10369,6 +10430,7 @@ export class Engine {
     this.planetControls = new planet.PlanetOrbitControls(this.camera, this.canvas, this._planetRadius());
     this.planetControls.onFirstInteract = () => this.cb.onFirstInteract();
     this.planetControls.update(0.001);   // place the camera immediately
+    this._syncPlanetCameraClipping();
 
     this._applyPixelRatio();
 
@@ -10379,6 +10441,23 @@ export class Engine {
 
     if (!this._compiling) this.cb.onStatus('Planet', false);
     return warmup;
+  }
+
+  /** Preserve depth precision in orbit without clipping nearby terrain. */
+  _syncPlanetCameraClipping() {
+    const camera = this.camera;
+    if (this.worldMode !== 'planet' || !camera?.isPerspectiveCamera) return;
+    const radius = this._planetRadius();
+    const terrainTop = Math.max(this.params.seaLevel || 0, this._maxHeight());
+    const clearance = Math.max(0, camera.position.length() - radius - terrainTop);
+    // A fixed sub-unit near plane wastes almost the entire depth buffer in
+    // orbit. Stay well inside the empty gap before the planet's relief bounds;
+    // near the ground the original short clipping distance is restored.
+    const near = Math.max(0.5, radius * 0.00004, Math.min(radius * 0.04, clearance * 0.02));
+    if (Math.abs(camera.near - near) > Math.max(1e-6, near * 0.001)) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
   }
 
   /** Camera near/far tuned to the planet scale. */
@@ -11687,6 +11766,7 @@ export class Engine {
       force: true,
       terrainDirty: this.worldMode === 'planet',
     });
+    this._prepareFirstFrameShaders();
     if (this.params.waterEnabled !== false && this._waterDeferred) {
       void this._warmDeferredWater();
     }
@@ -12956,6 +13036,14 @@ export class Engine {
       this.profiler.endFrame();
       return;
     }
+    const firstFrameShaders = this._prepareFirstFrameShaders();
+    if (firstFrameShaders && !firstFrameShaders.ready) {
+      this.controls?.update(dt);
+      this._needsRender = true;
+      this.profiler.setMetric('sceneState', firstFrameShaders.error ? 'shader-preparation-failed' : 'compiling');
+      this.profiler.endFrame();
+      return;
+    }
     this._gpuFramePacer ||= new GpuFramePacer(this.renderer?.getContext?.());
     if (!this._gpuFramePacer.ready()) {
       // Never stack full-screen terrain draws behind a slow close-up frame.
@@ -13570,6 +13658,7 @@ export class Engine {
       this.planetControls.update(dt);
     }
 
+    this._syncPlanetCameraClipping();
     if (this.planetWorld) {
       this.profiler.begin('chunks');
       this.planetWorld.update(this.camera.position, this.camera, this._debug);

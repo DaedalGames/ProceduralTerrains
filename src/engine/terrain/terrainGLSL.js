@@ -329,20 +329,23 @@ Climate terrainStudioClimateAt(vec2 xz) {
 export const CLIMATE_CACHE_BLOCK = `#define TERRAIN_CLIMATE_CACHE 1\n${STUDIO_CLIMATE_CACHE_GLSL}`;
 
 // Infinite World climate: temperature, moisture and continentalness come from
-// the half-float field cache (baked with the height by the same climateAt,
+// the full-float field cache (baked with the height by the same climateAt,
 // exact at texel centres); erosion and the region jitter stay live. Outside
 // the cached levels the exact function runs. No extra sampler: the fragment
 // samples the cache once and shares it with the height.
 export const INFINITE_CLIMATE_GLSL = /* glsl */ `
 Climate terrainInfiniteClimateAt(vec2 xz, vec4 field, float available) {
   vec2 p = xz * uFrequency + uSeedOffset;
+  Climate result = Climate(0.0, 0.0, 0.0, 0.0, 0.0);
   if (available > 0.5) {
     vec2 b = p * uBiomeScale;
-    return Climate(field.g, field.b, field.a,
+    result = Climate(field.g, field.b, field.a,
       fbm3(b * 0.190 + vec2(157.1, 423.7)),
       fbm3(p * 0.700 + vec2(631.4, 199.2)));
+  } else {
+    result = climateAt(p);
   }
-  return climateAt(p);
+  return result;
 }
 `;
 export const MAX_FRAGMENT_SAMPLERS = 16;
@@ -438,29 +441,70 @@ uniform vec2 uInfiniteFieldSpan2;
 uniform vec3 uInfiniteFieldReady;
 uniform float uUseInfiniteFieldCache;
 
+// Explicit bilinear filtering keeps full float height precision on devices
+// without OES_texture_float_linear. UVs address texel centres exactly.
+vec4 infiniteFieldBilinear(sampler2D field, vec2 uv) {
+  ivec2 size = textureSize(field, 0);
+  vec2 p = uv * vec2(size) - 0.5;
+  ivec2 base = ivec2(floor(p));
+  vec2 f = fract(p);
+  ivec2 hi = size - 1;
+  vec4 a = texelFetch(field, clamp(base, ivec2(0), hi), 0);
+  vec4 b = texelFetch(field, clamp(base + ivec2(1, 0), ivec2(0), hi), 0);
+  vec4 c = texelFetch(field, clamp(base + ivec2(0, 1), ivec2(0), hi), 0);
+  vec4 d = texelFetch(field, clamp(base + ivec2(1), ivec2(0), hi), 0);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 bool infiniteFieldUv(vec2 xz, vec2 origin, vec2 span, out vec2 uv) {
   uv = (xz - origin) / max(span, vec2(1.0));
-  return all(greaterThanEqual(uv, vec2(0.001)))
-    && all(lessThanEqual(uv, vec2(0.999)));
+  return all(greaterThanEqual(uv, vec2(0.0)))
+    && all(lessThanEqual(uv, vec2(1.0)));
+}
+
+float infiniteFieldBlend(vec2 uv) {
+  vec2 edge = min(uv, 1.0 - uv);
+  return smoothstep(0.02, 0.18, min(edge.x, edge.y));
 }
 
 vec4 infiniteFieldSampleAt(vec2 xz, out float available) {
-  vec2 uv;
+  vec2 uv = vec2(0.0);
+  vec4 nearField = vec4(0.0);
+  vec4 middleField = vec4(0.0);
   vec4 field = vec4(0.0);
+  float nearWeight = 0.0;
+  float middleWeight = 0.0;
+  bool hasNear = false;
+  bool hasMiddle = false;
   available = 0.0;
   if (uUseInfiniteFieldCache > 0.5) {
     if (uInfiniteFieldReady.x > 0.5
         && infiniteFieldUv(xz, uInfiniteFieldOrigin0, uInfiniteFieldSpan0, uv)) {
+      hasNear = true;
+      nearField = infiniteFieldBilinear(uInfiniteFieldTex0, uv);
+      nearWeight = infiniteFieldBlend(uv);
+    }
+    // Do not fetch hidden outer levels in the high-resolution interior.
+    if (nearWeight < 1.0) {
+      if (uInfiniteFieldReady.y > 0.5
+          && infiniteFieldUv(xz, uInfiniteFieldOrigin1, uInfiniteFieldSpan1, uv)) {
+        hasMiddle = true;
+        middleField = infiniteFieldBilinear(uInfiniteFieldTex1, uv);
+        middleWeight = infiniteFieldBlend(uv);
+      }
+      if (middleWeight < 1.0 && uInfiniteFieldReady.z > 0.5
+          && infiniteFieldUv(xz, uInfiniteFieldOrigin2, uInfiniteFieldSpan2, uv)) {
+        field = infiniteFieldBilinear(uInfiniteFieldTex2, uv);
+        available = 1.0;
+      }
+      if (hasMiddle) {
+        field = mix(field, middleField, available > 0.5 ? middleWeight : 1.0);
+        available = 1.0;
+      }
+    }
+    if (hasNear) {
+      field = mix(field, nearField, available > 0.5 ? nearWeight : 1.0);
       available = 1.0;
-      field = textureLod(uInfiniteFieldTex0, uv, 0.0);
-    } else if (uInfiniteFieldReady.y > 0.5
-        && infiniteFieldUv(xz, uInfiniteFieldOrigin1, uInfiniteFieldSpan1, uv)) {
-      available = 1.0;
-      field = textureLod(uInfiniteFieldTex1, uv, 0.0);
-    } else if (uInfiniteFieldReady.z > 0.5
-        && infiniteFieldUv(xz, uInfiniteFieldOrigin2, uInfiniteFieldSpan2, uv)) {
-      available = 1.0;
-      field = textureLod(uInfiniteFieldTex2, uv, 0.0);
     }
   }
   return field;

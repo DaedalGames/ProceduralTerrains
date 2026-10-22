@@ -281,7 +281,7 @@ vec2 cloudSample(vec3 P) {
   float r = length(P);
   float hf = (r - uCloudInner) / max(uCloudOuter - uCloudInner, 1e-3);
   if (hf <= 0.0 || hf >= 1.0) return vec2(0.0, clamp(hf, 0.0, 1.0));
-  float fall = smoothstep(0.0, 0.18, hf) * smoothstep(1.0, 0.78, hf);
+  float fall = smoothstep(0.0, 0.18, hf) * (1.0 - smoothstep(0.78, 1.0, hf));
   if (uCloudNoiseType > 1.5) fall = smoothstep(0.0, 0.12, hf) * (1.0 - smoothstep(0.30, 0.62, hf));
   return vec2(cloudShape(cl_domain(P)) * fall, hf);
 }
@@ -300,7 +300,7 @@ float cloudDensityForLight(vec3 P) {
   float r = length(P);
   float hf = (r - uCloudInner) / max(uCloudOuter - uCloudInner, 1e-3);
   if (hf <= 0.0 || hf >= 1.0) return 0.0;
-  float fall = smoothstep(0.0, 0.18, hf) * smoothstep(1.0, 0.78, hf);
+  float fall = smoothstep(0.0, 0.18, hf) * (1.0 - smoothstep(0.78, 1.0, hf));
   if (uCloudNoiseType > 1.5) fall = smoothstep(0.0, 0.12, hf) * (1.0 - smoothstep(0.30, 0.62, hf));
   return cloudShapeForLight(cl_domain(P)) * fall;
 }
@@ -354,7 +354,7 @@ uniform vec3  uCloudCenter;       // board center (xz used)
 vec2 cloudSample(vec3 P) {
   float hf = (P.y - uCloudBottom) / max(uCloudTop - uCloudBottom, 1e-3);
   if (hf <= 0.0 || hf >= 1.0) return vec2(0.0, clamp(hf, 0.0, 1.0));
-  float fall = smoothstep(0.0, 0.18, hf) * smoothstep(1.0, 0.78, hf);
+  float fall = smoothstep(0.0, 0.18, hf) * (1.0 - smoothstep(0.78, 1.0, hf));
   if (uCloudNoiseType > 1.5) fall = smoothstep(0.0, 0.12, hf) * (1.0 - smoothstep(0.30, 0.62, hf));
   float rad = length(P.xz - uCloudCenter.xz);
   float edge = 1.0 - smoothstep(uCloudRadius * 0.65, uCloudRadius, rad);
@@ -370,7 +370,7 @@ float cl_sunVisibility(vec3 P, float cloudHeight) {
 float cloudDensityForLight(vec3 P) {
   float hf = (P.y - uCloudBottom) / max(uCloudTop - uCloudBottom, 1e-3);
   if (hf <= 0.0 || hf >= 1.0) return 0.0;
-  float fall = smoothstep(0.0, 0.18, hf) * smoothstep(1.0, 0.78, hf);
+  float fall = smoothstep(0.0, 0.18, hf) * (1.0 - smoothstep(0.78, 1.0, hf));
   if (uCloudNoiseType > 1.5) fall = smoothstep(0.0, 0.12, hf) * (1.0 - smoothstep(0.30, 0.62, hf));
   float rad = length(P.xz - uCloudCenter.xz);
   float edge = 1.0 - smoothstep(uCloudRadius * 0.65, uCloudRadius, rad);

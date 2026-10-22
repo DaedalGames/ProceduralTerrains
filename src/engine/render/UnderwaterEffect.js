@@ -168,7 +168,7 @@ void main() {
     float r = length(d);
     // streaky radial glow that breaks up with animated noise
     float streak = vn(vec2(ang * 5.0, r * 6.0 - uTime * 0.6));
-    shaft = smoothstep(1.1, 0.0, r) * (0.4 + 0.6 * streak);
+    shaft = (1.0 - smoothstep(0.0, 1.1, r)) * (0.4 + 0.6 * streak);
     shaft *= smoothstep(0.0, 0.25, vUv.y);   // fade toward the seabed
     uw += vec3(1.0, 0.97, 0.85) * shaft * uLightShafts * 0.5;
   }
@@ -194,7 +194,7 @@ void main() {
   uw = mix(uw, waterCol, fogF);
 
   // vignette
-  float vig = smoothstep(1.25, 0.45, length(vUv - 0.5) * 1.6);
+  float vig = 1.0 - smoothstep(0.45, 1.25, length(vUv - 0.5) * 1.6);
   uw *= mix(high ? 0.72 : 0.78, 1.0, vig);
 
   gl_FragColor = vec4(mix(col, uw, s), 1.0);

@@ -245,19 +245,7 @@ export class MiniLightMap {
       return;
     }
     const n = this.grid.width;
-    if (!this._readTarget || this._readTarget.width !== n) {
-      this._readTarget?.dispose();
-      this._readTarget = new THREE.WebGLRenderTarget(n, n, {
-        type: THREE.FloatType,
-        format: THREE.RGBAFormat,
-        minFilter: THREE.NearestFilter,
-        magFilter: THREE.NearestFilter,
-        depthBuffer: false,
-        stencilBuffer: false,
-        generateMipmaps: false,
-      });
-      this._readTarget.texture.name = 'MiniHeightFieldReadback';
-    }
+    this._ensureReadTarget(n);
     const target = this._readTarget;
     const previous = renderer.getRenderTarget();
     try {
@@ -288,6 +276,33 @@ export class MiniLightMap {
           this.requestHeightField(renderer, next.revision, next.heightScale, next.onReady);
         }
       });
+  }
+
+  _ensureReadTarget(n) {
+    if (!this._readTarget || this._readTarget.width !== n) {
+      this._readTarget?.dispose();
+      this._readTarget = new THREE.WebGLRenderTarget(n, n, {
+        type: THREE.FloatType,
+        format: THREE.RGBAFormat,
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: false,
+        stencilBuffer: false,
+        generateMipmaps: false,
+      });
+      this._readTarget.texture.name = 'MiniHeightFieldReadback';
+    }
+  }
+
+  preparationPasses() {
+    const grid = this.ensureGrid();
+    this._ensureReadTarget(grid.width);
+    return [
+      { material: this.bakeMaterial, source: this._quad, camera: this.bakeCamera,
+        targetScene: this.bakeScene, renderTarget: this.target },
+      { material: this._copyMaterial, source: this._quad, camera: this.bakeCamera,
+        targetScene: this.bakeScene, renderTarget: this._readTarget },
+    ];
   }
 
   get texture() {
