@@ -247,10 +247,10 @@ vec4 waterBiomeWeights(vec2 xz, out float canyon, out float strength) {
   vec4 climate = waterBiomeClimateAt(xz);
   float borderJitter = (climate.a - 0.5) * 0.16;
   float hot = smoothstep(0.52, 0.76, climate.r + borderJitter);
-  float cold = smoothstep(0.34, 0.12, climate.r + borderJitter);
-  float dry = smoothstep(0.56, 0.28, climate.g - borderJitter);
+  float cold = 1.0 - smoothstep(0.12, 0.34, climate.r + borderJitter);
+  float dry = 1.0 - smoothstep(0.28, 0.56, climate.g - borderJitter);
   float wet = smoothstep(0.54, 0.80, climate.g + borderJitter);
-  float coastal = smoothstep(0.58, 0.30, climate.b);
+  float coastal = 1.0 - smoothstep(0.30, 0.58, climate.b);
   float inland = smoothstep(0.42, 0.72, climate.b);
 
   vec4 painted = waterPaintedBiomeAt(xz);
@@ -808,7 +808,7 @@ void main() {
     float twinkle = fract(glintSeed * 7.13 + t * (0.6 + glintSeedB * 0.9));
     float alive = step(0.35, glintSeedB)
       * smoothstep(0.0, 0.12, twinkle)
-      * smoothstep(0.55, 0.3, twinkle);
+      * (1.0 - smoothstep(0.3, 0.55, twinkle));
     float glitterMask = alive
       * (1.0 - smoothstep(0.06, 0.16, length(glintLocal - glintCenter)));
     float wideLobe = waterGgxSunSpecular(
@@ -902,7 +902,7 @@ void main() {
   float breakup = clamp(uVisualFoamBreakup, 0.0, 1.0);
   float foamEdgeNoise = foamNoise * mix(1.4, 4.2, breakup);
   float foamPatch = mix(1.0, smoothstep(0.18, 0.82, vnoise(xz * 0.055 + vec2(t * 0.35, t * -0.28))), breakup);
-  float shoreFoam = smoothstep(uFoamWidth + uFoamSoftness + uVisualWetSandRange * 0.05, uFoamSoftness, shoreDist + foamEdgeNoise);
+  float shoreFoam = 1.0 - smoothstep(uFoamSoftness, uFoamWidth + uFoamSoftness + uVisualWetSandRange * 0.05, shoreDist + foamEdgeNoise);
   // Lace: solid at the waterline, breaking into drifting cells farther out.
   // Fades to its mean before the finer octave can alias.
   if (uFoamEnabled > 0.5 && uFoamQual > 0.1) {
@@ -918,7 +918,7 @@ void main() {
     );
     shoreFoam *= mix(lace, 1.0, edgeSolid);
   }
-  float nearShore = smoothstep(10.0 + uVisualWetSandRange * 0.35, 0.0, shoreDist);
+  float nearShore = 1.0 - smoothstep(0.0, 10.0 + uVisualWetSandRange * 0.35, shoreDist);
   float slopeFoam = 0.0;
   float cliffFoam = 0.0;
   if (uFoamEnabled > 0.5 && nearShore > 0.01 && (uSlopeFoam > 0.01 || uCliffFoam > 0.01)) {
@@ -1028,7 +1028,7 @@ void main() {
       return;
     }
     if (uDebugMode < 2.5) {
-      float sv = smoothstep(uFoamWidth + 2.0, 0.5, depth);
+      float sv = 1.0 - smoothstep(0.5, uFoamWidth + 2.0, depth);
       gl_FragColor = vec4(vec3(sv), 1.0);
       return;
     }

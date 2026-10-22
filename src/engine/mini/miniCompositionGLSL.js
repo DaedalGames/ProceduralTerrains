@@ -55,7 +55,7 @@ float miniCove(vec2 q, float sea, float jag) {
   float cw = uMiniGeometry.w;
   float bowl = 1.0 - smoothstep(R - cw, R + cw, r);
   float ring = 1.0 - smoothstep(R + T - cw * 2.0, R + T + cw * 2.0, r);
-  float back = smoothstep(0.25, -0.35, q.y);
+  float back = 1.0 - smoothstep(-0.35, 0.25, q.y);
   float land = max(ring, back);
   float open = 1.0 - smoothstep(uMiniGeometry.z - 0.10, uMiniGeometry.z + 0.10, abs(a));
   open *= smoothstep(-0.05, 0.25, q.y);
@@ -66,8 +66,8 @@ float miniCove(vec2 q, float sea, float jag) {
                     smoothstep(-R * 0.9, R * 0.75, q.y));
   // arms taper toward the opening so the horseshoe reads, highest at the back
   float taper = mix(1.0, 0.58, smoothstep(-0.1, 0.9, q.y));
-  float landH = sea + uMiniHeights.x * (0.86 + 0.14 * smoothstep(0.0, -1.0, q.y)) * taper
-              + uMiniHeights.w * smoothstep(-0.2, -1.1, q.y) * (0.6 + 0.4 * abs(q.x));
+  float landH = sea + uMiniHeights.x * (0.86 + 0.14 * (1.0 - smoothstep(-1.0, 0.0, q.y))) * taper
+              + uMiniHeights.w * (1.0 - smoothstep(-1.1, -0.2, q.y)) * (0.6 + 0.4 * abs(q.x));
   float wet = mix(floorH, bowlH, bowl);
   return mix(wet, landH, land);
 }
@@ -103,7 +103,7 @@ float miniLake(vec2 q, float sea, float jag) {
   float basin = smoothstep(-cw, cw, s);
   float hLake = sea - 0.015 - uMiniHeights.y * smoothstep(0.0, R * 0.7, s);
   float rise = smoothstep(0.0, uMiniGeometry.y, -s);
-  float range = smoothstep(-0.05, -uMiniGeometry.z, q.y) * (0.55 + 0.45 * smoothstep(0.2, 0.9, abs(q.x)))
+  float range = (1.0 - smoothstep(-uMiniGeometry.z, -0.05, q.y)) * (0.55 + 0.45 * smoothstep(0.2, 0.9, abs(q.x)))
               + 0.35 * smoothstep(0.55, 1.0, abs(q.x));
   float front = mix(1.0, 0.3, smoothstep(0.15, 0.95, q.y));
   float hLand = sea + uMiniHeights.z + (uMiniHeights.x * front + uMiniHeights.w * range) * rise;

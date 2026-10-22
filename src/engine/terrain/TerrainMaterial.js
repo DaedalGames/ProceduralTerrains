@@ -1085,7 +1085,7 @@ ${features.manual ? '' : /* glsl */ `
     vec2 gw = fwidth(xz) + 1e-5;
     vec2 gp = abs(fract(xz / uChunkSize - 0.5) - 0.5) * uChunkSize / gw;
     float line = 1.0 - min(min(gp.x, gp.y), 1.0);
-    float gridFade = smoothstep(420.0, 60.0, length(cameraPosition - vWorldPos) / 8.0);
+    float gridFade = 1.0 - smoothstep(60.0, 420.0, length(cameraPosition - vWorldPos) / 8.0);
     float gridMul = 1.0;
     if (uInfiniteMode < 0.5 && uUseTiles > 0.5) gridMul = 1.0 - tileInteriorSeam(xz);
     // Grid lines recolour over folded terrain so the chunk grid also shows

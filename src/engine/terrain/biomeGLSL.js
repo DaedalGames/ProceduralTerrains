@@ -72,9 +72,9 @@ struct BiomeWeights {
 BiomeWeights biomeWeightsAt(Climate c) {
   float j = (c.region - 0.5) * 0.16;   // organic border jitter
   float hot    = smoothstep(0.52, 0.74, c.temp + j);
-  float dry    = smoothstep(0.55, 0.30, c.moist - j);
+  float dry    = 1.0 - smoothstep(0.30, 0.55, c.moist - j);
   float wet    = smoothstep(0.55, 0.78, c.moist + j);
-  float lowC   = smoothstep(0.55, 0.32, c.cont);
+  float lowC   = 1.0 - smoothstep(0.32, 0.55, c.cont);
   float eroded = smoothstep(0.40, 0.70, c.erosion + j * 0.5);
 
   BiomeWeights w;
@@ -89,9 +89,9 @@ BiomeWeights biomeWeightsAt(Climate c) {
 // later. h01 = height / heightScale, slope = 1 - geometricNormal.y.
 float vegetationDensity(Climate c, float h01, float slope) {
   float tempEff = c.temp - h01 * 0.55;   // altitude temperature lapse
-  float warmEnough = smoothstep(0.18, 0.34, tempEff) * smoothstep(0.92, 0.70, tempEff);
+  float warmEnough = smoothstep(0.18, 0.34, tempEff) * (1.0 - smoothstep(0.70, 0.92, tempEff));
   float wetEnough  = smoothstep(0.34, 0.62, c.moist);
-  float flatGround = smoothstep(0.55, 0.25, slope);
+  float flatGround = 1.0 - smoothstep(0.25, 0.55, slope);
   return warmEnough * wetEnough * flatGround;
 }
 `;

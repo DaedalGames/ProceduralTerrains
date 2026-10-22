@@ -31,7 +31,7 @@ export function defaultMask(type) {
 export const NOISE_STACK_MASKS2D_GLSL = /* glsl */ `
 float maskHeight(float h, vec4 a) {
   float lo = smoothstep(a.x - a.z, a.x + a.z, h);
-  float hi = smoothstep(a.y + a.z, a.y - a.z, h);
+  float hi = 1.0 - smoothstep(a.y - a.z, a.y + a.z, h);
   float mm = clamp(lo * hi, 0.0, 1.0);
   if (a.w >= 0.5) mm = 1.0 - mm;
   return mm;
@@ -47,7 +47,7 @@ float stackSlope(float h, float hDX, float hDZ) {
 }
 float maskSlope(float slope, vec4 c) {
   float lo = smoothstep(c.x - c.z, c.x + c.z, slope);
-  float hi = smoothstep(c.y + c.z, c.y - c.z, slope);
+  float hi = 1.0 - smoothstep(c.y - c.z, c.y + c.z, slope);
   float mm = clamp(lo * hi, 0.0, 1.0);
   if (c.w >= 0.5) mm = 1.0 - mm;
   return mm;

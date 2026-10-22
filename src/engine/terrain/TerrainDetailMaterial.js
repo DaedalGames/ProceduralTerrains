@@ -222,7 +222,7 @@ TerrainDetailResult applyTerrainDetailLayer(
   materialTint *= 1.0 + weather * (0.16 + 0.10 * rockMask);
   materialTint *= vec3(1.0 + weather * 0.05, 1.0, 1.0 - weather * 0.04);
 
-  float crack = smoothstep(0.16, 0.0, abs(microSigned)) * rockMask;
+  float crack = (1.0 - smoothstep(0.0, 0.16, abs(microSigned))) * rockMask;
   float fleck = (ds.micro - 0.5) * 2.0;
   vec3 detailed = materialTint;
   detailed *= 1.0 + signedGrain * (0.055 + 0.085 * rockMask + 0.030 * vegGround);

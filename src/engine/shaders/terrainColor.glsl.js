@@ -103,9 +103,9 @@ TerrainColorResult computeTerrainAlbedo(
   albedo = mix(albedo, slopeRock, rockBlend);
 
   float snowLine01 = uSnowLine * (0.40 + 1.20 * cl.temp);
-  float flatness = smoothstep(uSnowSlopeMax, uSnowSlopeMin, slope);
+  float flatness = 1.0 - smoothstep(uSnowSlopeMin, uSnowSlopeMax, slope);
   float snow = smoothstep(snowLine01 - 0.03, snowLine01 + 0.05, h01 + jitter * 0.04) * flatness;
-  snow = max(snow, smoothstep(0.10, 0.02, tempEff) * smoothstep(0.50, 0.25, slope));
+  snow = max(snow, (1.0 - smoothstep(0.02, 0.10, tempEff)) * (1.0 - smoothstep(0.25, 0.50, slope)));
   snow *= 1.0 - bw.desert;
   albedo = mix(albedo, uColSnow, snow);
 

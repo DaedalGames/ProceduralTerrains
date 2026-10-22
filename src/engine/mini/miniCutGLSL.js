@@ -61,12 +61,12 @@ vec3 miniCutAlbedo(vec3 wp, float rimH, float seaLevel) {
   float stripe = smoothstep(0.30, 0.46, band) - smoothstep(0.80, 0.97, band);
   vec3 col = mix(uMiniCutBandA, uMiniCutBandB, stripe);
   // thin darker seams between layers
-  col *= 1.0 - 0.10 * (smoothstep(0.92, 1.0, band) + smoothstep(0.08, 0.0, band));
+  col *= 1.0 - 0.10 * (smoothstep(0.92, 1.0, band) + (1.0 - smoothstep(0.0, 0.08, band)));
   col = mix(uMiniCutDeep, col, smoothstep(0.02, 0.32, t));
 
   // topsoil under land, sandy sediment under water
   float below = rimH - wp.y;
-  float submerged = smoothstep(seaLevel + 1.5, seaLevel - 3.0, rimH);
+  float submerged = 1.0 - smoothstep(seaLevel - 3.0, seaLevel + 1.5, rimH);
   vec3 top = mix(uMiniCutTopsoil, uMiniCutSediment, submerged);
   float topNoise = roundWall ? miniCutNoise(wp.xz * 0.03 + 9.1) : miniCutNoise(vec2(along * 0.03, 9.1));
   float topDepth = uMiniCutParams.z * (0.75 + 0.5 * topNoise);
