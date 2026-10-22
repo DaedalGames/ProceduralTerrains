@@ -477,7 +477,9 @@ export class InfiniteWorld {
 
     for (const chunk of this.chunks.values()) {
       const dx = chunk.centerX - playerPos.x;
-      const dy = -playerPos.y;
+      // Distance to the terrain's vertical bounds, not to sea-level zero.
+      // A camera next to a high mountain still needs the finest nearby grid.
+      const dy = Math.max(0, playerPos.y - this.maxHeight, -this.skirtDepth - playerPos.y);
       const dz = chunk.centerZ - playerPos.z;
       const d2 = dx * dx + dy * dy + dz * dz;
       const lod = d2 < t0 ? 0 : d2 < t1 ? 1 : d2 < t2 ? 2 : 3;
@@ -486,6 +488,20 @@ export class InfiniteWorld {
       }
       if (chunk.lod !== lod || chunk.morph > 0) morphing++;
       counts[chunk.lod]++;
+    }
+    // Each shared edge follows the coarser of the two live shapes, including
+    // temporal morph progress. Both chunks therefore describe the same curve.
+    const offsets = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    for (const chunk of this.chunks.values()) {
+      const own = chunk.lod + (chunk.morph || 0);
+      const edges = chunk.edgeLod || (chunk.edgeLod = [-1, -1, -1, -1]);
+      for (let edge = 0; edge < 4; edge++) {
+        const [dx, dz] = offsets[edge];
+        const neighbour = this.chunks.get(`${chunk.cx + dx},${chunk.cz + dz}`);
+        const shape = neighbour ? neighbour.lod + (neighbour.morph || 0) : own;
+        const value = Math.max(own, shape);
+        if (edges[edge] !== value) { edges[edge] = value; this._batchesDirty = true; }
+      }
     }
     this.morphingChunkCount = morphing;
 

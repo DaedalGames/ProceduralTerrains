@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createCloudSlabMaterial } from './CloudSlabShader.js';
 import { resolveCloudQuality, cloudNoiseOffset, resolveCloudNoiseType } from './CloudSettings.js';
-import { renderTerrainCloudShadow } from './CloudShadowPass.js';
+import { renderTerrainCloudShadow, cloudShadowPreparationPass } from './CloudShadowPass.js';
 import { buildOccupancyPlanar } from './cloudFieldCPU.js';
 import { CloudLowResPass } from './CloudLowResPass.js';
 import { applyCloudLightingState } from './CloudLightingState.js';
@@ -135,6 +135,15 @@ export class CloudSlabLayer {
       this._useErosion,
       this._lightMode
     );
+  }
+
+  preparationPasses(renderTarget = null) {
+    const lowRes = this._lowResPass;
+    return [
+      cloudShadowPreparationPass(this),
+      { material: lowRes._composite, source: lowRes._quad, camera: lowRes._quadCam,
+        targetScene: lowRes._quadScene, renderTarget },
+    ];
   }
 
   get ready() {

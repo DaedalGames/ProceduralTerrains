@@ -497,6 +497,18 @@ export class MiniTerrainController {
     };
   }
 
+  preparationPasses(renderTarget = null) {
+    if (!this.active) return [];
+    const eng = this.engine;
+    return [
+      ...this.lightMap.preparationPasses(),
+      ...[this.stage.backdrop, this.stage.shadow, this.stage.socle, this.lightMap.decal,
+        this.waterCut.mesh, eng.water && { geometry: eng.water.geometry, material: this.waterSurface }]
+        .filter(Boolean).map(source => ({ material: source.material, source,
+          camera: eng.camera, targetScene: eng.scene, renderTarget })),
+    ];
+  }
+
   /** Materials the engine should warm with the Mini scene. */
   compileMaterials() {
     return [

@@ -54,7 +54,7 @@ export class InfiniteTerrainClipmap {
     viewRadius,
     octaves,
     stackGLSL = DEFAULT_STACK_GLSL,
-    resolutions = [512, 384, 256],
+    resolutions = [1024, 768, 512],
     requirePrepared = false,
   }) {
     this.renderer = renderer;
@@ -76,11 +76,11 @@ export class InfiniteTerrainClipmap {
     for (let index = 0; index < LEVEL_COUNT; index++) {
       const resolution = Math.max(64, Math.round(resolutions[index] || 256));
       const target = new THREE.WebGLRenderTarget(resolution, resolution, {
-        type: THREE.HalfFloatType,
+        type: THREE.FloatType,
         format: THREE.RGBAFormat,
-        internalFormat: 'RGBA16F',
-        minFilter: THREE.LinearFilter,
-        magFilter: THREE.LinearFilter,
+        internalFormat: 'RGBA32F',
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
         depthBuffer: false,
         generateMipmaps: false,
       });

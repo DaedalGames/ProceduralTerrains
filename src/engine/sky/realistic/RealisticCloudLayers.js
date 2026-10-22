@@ -5,6 +5,7 @@ import { resolveCloudQuality, CLOUD_DEFAULT_PARAMS, cloudNoiseOffset, resolveClo
 import { REALISTIC_CLOUD_VERTEX, REALISTIC_CLOUD_FRAGMENT, REALISTIC_MAX_STEPS } from './realisticCloudGLSL.js';
 import {
   getRealisticNoiseVolumes,
+  realisticNoisePreparationPass,
   retainRealisticNoiseVolumes,
   seedOffset,
   WEATHER_SIZE,
@@ -159,6 +160,14 @@ export class RealisticCloudSlabLayer extends CloudSlabLayer {
     this._seed = new THREE.Vector3();
     this._windowHalf = 1;
     this._baseSteps = 64;
+  }
+
+  preparationPasses(renderTarget = null) {
+    const noise = realisticNoisePreparationPass(this._renderer);
+    return [
+      ...super.preparationPasses(renderTarget), noise,
+      { ...noise, material: this._weather.material, renderTarget: this._weather.targets[0] },
+    ];
   }
 
   // The camera pipeline keys its target on this. Asking for scene depth from
