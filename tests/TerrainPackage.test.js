@@ -216,7 +216,10 @@ describe('independent sources and world contracts', () => {
     });
     expect(t.mini.state.recipe).toBe('cove');
     expect(t.mini.framing().radius).toBeGreaterThan(0);
-    expect(t._runtime.board.geometries[0].attributes.position.count).toBeGreaterThan(16000);
+    // balanced = 128 quads across the footprint at LOD0, split into 4x4 LOD chunks
+    expect(t.configuration.layout).toEqual({ chunkCount: 1, chunkSize: 512 });
+    expect(t._runtime.board.chunks).toHaveLength(16);
+    expect(t._runtime.board.lodSegments).toEqual([32, 16, 8, 4]);
     expect(t.serialize().extensions[0].type).toBe('mini');
     expect(t.mini.controller.stage.backdrop.visible).toBe(false);
     t.dispose();

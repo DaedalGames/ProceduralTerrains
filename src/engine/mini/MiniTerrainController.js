@@ -326,6 +326,8 @@ export class MiniTerrainController {
         applyMiniWaterLook(material, { lightTex, animTime: anim });
       }
       this.lightMap.decal.visible = !!lightTex && this.stage?.group.visible !== false;
+      // the decal draws on the terrain chunks as they are this frame (LOD, culling)
+      if (this.lightMap.decal.visible) this.lightMap.syncChunks(eng.board?.chunks);
       // Vegetation and rocks are regular props: they receive the diorama's
       // cliff shadows / AO and stand on the live relief (light map B) on the
       // GPU, so they follow a slider drag in the very frame it is drawn. While
@@ -502,7 +504,7 @@ export class MiniTerrainController {
     const eng = this.engine;
     return [
       ...this.lightMap.preparationPasses(),
-      ...[this.stage.backdrop, this.stage.shadow, this.stage.socle, this.lightMap.decal,
+      ...[this.stage.backdrop, this.stage.shadow, this.stage.socle, this.lightMap.decalProbe,
         this.waterCut.mesh, eng.water && { geometry: eng.water.geometry, material: this.waterSurface }]
         .filter(Boolean).map(source => ({ material: source.material, source,
           camera: eng.camera, targetScene: eng.scene, renderTarget })),

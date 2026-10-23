@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MINI_BEVEL_GLSL } from './MiniBevel.js';
+import { buildChunkGeometry } from '../terrain/ChunkGeometry.js';
 
 // ============================================================================
 // MiniLightMap — soft sun shadows and ambient occlusion for the diorama.
@@ -17,9 +18,10 @@ import { MINI_BEVEL_GLSL } from './MiniBevel.js';
 //            penumbra growing with distance to the occluder),
 //        G = ambient occlusion (8-direction horizon estimate),
 //        B = terrain height (world units, filtered: smooth water depth);
-//   2. APPLIES it with a decal mesh on the same vertex grid, drawn
-//      right after the terrain with multiplicative blending (dst × factor), so
-//      it darkens terrain only (props and water are separate objects).
+//   2. APPLIES it with a decal drawn on the terrain's own chunk meshes (same
+//      shared LOD geometry, transform and geomorph, see syncChunks), right
+//      after the terrain with multiplicative blending (dst × factor), so it
+//      darkens terrain only (props and water are separate objects).
 // The water shader samples the same map for cliff shadows on the surface.
 //
 // Re-baked only when the terrain field, the sun direction or the footprint
@@ -92,12 +94,38 @@ void main() {
 }
 `;
 
+// Runs on a terrain chunk geometry: the same distance-driven geomorph as the
+// board path of TerrainMaterial's terrainMorphedGrid, so at every LOD the
+// decal lies on the triangles the terrain draws. Skirt vertices stay on the
+// surface (their wall quads collapse); the cut wall is never darkened.
 const DECAL_VERTEX = /* glsl */ `
 ${HEIGHT_FETCH}
 ${MINI_BEVEL_GLSL}
+attribute float aLod;
+attribute float aMorph;
+uniform vec4 uLodGridSegments;
+uniform vec3 uLodMorphStart;
+uniform vec3 uLodMorphEnd;
 varying vec2 vXZ;
+
+vec3 decalMorphedGrid(vec3 grid) {
+  if (aMorph < 0.5 || aLod > 2.5) return grid;
+  float segments = aLod < 0.5 ? uLodGridSegments.x : aLod < 1.5 ? uLodGridSegments.y : uLodGridSegments.z;
+  float coarser = aLod < 0.5 ? uLodGridSegments.y : aLod < 1.5 ? uLodGridSegments.z : uLodGridSegments.w;
+  if (abs(coarser * 2.0 - segments) > 0.5) return grid;
+  vec4 base = modelMatrix * vec4(grid, 1.0);
+  float viewDistance = length(vec3(base.x - cameraPosition.x, cameraPosition.y, base.z - cameraPosition.z));
+  float morphStart = aLod < 0.5 ? uLodMorphStart.x : aLod < 1.5 ? uLodMorphStart.y : uLodMorphStart.z;
+  float morphEnd = aLod < 0.5 ? uLodMorphEnd.x : aLod < 1.5 ? uLodMorphEnd.y : uLodMorphEnd.z;
+  if (morphEnd <= morphStart) return grid;
+  float morph = clamp((viewDistance - morphStart) / (morphEnd - morphStart), 0.0, 1.0);
+  vec2 index = floor(grid.xz * segments + 0.5);
+  grid.xz -= mod(index, 2.0) / segments * morph;
+  return grid;
+}
+
 void main() {
-  vec2 xz = position.xz * uHalf;
+  vec2 xz = (modelMatrix * vec4(decalMorphedGrid(position), 1.0)).xz;
   xz = miniBevelPoint(xz, uHalf, uMiniTerrainBevel, uMiniBevelRounded);
   vXZ = xz;
   vec4 wp = vec4(xz.x, miniBakedHeight(xz) + 0.25, xz.y, 1.0);
@@ -133,11 +161,6 @@ void main() {
 }
 `;
 
-function buildDecalGrid(segments) {
-  const geo = new THREE.PlaneGeometry(2, 2, segments, segments);
-  geo.rotateX(-Math.PI / 2);
-  return geo;
-}
 
 export class MiniLightMap {
   constructor(sharedUniforms, { size = 512 } = {}) {
@@ -187,6 +210,9 @@ export class MiniLightMap {
       name: 'MiniLightDecal',
       uniforms: {
         ...heightUniforms,
+        uLodGridSegments: sharedUniforms.uLodGridSegments ?? { value: new THREE.Vector4(64, 32, 16, 8) },
+        uLodMorphStart: sharedUniforms.uLodMorphStart ?? { value: new THREE.Vector3(1e9, 1e9, 1e9) },
+        uLodMorphEnd: sharedUniforms.uLodMorphEnd ?? { value: new THREE.Vector3(1e9, 1e9, 1e9) },
         uMiniLightTex: { value: this.target.texture },
         uShadowStrength: { value: 0.62 },
         uAOStrength: { value: 0.85 },
@@ -204,10 +230,12 @@ export class MiniLightMap {
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -4,
     });
-    this.decal = new THREE.Mesh(buildDecalGrid(256), this.decalMaterial);
+    // One decal mesh per terrain chunk (see syncChunks); the probe only gives
+    // shader preparation a chunk-shaped geometry to compile against.
+    this.decal = new THREE.Group();
     this.decal.name = 'mini-light-decal';
-    this.decal.frustumCulled = false;
-    this.decal.renderOrder = 6;   // right after the terrain (0), before water (10)
+    this.decalProbe = new THREE.Mesh(buildChunkGeometry(2, 0, { morph: true }), this.decalMaterial);
+    this.decalProbe.frustumCulled = false;
     this._segments = 256;
     this._key = '';
     this.ready = false;
@@ -314,9 +342,34 @@ export class MiniLightMap {
     this.bakeMaterial.uniforms.uSoftness.value = Math.max(1.5, half * 0.006);
     if (segments && segments !== this._segments) {
       this._segments = segments;
-      this.decal.geometry.dispose();
-      this.decal.geometry = buildDecalGrid(segments);
       this.invalidate();
+    }
+  }
+
+  /**
+   * Mirror the terrain board's chunks: each decal mesh borrows its chunk's
+   * current (shared) LOD geometry, transform and culled visibility. The
+   * geometries belong to the board and are never disposed here.
+   */
+  syncChunks(chunks = []) {
+    const meshes = this.decal.children;
+    while (meshes.length < chunks.length) {
+      const mesh = new THREE.Mesh(this.decalProbe.geometry, this.decalMaterial);
+      mesh.matrixAutoUpdate = false;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 6;   // right after the terrain (0), before water (10)
+      this.decal.add(mesh);
+    }
+    while (meshes.length > chunks.length) this.decal.remove(meshes[meshes.length - 1]);
+    for (let i = 0; i < chunks.length; i++) {
+      const source = chunks[i].mesh;
+      const mesh = meshes[i];
+      mesh.geometry = source.geometry;
+      mesh.visible = source.visible;
+      if (!mesh.matrix.equals(source.matrix)) {
+        mesh.matrix.copy(source.matrix);
+        mesh.matrixWorldNeedsUpdate = true;
+      }
     }
   }
 
@@ -386,7 +439,8 @@ export class MiniLightMap {
 
   dispose() {
     this.decal.removeFromParent();
-    this.decal.geometry.dispose();
+    this.decal.clear();
+    this.decalProbe.geometry.dispose();
     this._quad.geometry.dispose();
     this.bakeMaterial.dispose();
     this.decalMaterial.dispose();

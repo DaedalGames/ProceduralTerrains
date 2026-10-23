@@ -7,6 +7,7 @@ import {
   normalizeMiniTerrainState,
   miniParamsPatch,
   resolveMiniLayout,
+  MINI_CHUNKS_PER_SIDE,
 } from '../../engine/mini/MiniTerrainSettings.js';
 import { miniStylePatch } from '../../engine/mini/MiniLook.js';
 import { terrainMaterial, terrainStyle } from '../TerrainAppearance.js';
@@ -42,7 +43,7 @@ function configuration(state) {
       falloff: p.falloff,
       edgeFalloffMode: p.edgeFalloffMode,
     },
-    quality: { mergeEnabled: false, morphEnabled: false },
+    quality: { mergeEnabled: false, morphEnabled: true },
   };
 }
 
@@ -61,6 +62,7 @@ export class MiniPresentation {
       _miniReadbackEnabled: false,
       params: t._params,
       camera: t._viewCamera,
+      get board() { return t._runtime?.board; },
       _activeHeightProgram: () => t._stackGLSL,
       _terrainGen: t._revision,
       _terrainSourcePendingToken: null,
@@ -75,6 +77,17 @@ export class MiniPresentation {
   }
   get state() {
     return this.controller.serialize();
+  }
+  /**
+   * Board chunk grid. The public layout stays one footprint-sized chunk; the
+   * board splits it so each chunk picks its own LOD (as in the studio).
+   */
+  boardLayout() {
+    return {
+      chunkCount: MINI_CHUNKS_PER_SIDE,
+      chunkSize: this.controller.layout.width / MINI_CHUNKS_PER_SIDE,
+      lodSegments: this.controller.lodSegments(),
+    };
   }
   _apply() {
     const t = this.terrain,
@@ -95,16 +108,13 @@ export class MiniPresentation {
     });
     this.controller.applyUniforms(t._uniforms);
     t._runtime.board.syncCells({
-      chunkCount: 1,
-      chunkSize: l.width,
+      ...this.boardLayout(),
       maxHeight: Math.max(p.heightScale * 1.35 + 2, t._source.maxHeight),
       skirtDepth: l.baseDepth,
-      lodSegments: this.controller.lodSegments(),
       cells: [{ cx: 0, cz: 0 }],
       progressive: false,
     });
     while (t._runtime.board._lodRebuildQueue.length) t._runtime.board.updateLOD(t._cameraPosition);
-    t._runtime.board.setMorphEnabled(false);
     t._runtime.board.setMergeOptions({ enabled: false });
     this.controller.syncPresentation();
     this.controller.stage.backdrop.visible = this.backdrop;

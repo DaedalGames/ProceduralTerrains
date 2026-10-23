@@ -410,8 +410,10 @@ void main() {
   #endif
   vec4 wp = modelMatrix * localPosition;
   vec2 squareXZ = wp.xz;
+  float bevelFolded = 0.0;
   if ((uMiniTerrainBevel > 0.0 || uMiniHexagon > 0.5) && uInfiniteMode < 0.5) {
     wp.xz = miniBevelPoint(wp.xz, uBoardHalf, uMiniTerrainBevel, uMiniBevelRounded);
+    bevelFolded = step(0.01, distance(wp.xz, squareXZ));
   }
   float h = terrainCachedHeightAt(wp.xz);
   #ifdef USE_INSTANCING
@@ -472,6 +474,10 @@ ${preview ? /* glsl */ `
       wp.xz += outDir * (wall * uWallThickness);
     }
   }
+
+  // Mini: an interior chunk skirt folded onto the cut outline would lie in the
+  // section wall; keep it on the surface (degenerate) instead.
+  skirt *= 1.0 - bevelFolded;
 
   // interior skirt drops by uSkirtDepth; the perimeter wall drops all the way to
   // the plinth base so the terrain's own edge masks the under-the-map view at

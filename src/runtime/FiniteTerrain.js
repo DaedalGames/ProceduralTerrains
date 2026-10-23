@@ -251,12 +251,14 @@ export class FiniteTerrain {
     b.syncCells({
       chunkCount: p.chunkCount,
       chunkSize: p.chunkSize,
+      lodSegments: c.quality.lodSegments,
+      // a Mini presentation subdivides its footprint into its own LOD grid
+      ...this.mini?.boardLayout?.(),
       maxHeight: Math.max(
         p.heightScale * 1.35 + 2,
         source.maxHeight + (source.hasBase ? p.heightScale * 1.35 : 0),
       ),
       skirtDepth: skirtDepth - Math.min(0, source.minHeight),
-      lodSegments: c.quality.lodSegments,
       cells: [{ cx: 0, cz: 0 }],
       progressive: false,
     });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
+  MINI_CHUNKS_PER_SIDE,
   MINI_FORMATION_SEA01,
   MINI_PROCEDURAL_RELIEF,
   MINI_RECIPE_IDS,
@@ -162,8 +163,11 @@ describe('Mini Terrain params and invalidation scopes', () => {
     expect(Object.keys(miniParamsPatch(state, 'props')).every((k) => k.startsWith('props'))).toBe(true);
     expect(Object.keys(miniParamsPatch(state, 'clouds')).every((k) => k.startsWith('cloud'))).toBe(true);
     expect(Object.keys(miniParamsPatch(state, 'quality'))).toEqual(['waterMode', 'waterQualityPreset']);
-    expect(miniLodSegments({ ...state, quality: 'balanced' })).toEqual([128, 128, 128, 128]);
-    expect(miniLodSegments({ ...state, quality: 'high' })).toEqual([256, 256, 256, 256]);
+    // per-chunk 2:1 LOD ladder; LOD0 across the chunk grid = full resolution
+    expect(miniLodSegments({ ...state, quality: 'balanced' })).toEqual([32, 16, 8, 4]);
+    expect(miniLodSegments({ ...state, quality: 'high' })).toEqual([64, 32, 16, 8]);
+    expect(miniLodSegments({ ...state, quality: 'capture' })).toEqual([128, 64, 32, 16]);
+    expect(miniLodSegments(state)[0] * MINI_CHUNKS_PER_SIDE).toBe(resolveMiniLayout(state).segments);
   });
 
   it('band-limits the noise octaves to the surface mesh', () => {
