@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Engine } from '../src/engine/Engine.js';
+import { effectiveZoomFor } from '../src/engine/terrain/RealWorldHeightmap.js';
 import {
   REAL_WORLD_SOURCE_VERSION,
   createRealWorldSource,
@@ -18,6 +19,50 @@ const sourceInput = {
 };
 
 describe('real-world project source', () => {
+  it('reloads the same geographic area and imagery at a new resolution while preserving the view and height controls', async () => {
+    const source = createRealWorldSource({ ...sourceInput,
+      heightSettings: { elevationMode: 'meters', mode: 'replace', heightStrength: 0.1 } });
+    const view = { target: [0, 200, 0], radius: 3000 };
+    const engine = Object.assign(Object.create(Engine.prototype), {
+      worldMode: 'studio', realWorldSource: source,
+      controls: { getView: () => view, goToView: vi.fn() },
+      _restoreRealWorldSource: vi.fn(async () => true),
+    });
+    const onProgress = vi.fn();
+    expect(await engine.setRealWorldResolution(11, { onProgress })).toBe(true);
+    expect(engine._restoreRealWorldSource).toHaveBeenCalledWith({ ...source, zoom: 11 }, { onProgress });
+    expect(engine.controls.goToView).toHaveBeenCalledWith(view, { blend: false });
+    expect(source.heightSettings.heightStrength).toBe(0.1);
+  });
+
+  it('caps geographic resolution to the tile budget and avoids redundant downloads', async () => {
+    const source = createRealWorldSource({ ...sourceInput, zoom: 9 });
+    const engine = Object.assign(Object.create(Engine.prototype), {
+      worldMode: 'studio', realWorldSource: source, _restoreRealWorldSource: vi.fn(async () => true),
+    });
+    const effectiveZoom = effectiveZoomFor({ bbox: source.bbox, zoom: 15 });
+    await engine.setRealWorldResolution(15);
+    expect(engine._restoreRealWorldSource).toHaveBeenCalledWith({ ...source, zoom: effectiveZoom }, { onProgress: undefined });
+    engine.realWorldSource = { ...source, zoom: effectiveZoom };
+    engine.importedMaps = { height: { texture: {}, geoRef: { bbox0: source.bbox, zoom: effectiveZoom } } };
+    engine._restoreRealWorldSource.mockClear();
+    expect(await engine.setRealWorldResolution(15)).toBe(true);
+    expect(engine._restoreRealWorldSource).not.toHaveBeenCalled();
+    await expect(engine.setRealWorldResolution(16)).rejects.toThrow('Geographic zoom');
+  });
+
+  it('retries a failed geographic resolution even when its saved descriptor already has the requested zoom', async () => {
+    const source = createRealWorldSource({ ...sourceInput, zoom: 11 });
+    const engine = Object.assign(Object.create(Engine.prototype), {
+      worldMode: 'studio', realWorldSource: source,
+      importedMaps: { height: { texture: {}, geoRef: { bbox0: source.bbox, zoom: 12 } } },
+      _restoreRealWorldSource: vi.fn(async () => false),
+    });
+    expect(await engine.setRealWorldResolution(11)).toBe(false);
+    expect(await engine.setRealWorldResolution(11)).toBe(false);
+    expect(engine._restoreRealWorldSource).toHaveBeenCalledTimes(2);
+  });
+
   it('normalizes a JSON-safe descriptor with geographic import defaults', () => {
     const source = createRealWorldSource(sourceInput);
 
@@ -27,6 +72,7 @@ describe('real-world project source', () => {
       buildingsVisible: false,
       markers: { autoCities: false, visible: true, labels: true, lift: 30, markerSize: 100, labelSize: 100, points: [], routes: [] },
       heightSettings: {
+        elevationMode: 'meters',
         mode: 'replace',
         blend: 1,
         invert: false,
@@ -57,6 +103,7 @@ describe('real-world project source', () => {
     });
 
     expect(source.heightSettings).toEqual({
+      elevationMode: 'normalized',
       mode: 'blend',
       blend: 1,
       invert: true,

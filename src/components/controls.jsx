@@ -6,6 +6,17 @@ export function fmt(def, v) {
   return Number(v).toFixed(digits) + (def.unit ? ` ${def.unit}` : '');
 }
 
+export function RangeTrack({ value, min, max, step, onChange, label, labelledBy, disabled }) {
+  const fill = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  return <span className="slider-track-wrap">
+    <span className="slider-track-bg" />
+    <span className="slider-track-fill" style={{ width: `${fill}%` }} />
+    <input type="range" className="slider-input" aria-label={label} aria-labelledby={labelledBy}
+      disabled={disabled} min={min} max={max} step={step} value={value}
+      onChange={(event) => onChange(Number(event.target.value))} />
+  </span>;
+}
+
 export function SliderCtl({ def, value, onChange, icon, info, disabled, disabledTooltip, settingId }) {
   useLanguage();
   const labelId = useId();
@@ -19,7 +30,6 @@ export function SliderCtl({ def, value, onChange, icon, info, disabled, disabled
     else setText(fmt(def, value));
   };
 
-  const fill = ((value - def.min) / (def.max - def.min)) * 100;
   const tooltipText = info ?? def.info;
   const itemIcon = icon ?? def.icon;
 
@@ -53,21 +63,8 @@ export function SliderCtl({ def, value, onChange, icon, info, disabled, disabled
           onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
         />
       </div>
-      <div className="slider-track-wrap">
-        <div className="slider-track-bg" />
-        <div className="slider-track-fill" style={{ width: `${fill}%` }} />
-        <input
-          type="range"
-          className="slider-input"
-          aria-labelledby={labelId}
-          disabled={disabled}
-          min={def.min}
-          max={def.max}
-          step={def.step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-        />
-      </div>
+      <RangeTrack value={value} min={def.min} max={def.max} step={def.step}
+        onChange={onChange} labelledBy={labelId} disabled={disabled} />
     </div>
   );
 }

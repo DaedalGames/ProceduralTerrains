@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { heightExportRange } from './RealWorldElevation.js';
 
 // ============================================================================
 // GPU-backed terrain height sampler for player collision.
@@ -147,7 +148,8 @@ export class GpuHeightSampler {
     const d = this._data;
     if (d[i + 3] < 128) return null;     // alpha 0 = nothing rendered here
     const h01 = d[i] / 255 + d[i + 1] / (255 * 255);
-    return h01 * this.uniforms.uHeightScale.value;
+    const range = heightExportRange(this.uniforms, this.uniforms.uHeightScale.value);
+    return range.min + h01 * (range.max - range.min);
   }
 
   _ensureTile(x, z) {
@@ -184,6 +186,8 @@ export class GpuHeightSampler {
     const cam = this._cam;
     cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
     cam.position.set(cx, this.getMaxHeight() + 2000, cz);
+    const range = heightExportRange(this.uniforms, this.uniforms.uHeightScale.value);
+    cam.far = Math.max(20000, cam.position.y - range.min + 2000);
     cam.lookAt(cx, 0, cz);
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();

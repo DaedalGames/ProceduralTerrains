@@ -2059,6 +2059,7 @@ export default function App() {
       case 'planet.paletteSaturation': return num(paramsStyle.paletteSaturation ?? 1, 2);
       case 'planet.paletteContrast': return num(paramsStyle.paletteContrast ?? 1, 2);
 
+      case 'terrain.surfaceResolution': return `z${engineRef.current?.realWorldSource?.zoom ?? '—'}`;
       case 'performance.preset': return perf?.preset ?? 'high';
       case 'performance.rendererBackend': return labelRendererBackend(perf?.rendererBackend);
       case 'performance.gpuPreference': return labelGpuPreference(perf?.gpuPreference);
@@ -2618,6 +2619,10 @@ export default function App() {
     ),
     onLoadRealWorldCustom: (spec, opts) => runGeographicLoad(
       (onProgress) => engine().loadRealWorldCustom(spec, { ...opts, onProgress }),
+      opts,
+    ),
+    onRealWorldResolution: (zoom, opts) => runGeographicLoad(
+      (onProgress) => engine().setRealWorldResolution(zoom, { ...opts, onProgress }),
       opts,
     ),
     realWorldImageryStyle,

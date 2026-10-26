@@ -47,6 +47,7 @@ import {
 } from './terrain/RealWorldHeightmap.js';
 import { fetchBboxBuildings } from './terrain/RealWorldBuildings.js';
 import { RealWorldBuildingLayer } from './terrain/RealWorldBuildingLayer.js';
+import { heightImportTransform, heightImportBounds } from './terrain/RealWorldElevation.js';
 import {
   DEFAULT_IMPORT_SETTINGS,
   createRealWorldSource,
@@ -2137,6 +2138,22 @@ export class Engine {
     }, { persistedSource: source, silent: true, onProgress });
   }
 
+  async setRealWorldResolution(requestedZoom, { onProgress } = {}) {
+    const source = normalizeRealWorldSource(this.realWorldSource);
+    if (this.worldMode !== 'studio' || !source) return false;
+    if (!Number.isInteger(requestedZoom) || requestedZoom < 1 || requestedZoom > 15)
+      throw new RangeError('Geographic zoom must be an integer from 1 to 15');
+    const zoom = effectiveZoomFor({ bbox: source.bbox, zoom: requestedZoom });
+    const current = this.importedMaps?.height;
+    const sameArea = ['minLat', 'maxLat', 'minLon', 'maxLon']
+      .every((key) => current?.geoRef?.bbox0?.[key] === source.bbox[key]);
+    if (zoom === source.zoom && current?.geoRef?.zoom === zoom && current.texture && sameArea) return true;
+    const view = this.controls?.getView?.();
+    const loaded = await this._restoreRealWorldSource({ ...source, zoom }, { onProgress });
+    if (loaded && view) this.controls?.goToView?.(view, { blend: false });
+    return loaded;
+  }
+
   /**
    * Switch satellite vs topo map texture. Reloads imagery for the active
    * real-world geoRef without refetching elevation.
@@ -2272,18 +2289,9 @@ export class Engine {
           console.error(e);
         }
       }
-      // Real-world elevation is normalized 0..1 over [minElev,maxElev] then scaled
-      // by heightScale — so the water plane (an absolute world height) needs to
-      // sit at the world height that corresponds to TRUE elevation 0, not at
-      // whatever the previous (procedural-tuned) seaLevel happened to be. Without
-      // this, low-lying coastal areas (small span, minElev near 0) flood almost
-      // entirely under the default seaLevel, while tall peaks correctly show none.
-      const span = c.maxElev - c.minElev;
-      if (span > 0) {
-        const trueSeaWorldY = ((0 - c.minElev) / span) * (this.params.heightScale || 1);
-        this.setParam('seaLevel', Math.max(0, trueSeaWorldY));
-      }
+      this._syncRealWorldSeaLevel();
       this.applyAll({ force: false });
+      this._frameRealWorldElevation();
     };
 
     const missingElev = this.tiles.filter((t) => !geo.cells[`${t.cx},${t.cz}`]);
@@ -2401,20 +2409,32 @@ export class Engine {
   setTileMapSetting(type, key, value) {
     const entry = this.importedMaps[type];
     if (!entry) { this._setImportState(type, { error: 'Import a map before enabling this mode.' }); return; }
+    const previousBounds = type === 'height' && key === 'heightStrength' ? this._realWorldHeightBounds() : null;
     entry.settings[key] = value;
     if (this.realWorldSource && (type === 'height' || type === 'imagery')) {
       this.realWorldSource = updateRealWorldSourceSettings(this.realWorldSource, type, entry.settings);
     }
-    if (key === 'invert' || key === 'normalize') this._rebuildImportedTexture(type);
+    if (key === 'invert' || key === 'normalize' || key === 'elevationMode') this._rebuildImportedTexture(type);
     this._syncImportedMapUniforms();
+    if (type === 'height') this._syncRealWorldSeaLevel();
     this._setImportState(type);
     this.applyAll({ force: false, terrainDirty: type !== 'imagery' });
-    if (type === 'height') this._rebuildRealWorldBuildings();
+    if (type === 'height') {
+      this._rebuildRealWorldBuildings();
+      this._frameRealWorldElevation();
+      const bounds = previousBounds && this._realWorldHeightBounds();
+      if (bounds && this.controls && Number.isFinite(this.controls.goalRadius)) {
+        const ratio = Math.max(this.boardSize, bounds.max - bounds.min)
+          / Math.max(this.boardSize, previousBounds.max - previousBounds.min);
+        this.controls.goalRadius = Math.max(this.controls.minRadius,
+          Math.min(this.controls.maxRadius, this.controls.goalRadius * ratio));
+      }
+    }
   }
 
   _setImportState(type, patch = {}) {
     const entry = this.importedMaps[type];
-    this.importedMapState = { ...this.importedMapState, [type]: entry ? { fileName: entry.fileName, width: entry.width, height: entry.height, preview: entry.preview, settings: { ...entry.settings }, warning: entry.originalWidth > 4096 || entry.originalHeight > 4096 ? 'Large image downscaled for processing.' : '', ...patch } : { ...patch } };
+    this.importedMapState = { ...this.importedMapState, [type]: entry ? { fileName: entry.fileName, width: entry.width, height: entry.height, preview: entry.preview, settings: { ...entry.settings }, geographic: entry.geoRef ? { bbox: { ...entry.geoRef.bbox0 }, zoom: entry.geoRef.zoom } : null, elevation: entry.geoRef ? { min: entry.meta?.minElev, max: entry.meta?.maxElev } : null, warning: entry.originalWidth > 4096 || entry.originalHeight > 4096 ? 'Large image downscaled for processing.' : '', ...patch } : { ...patch } };
     this.cb.onImportedMaps?.(this.importedMapState);
   }
 
@@ -2448,6 +2468,7 @@ export class Engine {
     // luminance, so (v,v,v) round-trips exactly — no GLSL change. Half-float +
     // LinearFilter is core in WebGL2 (three r160), no extension guard needed.
     const toHalf = THREE.DataUtils.toHalfFloat;
+    const meterHeights = type === 'height' && heightImportTransform(entry, this.params.heightScale).meters;
     const halfOne = toHalf(1);
     const span = max > min ? max - min : 1;
     const out = new Uint16Array(n * 4);
@@ -2457,6 +2478,7 @@ export class Engine {
       const h = toHalf(Math.max(0, Math.min(1, v)));
       const o = p * 4;
       out[o] = out[o + 1] = out[o + 2] = h; out[o + 3] = halfOne;
+      if (meterHeights) out[o + 1] = toHalf(v - THREE.DataUtils.fromHalfFloat(h));
     }
     entry.texture?.dispose();
     entry.texture = new THREE.DataTexture(out, entry.width, entry.height, THREE.RGBAFormat, THREE.HalfFloatType);
@@ -2493,8 +2515,16 @@ export class Engine {
       if (this.uniforms[`uImport${cap}Blend`]) this.uniforms[`uImport${cap}Blend`].value = e?.settings.blend ?? 1;
     }
     const h = this.importedMaps.height;
+    if (this.uniforms.uTerrainSpecular) {
+      this.uniforms.uTerrainSpecular.value = this.worldMode === 'studio'
+        && (this.workspacePreset === 'real-terrain' || h?.geoRef) ? 0 : 1;
+    }
     this.uniforms.uImportHeightStrength.value = h?.settings.heightStrength ?? 1;
     this.uniforms.uImportHeightOffset.value = h?.settings.heightOffset ?? 0;
+    const transform = heightImportTransform(h, this.params.heightScale);
+    if (this.uniforms.uImportHeightMeters) this.uniforms.uImportHeightMeters.value = transform.meters ? 1 : 0;
+    this.uniforms.uImportElevationRange?.value.set(transform.offset, transform.scale);
+    this.controls?.setElevationRange?.(transform.meters ? this._realWorldHeightBounds() : null);
     // World rect the height map covers. Real-world composites span the tile
     // union (regionBounds, in cells — derived here so cellSize changes track);
     // everything else keeps the classic single origin cell.
@@ -2510,41 +2540,14 @@ export class Engine {
   }
 
   _sampleRealWorldHeight(x, z) {
-    const entry = this.importedMaps.height;
-    const bounds = entry?.regionBounds;
-    const data = entry?.floatData;
-    if (!entry?.geoRef || !bounds || !data?.length || !entry.width || !entry.height) {
-      return this._getCpuHeightSampler().heightAt(x, z);
-    }
-    const originX = (bounds.minX - 0.5) * this.cellSize;
-    const originZ = (bounds.minZ - 0.5) * this.cellSize;
-    const spanX = bounds.cols * this.cellSize;
-    const spanZ = bounds.rows * this.cellSize;
-    const u = Math.max(0, Math.min(1, (x - originX) / Math.max(1, spanX)));
-    const v = Math.max(0, Math.min(1, (z - originZ) / Math.max(1, spanZ)));
-    const fx = u * (entry.width - 1), fy = v * (entry.height - 1);
-    const x0 = Math.floor(fx), y0 = Math.floor(fy);
-    const x1 = Math.min(entry.width - 1, x0 + 1), y1 = Math.min(entry.height - 1, y0 + 1);
-    const tx = fx - x0, ty = fy - y0;
-    const top = data[y0 * entry.width + x0] * (1 - tx) + data[y0 * entry.width + x1] * tx;
-    const bottom = data[y1 * entry.width + x0] * (1 - tx) + data[y1 * entry.width + x1] * tx;
-    let normalized = top * (1 - ty) + bottom * ty;
-    if (entry.settings?.invert) normalized = 1 - normalized;
-    const imported = normalized * (this.params.heightScale || 1)
-      * (entry.settings?.heightStrength ?? 1) + (entry.settings?.heightOffset ?? 0);
-    const mode = entry.settings?.mode;
-    const procedural = mode === 'replace' ? 0 : this._getCpuHeightSampler().heightAt(x, z);
-    let height = mode === 'blend'
-      ? procedural + (imported - procedural) * (entry.settings?.blend ?? 1)
-      : (mode === 'replace' ? imported : procedural);
-    height *= this.uniforms.uPaintBaseMult?.value ?? 1;
-    // The CPU procedural sampler already includes erosion; a replaced real-world
-    // field does not, so add it explicitly in that mode.
-    if (mode === 'replace' && this.erosionField?.enabled) height += this.erosionField.offsetAt(x, z);
-    height += this._samplePaintHeightOffset(x, z)
+    const sampler = this._getCpuHeightSampler();
+    const delta = sampler._erosionOffset(x, z) + sampler._destructionOffset(x, z);
+    // Blend the same decoded import as collisions. Paint's base multiplier
+    // applies before the signed editing offsets, matching heightAt() in GLSL.
+    const height = (sampler.heightAt(x, z) - delta) * (this.uniforms.uPaintBaseMult?.value ?? 1) + delta;
+    return height + this._samplePaintHeightOffset(x, z)
       + this._sampleManualHeightOffset(x, z)
       + this._sampleSplineHeightOffset(x, z);
-    return height;
   }
 
   setRealWorldMarkers(input) {
@@ -2682,6 +2685,7 @@ export class Engine {
       tiles: this.tiles,
       cellSize: this.cellSize,
       heightScale: this.params.heightScale || 1,
+      verticalMeterScale: heightImportTransform(entry, this.params.heightScale).meters ? (settings.heightStrength ?? 1) : undefined,
       elevationSpan: (entry.meta?.maxElev ?? 1) - (entry.meta?.minElev ?? 0),
       sampleHeight: (worldX, worldZ) => this._sampleRealWorldHeight(worldX, worldZ),
     });
@@ -4654,10 +4658,50 @@ export class Engine {
     return created;
   }
 
-  _maxHeight() { return this.params.heightScale * 1.35 + 2; }
+  _realWorldHeightBounds() {
+    const entry = this.importedMaps?.height;
+    if (this.worldMode !== 'studio' || !entry?.geoRef
+      || !['replace', 'blend'].includes(entry.settings?.mode)) return null;
+    return heightImportBounds(entry, this.params.heightScale);
+  }
+
+  _maxHeight() {
+    return Math.max(this.params.heightScale * 1.35, this._realWorldHeightBounds()?.max ?? 0) + 2;
+  }
   _skirtDepth() {
     if (this.mini?.active) return this.mini.layout.baseDepth;
-    return Math.max(24, this.params.heightScale * 0.08);
+    return Math.max(24, this.params.heightScale * 0.08, -(this._realWorldHeightBounds()?.min ?? 0) + 24);
+  }
+
+  _syncRealWorldSeaLevel() {
+    const entry = this.importedMaps?.height;
+    if (!entry?.geoRef || !Number.isFinite(entry.meta?.minElev)) return;
+    const transform = heightImportTransform(entry, this.params.heightScale);
+    const span = entry.meta.maxElev - entry.meta.minElev;
+    if (!transform.meters && span <= 0) return;
+    const sea = transform.meters ? 0 : -entry.meta.minElev / span * this.params.heightScale;
+    this.setParam('seaLevel', Math.max(0, sea * (entry.settings.heightStrength ?? 1) + (entry.settings.heightOffset ?? 0)));
+  }
+
+  _frameRealWorldElevation() {
+    const entry = this.importedMaps?.height;
+    if (!entry?.geoRef) return;
+    const meters = heightImportTransform(entry, this.params.heightScale).meters;
+    const bounds = meters ? this._realWorldHeightBounds() : null;
+    this.controls?.setElevationRange?.(bounds);
+    if (bounds && !entry.elevationFramed) {
+      this.controls?.blendToDefault?.(Math.max(this.boardSize, bounds.max - bounds.min));
+      entry.elevationFramed = true;
+    } else if (!meters && entry) entry.elevationFramed = false;
+    if (this.camera && this.worldMode === 'studio') {
+      this.camera.far = Math.max(this.camera.far, this._maxHeight() + this._skirtDepth() + this.boardSize * 8);
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.minimap && this.worldMode === 'studio') {
+      this.minimap.setBoard(Math.max(this._unionWidth(), this._unionDepth()), this._maxHeight());
+      this.minimap.camera.far = Math.max(20000, this._maxHeight() + this._skirtDepth() + 4000);
+      this.minimap.camera.updateProjectionMatrix();
+    }
   }
   // how far the terrain's perimeter wall flares out past the board edge (and how
   // far the plinth box is outset to cap it) — keeps the wall clear of the water.
@@ -12917,7 +12961,11 @@ export class Engine {
   }
 
   setClientState(patch = {}) {
-    if ('workspacePreset' in patch) this.workspacePreset = patch.workspacePreset;
+    if ('workspacePreset' in patch) {
+      this.workspacePreset = patch.workspacePreset;
+      this._syncImportedMapUniforms();
+      this._needsRender = true;
+    }
     return this.getClientSnapshot();
   }
 

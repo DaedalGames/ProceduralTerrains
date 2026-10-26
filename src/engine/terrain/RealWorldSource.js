@@ -13,6 +13,7 @@ export const DEFAULT_IMPORT_SETTINGS = Object.freeze({
 export const DEFAULT_REAL_WORLD_HEIGHT_SETTINGS = Object.freeze({
   ...DEFAULT_IMPORT_SETTINGS,
   mode: 'replace',
+  elevationMode: 'meters',
 });
 
 export const DEFAULT_REAL_WORLD_IMAGERY_SETTINGS = Object.freeze({
@@ -34,6 +35,8 @@ function normalizeMode(value, fallback) {
 
 export function normalizeHeightImportSettings(input = {}) {
   return {
+    // Descriptors saved before meter heights retain their original appearance.
+    elevationMode: input.elevationMode === 'meters' ? 'meters' : 'normalized',
     mode: normalizeMode(input.mode, DEFAULT_REAL_WORLD_HEIGHT_SETTINGS.mode),
     blend: clamp(finite(input.blend, DEFAULT_REAL_WORLD_HEIGHT_SETTINGS.blend), 0, 1),
     invert: input.invert === true,

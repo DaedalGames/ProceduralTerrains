@@ -81,6 +81,7 @@ import { evalStack2D } from './noise/noiseStackCodegen.js';
 import { setNoiseDetailCut } from './noise/cpuNoise.js';
 import { isLegacyStack } from './noise/NoiseStack.js';
 import { miniComposeCPU } from '../mini/miniCompositionGLSL.js';
+import { sampleImportedHeight } from './RealWorldElevation.js';
 
 export class TerrainHeightSampler {
   /**
@@ -272,7 +273,7 @@ export class TerrainHeightSampler {
   }
 
   /** World-space terrain height at world position (x, z). */
-  heightAt(x, z) {
+  heightAt(x, z, { ignoreImports = false } = {}) {
     const u = this.u;
     const env = this.getEnv();
 
@@ -296,7 +297,13 @@ export class TerrainHeightSampler {
     // the offset is added after the clamp/scale, in world units).
     let h01 = finalizeStackHeight(h, u);
     if (!env.infinite) h01 = miniComposeCPU(u, x, z, h01);
-    return f(f(f(h01 * f(u.uHeightScale.value)) + this._erosionOffset(x, z)) + this._destructionOffset(x, z));
+    let height = f(h01 * f(u.uHeightScale.value));
+    if (!ignoreImports && !env.infinite && (u.uImportHeightMode?.value ?? 0) > 1.5) {
+      const imported = sampleImportedHeight(u, x, z);
+      if (imported !== null) height = u.uImportHeightMode.value > 2.5
+        ? mix32(height, imported, u.uImportHeightBlend.value) : f(imported);
+    }
+    return f(f(height + this._erosionOffset(x, z)) + this._destructionOffset(x, z));
   }
 
   _erosionOffset(x, z) {

@@ -912,7 +912,8 @@ ${worldMode === 'studio' ? /* glsl */ `
 `}
 
   if (uTileDebugView > 0.5) {
-    float h01 = clamp(hC / max(uHeightScale, 1e-3), 0.0, 1.0);
+    vec2 heightRange = terrainHeightEncodingRange();
+    float h01 = clamp((hC - heightRange.x) / heightRange.y, 0.0, 1.0);
     if (uTileDebugView < 1.5) {
       float n = stackHeight2D(xz, cl);
 ${features.manual ? '' : /* glsl */ `
@@ -936,7 +937,8 @@ ${features.manual ? '' : /* glsl */ `
     // interpolated displaced vertex Y — so prop placement matches the visible
     // LOD mesh exactly, not the smooth analytic field that floats above crests.
     float hSrc = (uColorMode > 2.5) ? vWorldPos.y : hC;
-    float h01 = clamp(hSrc / max(uHeightScale, 1e-3), 0.0, 1.0);
+    vec2 heightRange = terrainHeightEncodingRange();
+    float h01 = clamp((hSrc - heightRange.x) / heightRange.y, 0.0, 1.0);
     if (uColorMode > 1.5) {
       // modes 2 & 3: 16-bit height packed into RG (collision / prop surface tile)
       float hi = floor(h01 * 255.0) / 255.0;
@@ -1058,7 +1060,7 @@ ${features.manual ? '' : /* glsl */ `
     * max(dot(n, uSunDir), 0.0) * ao * terrainCloudShadow(vWorldPos);
 
   // sampled roughness -> subtle view-dependent sheen (smoother materials glint)
-  if (surf.amount > 0.001) {
+  if (uTerrainSpecular > 0.5 && surf.amount > 0.001) {
     float ssp = pow(max(dot(reflect(-uSunDir, n), viewDir), 0.0), 24.0);
     float gloss = 1.0 - clamp(surf.rough, 0.0, 1.0);
     col += ssp * gloss * gloss * surf.amount * 0.08 * max(uSunDir.y, 0.0);
@@ -1198,7 +1200,8 @@ void main() {
   // keep the height-packing export/sampler modes correct while the boot
   // material is live (prop placement / collision tiles may render early)
   if (uColorMode > 0.5) {
-    float hp = clamp(((uColorMode > 2.5) ? vWorldPos.y : hC) / max(uHeightScale, 1e-3), 0.0, 1.0);
+    vec2 heightRange = terrainHeightEncodingRange();
+    float hp = clamp((((uColorMode > 2.5) ? vWorldPos.y : hC) - heightRange.x) / heightRange.y, 0.0, 1.0);
     if (uColorMode > 1.5) {
       float hi = floor(hp * 255.0) / 255.0;
       float lo = fract(hp * 255.0);
@@ -1282,6 +1285,7 @@ export function createTerrainUniforms({ surfaceFallback = null } = {}) {
     uSeedOffset:     { value: new THREE.Vector2(0, 0) },
     uFrequency:      { value: 0.002 },
     uHeightScale:    { value: 420 },
+    uTerrainSpecular: { value: 1.0 },
     uSeaLevel:       { value: 42 },
     uTerrainFormationSeaLevel: { value: 42 },
     uAmplitude:      { value: 1.0 },
@@ -1548,6 +1552,8 @@ export function createTerrainUniforms({ surfaceFallback = null } = {}) {
     uImportHeightBlend:{ value: 1.0 },
     uImportHeightStrength:{ value: 1.0 },
     uImportHeightOffset:{ value: 0.0 },
+    uImportHeightMeters:{ value: 0.0 },
+    uImportElevationRange:{ value: new THREE.Vector2(0, 1) },
     uImportBiomeBlend:{ value: 1.0 },
     uImportImageryBlend:{ value: 1.0 },
     // World rect the imported height map covers (originX, originZ, spanX, spanZ).

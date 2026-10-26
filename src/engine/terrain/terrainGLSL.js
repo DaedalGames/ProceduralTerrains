@@ -91,6 +91,19 @@ uniform float uImportNoiseBlend;
 uniform float uImportHeightBlend;
 uniform float uImportHeightStrength;
 uniform float uImportHeightOffset;
+uniform float uImportHeightMeters;
+uniform vec2 uImportElevationRange; // minimum elevation and span, in meters
+vec2 terrainHeightEncodingRange() {
+  float lo = 0.0;
+  float hi = uHeightScale;
+  if (uInfiniteMode < 0.5 && uImportHeightMode > 1.5 && uImportHeightMeters > 0.5) {
+    float a = uImportElevationRange.x * uImportHeightStrength + uImportHeightOffset;
+    float b = (uImportElevationRange.x + uImportElevationRange.y) * uImportHeightStrength + uImportHeightOffset;
+    lo = min(0.0, min(a, b));
+    hi = max(uHeightScale * 1.35, max(a, b));
+  }
+  return vec2(lo, max(hi - lo, 1e-3));
+}
 uniform float uImportBiomeBlend;
 uniform float uImportImageryBlend;
 
@@ -910,7 +923,14 @@ float shapeHeight(vec2 xz, Climate c) {
   if (uInfiniteMode < 0.5 && uMiniShape > 0.5) finalH01 = miniCompose(xz, finalH01);
   float finalH = finalH01 * uHeightScale;
   if (uInfiniteMode < 0.5 && uImportHeightMode > 1.5) {
-    float importedH = importedMapValue(uImportHeightTex, importHeightUvAt(xz)) * uHeightScale * uImportHeightStrength + uImportHeightOffset;
+    vec2 heightUv = clamp(importHeightUvAt(xz), 0.0, 1.0);
+    float importedH = importedMapValue(uImportHeightTex, heightUv) * uHeightScale;
+    if (uImportHeightMeters > 0.5) {
+      // Two half-float lanes retain the low bits of normalized elevation.
+      vec2 encoded = textureLod(uImportHeightTex, heightUv, 0.0).rg;
+      importedH = (encoded.r + encoded.g) * uImportElevationRange.y + uImportElevationRange.x;
+    }
+    importedH = importedH * uImportHeightStrength + uImportHeightOffset;
     finalH = (uImportHeightMode > 2.5) ? mix(finalH, importedH, uImportHeightBlend) : importedH;
   }
   return finalH;

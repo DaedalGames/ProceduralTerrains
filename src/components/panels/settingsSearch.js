@@ -61,6 +61,7 @@ const SETTINGS_INDEX = [
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldLat', label: 'Real-World Latitude', keywords: 'real world earth latitude coordinates custom area import' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldLon', label: 'Real-World Longitude', keywords: 'real world earth longitude coordinates custom area import' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.heightMap', label: 'Height Map', keywords: 'height import replace blend map' },
+  { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldElevation', label: 'True elevation (meters)', keywords: 'real terrain altitude elevation meters geographic height' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.noiseMap', label: 'Noise Map', keywords: 'noise import replace blend map' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.biomeMap', label: 'Biome Map', keywords: 'biome import replace blend map' },
 
@@ -155,6 +156,7 @@ const SETTINGS_INDEX = [
 
   // Terrain > Surface > Properties (terrain material / texture render controls)
   { panelId: 'terrain', tabId: 'surface', subTabId: 'general', settingId: 'performance.terrainDetailQuality', label: 'Terrain Detail Quality', keywords: 'terrain material texture detail walk first person close properties' },
+  { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.surfaceResolution', label: 'Surface Resolution', keywords: 'real terrain geographic satellite imagery elevation tile zoom surface resolution terrain detail', aliases: 'résolution de surface textures géographiques' },
   { panelId: 'terrain', tabId: 'surface', subTabId: 'general', settingId: 'performance.terrainDetailOpacity', label: 'Detail Opacity', keywords: 'terrain detail opacity master mix amount overall fade blend properties' },
   { panelId: 'terrain', tabId: 'surface', subTabId: 'general', settingId: 'performance.terrainDetailScale', label: 'Detail Texture Scale', keywords: 'terrain noise texture scale grain world space properties' },
   { panelId: 'terrain', tabId: 'surface', subTabId: 'general', settingId: 'performance.terrainDetailStrength', label: 'Detail Strength', keywords: 'terrain albedo biome close detail properties' },

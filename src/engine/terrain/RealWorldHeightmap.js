@@ -282,7 +282,11 @@ export function makeCustomLocation({ lat, lon, sizeKm, zoom }) {
  * The UI shows this live so the picker never promises impossible values.
  */
 export function describeCustomArea(spec) {
-  const loc = makeCustomLocation(spec);
+  return describeRealWorldArea(makeCustomLocation(spec));
+}
+
+/** Exact-bbox resolution preview for an already loaded geographic area. */
+export function describeRealWorldArea(loc) {
   const z = pickZoom(loc);
   const fx0 = lonToTileX(loc.bbox.minLon, z);
   const fx1 = lonToTileX(loc.bbox.maxLon, z);

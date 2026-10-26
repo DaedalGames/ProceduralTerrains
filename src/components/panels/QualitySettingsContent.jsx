@@ -144,6 +144,23 @@ function PerfSlider({ perf, id, onPerfSetting, settingId }) {
   return <SliderCtl def={def} value={perf[def.key]} onChange={(v) => onPerfSetting(def.key, v)} settingId={settingId} />;
 }
 
+// Geographic imports expose the same mesh and material quality settings next
+// to their source resolution, without creating a separate quality state.
+export function TerrainResolutionSettings({ perf, onPerfSetting }) {
+  useLanguage();
+  const settings = {
+    resolutionScale: perf?.resolutionScale ?? PERF_PRESETS.high.resolutionScale,
+    terrainDetailQuality: perf?.terrainDetailQuality ?? PERF_PRESETS.high.terrainDetailQuality,
+  };
+  return <>
+    <PerfSlider perf={settings} id="resolutionScale" onPerfSetting={onPerfSetting} settingId="performance.resolutionScale" />
+    <SelectRow label={translateText("Terrain Detail Quality")} value={settings.terrainDetailQuality}
+      options={TERRAIN_DETAIL_OPTIONS} onChange={(v) => onPerfSetting('terrainDetailQuality', parseInt(v, 10))}
+      settingId="performance.terrainDetailQuality" />
+    <p className="section-hint">{translateText("Adjust mesh resolution and surface detail. The imported image keeps its source resolution.")}</p>
+  </>;
+}
+
 function SettingGroup({ tab, label, keywords, search, activeTab, settingId, children }) {
   useLanguage();
   const q = search.trim().toLowerCase();
