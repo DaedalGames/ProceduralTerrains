@@ -34,6 +34,7 @@ import {
   encodeUnityRaw16FromPackedPixels,
 } from '../../export/runtime/HeightfieldEncoding.js';
 import { createExportCanvas } from '../../runtime/export/ExportCanvas.js';
+import { heightExportRange } from './RealWorldElevation.js';
 
 const DEFAULT_STACK_GLSL = generateStackGLSL(defaultLegacyStack());
 const DEFAULT_TERRAIN_GRAPH_COLOR_GLSL = /* glsl */ `
@@ -74,6 +75,7 @@ export const buildTerrainBakeFragment = (heightGLSL, graphColorGLSL = DEFAULT_TE
   uniform int uBakeMode;       // 0 = heightmap, 1 = normalmap, 2 = color, 3 = biome splat
   uniform bool uBakeLighting;
   uniform float uHeightVertexGrid; // >1 remaps height pixels to inclusive vertex samples
+  uniform vec2 uExportHeightRange; // minimum height and span, independent of noise amplitude
 
   varying vec2 vUv;
 
@@ -111,7 +113,7 @@ export const buildTerrainBakeFragment = (heightGLSL, graphColorGLSL = DEFAULT_TE
     float hZ = heightAt(xz + vec2(0.0, eps));
 
     if (uBakeMode == 0) {
-      float h01 = clamp(hC / max(uHeightScale, 1e-3), 0.0, 1.0);
+      float h01 = clamp((hC - uExportHeightRange.x) / max(uExportHeightRange.y, 1e-3), 0.0, 1.0);
       gl_FragColor = packDepth(h01);
       return;
     }
@@ -238,7 +240,12 @@ export class TerrainExportBuilder {
     const unionCenter = { x: (minCX + maxCX) * 0.5 * cellSize, z: (minCZ + maxCZ) * 0.5 * cellSize };
 
     const heightScale = engineParams.heightScale;
+    const exportRange = heightExportRange(engineUniforms, heightScale);
+    const exportHeightSpan = Math.max(1e-3, exportRange.max - exportRange.min);
     const seaLevel = engineParams.seaLevel;
+    const meterElevation = (engineUniforms.uImportHeightMeters?.value ?? 0) > 0.5
+      && (engineUniforms.uImportHeightMode?.value ?? 0) > 1.5;
+    const includeWater = exportWater && !options.excludeWaterFromExport && (seaLevel > 0.5 || meterElevation);
 
     // --- 1. Bake maps via GPU ---
     onToast('Baking shader parameters...');
@@ -255,6 +262,7 @@ export class TerrainExportBuilder {
       uBakeMode: { value: 0 },
       uBakeLighting: { value: bakeLighting },
       uHeightVertexGrid: { value: 0 },
+      uExportHeightRange: { value: new THREE.Vector2(exportRange.min, exportHeightSpan) },
       uEps: { value: Math.max(0.35, boardSize / 4096) }
     };
     // Copy active engine uniforms
@@ -302,7 +310,7 @@ export class TerrainExportBuilder {
       const at = (i, j) => {
         const idx = (j * wpx + i) * 4;
         const h01 = (px[idx] * 65536 + px[idx + 1] * 256 + px[idx + 2]) / 16777215;
-        return h01 * heightScale;
+        return exportRange.min + h01 * exportHeightSpan;
       };
       return { wpx, hpx, px, at };
     };
@@ -375,7 +383,7 @@ export class TerrainExportBuilder {
     // A Mini diorama exports its own section (depth, strata, water block, socle).
     const mini = options.mini && tiles.length === 1 ? options.mini : null;
     const skirtDepth = Math.max(24, heightScale * 0.08);
-    const baseHeight = mini ? -mini.baseDepth : -skirtDepth;
+    const baseHeight = mini ? -mini.baseDepth : exportRange.min - skirtDepth;
     const multi = tiles.length > 1;
     const separateTileExport = multi && tileShape === 'square' && tileMode === 'separate';
 
@@ -657,7 +665,7 @@ export class TerrainExportBuilder {
     }
 
     // F. Mini: the water block (surface + cut faces over the water column)
-    if (mini && exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
+    if (mini && includeWater) {
       onToast('Building water volume...');
       const { at } = await bakeHeightGrid(0, 0, cellSize, cellSize, meshRes, meshRes);
       const waterMesh = new THREE.Mesh(
@@ -669,7 +677,7 @@ export class TerrainExportBuilder {
     }
 
     // F. Add Water Mesh spanning the whole assembly
-    if (!mini && !separateTileExport && exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
+    if (!mini && !separateTileExport && includeWater) {
       onToast('Adding water plane...');
       const waterGeo = tileShape === 'circle' ? new THREE.CircleGeometry(diskRadiusWorld, 96) : new THREE.PlaneGeometry(unionSpanX, unionSpanZ);
       waterGeo.rotateX(-Math.PI / 2);
@@ -734,7 +742,7 @@ export class TerrainExportBuilder {
         if (base) group.add(base.clone());
 
         let water = null;
-        if (exportWater && !options.excludeWaterFromExport && seaLevel > 0.5) {
+        if (includeWater) {
           const waterGeo = new THREE.PlaneGeometry(cellSize, cellSize);
           waterGeo.rotateX(-Math.PI / 2);
           water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({
@@ -775,6 +783,12 @@ export class TerrainExportBuilder {
       if (path === root || path.startsWith(`${root}/`)) return path;
       return options.packagePaths?.[path] ?? `${root}/${path}`;
     };
+    if (meterElevation) {
+      zipFiles[pathFor('elevation.json')] = new TextEncoder().encode(JSON.stringify({
+        units: 'meters', heightMin: exportRange.min, heightMax: exportRange.max,
+        heightSpan: exportHeightSpan, seaLevel,
+      }, null, 2));
+    }
 
     // Preset JSON
     if (exportPreset) {
@@ -880,7 +894,7 @@ export class TerrainExportBuilder {
         packagePaths: options.packagePaths,
         heightmapRawPath: options.heightmapRawPath,
         exportCollision,
-        exportWater: exportWater && !options.excludeWaterFromExport && seaLevel > 0.5,
+        exportWater: includeWater,
         bakeColor,
         bakeNormal,
         exportHeightmap,

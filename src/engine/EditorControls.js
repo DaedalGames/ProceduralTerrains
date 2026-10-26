@@ -34,6 +34,8 @@ export class EditorControls {
     // Optional presentation framing (Mini Terrain): home pose, pivot height
     // and limits derived from the footprint. null = classic board behaviour.
     this.home = null;
+    this.elevationCenter = 0;
+    this.elevationSpan = 0;
 
     this.onFirstInteract = null;
     this.enabled = true;           // false while the studio player walks
@@ -87,7 +89,7 @@ export class EditorControls {
     }
     this.panLimit = boardSize * 0.55;
     this.minRadius = Math.max(120, boardSize * 0.06);
-    this.maxRadius = boardSize * 3.2;
+    this.maxRadius = Math.max(boardSize, this.elevationSpan) * 3.2;
     // pan clamp is centred on the assembly (origin for a single tile)
     if (center) this.panCenter.set(center.x, 0, center.z);
     this.goalRadius = Math.min(Math.max(this.goalRadius, this.minRadius), this.maxRadius);
@@ -100,6 +102,13 @@ export class EditorControls {
     } else if (this.goalPhi < this.minPhi) {
       this.goalPhi = 55 * DEG;
     }
+  }
+
+  setElevationRange(range) {
+    this.elevationCenter = range ? (range.min + range.max) * 0.5 : 0;
+    this.elevationSpan = range ? range.max - range.min : 0;
+    if (this.home) { this._applyHomeLimits(); return; }
+    this.maxRadius = Math.max(this.panLimit / 0.55, this.elevationSpan) * 3.2;
   }
 
   setView(view) {
@@ -176,11 +185,11 @@ export class EditorControls {
       this.goToView(this.home, { blend: false });
       return;
     }
-    this.goalTarget.set(0, 0, 0);
+    this.goalTarget.set(0, this.elevationCenter, 0);
     // The landing showcase (autoOrbit) frames tighter and lower than the
     // editor default; previews reset the camera repeatedly while it's active.
     const showcase = this.autoOrbit;
-    this.goalRadius = boardSize * (showcase ? 0.82 : 1.4);
+    this.goalRadius = Math.max(boardSize, this.elevationSpan) * (showcase ? 0.82 : 1.4);
     this.goalTheta = 45 * DEG;
     this.goalPhi = this.mode === 'topdown' ? 0.5 * DEG : (showcase ? 66 : 55) * DEG;
 
@@ -196,8 +205,8 @@ export class EditorControls {
       this.goToView(this.home, { blend: true });
       return;
     }
-    this.goalTarget.set(0, 0, 0);
-    this.goalRadius = boardSize * 1.4;
+    this.goalTarget.set(0, this.elevationCenter, 0);
+    this.goalRadius = Math.max(boardSize, this.elevationSpan) * 1.4;
     const goalTheta = 45 * DEG;
     this.goalPhi = this.mode === 'topdown' ? 0.5 * DEG : 55 * DEG;
     let dTheta = goalTheta - this.theta;
@@ -222,7 +231,7 @@ export class EditorControls {
       && Math.abs(this.goalTheta - this.theta) <= 0.002;
   }
 
-  focusCenter() { this.goalTarget.set(0, 0, 0); }
+  focusCenter() { this.goalTarget.set(0, this.elevationCenter, 0); }
 
   _markInteract() {
     if (!this._interacted) {
@@ -336,7 +345,7 @@ export class EditorControls {
     const lim = this.panLimit;
     this.goalTarget.x = Math.min(Math.max(this.goalTarget.x, this.panCenter.x - lim), this.panCenter.x + lim);
     this.goalTarget.z = Math.min(Math.max(this.goalTarget.z, this.panCenter.z - lim), this.panCenter.z + lim);
-    this.goalTarget.y = this.home ? (this.home.target?.[1] ?? 0) : 0;
+    this.goalTarget.y = this.home ? (this.home.target?.[1] ?? 0) : this.elevationCenter;
   }
 
   update(dt) {

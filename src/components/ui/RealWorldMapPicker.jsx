@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Crosshair, Download, Grip, LoaderCircle, Map, Search, X } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import './RealWorldSelectionCenter.css';
+import { RangeTrack } from '../controls.jsx';
 import {
   CUSTOM_AREA_LIMITS,
   describeCustomArea,
@@ -28,7 +29,7 @@ function selectionBounds(spec) {
   ];
 }
 
-function SliderField({ label, value, min, max, step, unit = '', onChange }) {
+export function SliderField({ label, value, min, max, step, unit = '', onChange }) {
   useLanguage();
   return (
     <label className="realworld-map-slider">
@@ -36,15 +37,8 @@ function SliderField({ label, value, min, max, step, unit = '', onChange }) {
         <span>{translateText(label)}</span>
         <output>{value}{translateText(unit)}</output>
       </span>
-      <input
-        type="range"
-        aria-label={translateText(label)}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
+      <RangeTrack value={value} min={min} max={max} step={step}
+        label={translateText(label)} onChange={onChange} />
     </label>
   );
 }

@@ -41,7 +41,7 @@ export class RealWorldBuildingLayer {
     this.count = 0;
   }
 
-  rebuild({ cells, bbox0, zoom, tiles, cellSize, heightScale, elevationSpan, sampleHeight }) {
+  rebuild({ cells, bbox0, zoom, tiles, cellSize, heightScale, elevationSpan, verticalMeterScale, sampleHeight }) {
     this.clear();
     if (!cells || !bbox0 || !tiles?.length || !Number.isFinite(cellSize)) return 0;
     const dimensions = bboxDimensionsKm(bbox0);
@@ -50,7 +50,8 @@ export class RealWorldBuildingLayer {
     const terrainMeterScale = heightScale / Math.max(1, elevationSpan || 1);
     // Keep buildings legible while preventing nearly-flat elevation bboxes from
     // turning a 10 m house into a terrain-height tower.
-    const meterScale = Math.max(horizontalScale * 0.5, Math.min(horizontalScale * 3, terrainMeterScale));
+    const meterScale = Number.isFinite(verticalMeterScale) ? verticalMeterScale
+      : Math.max(horizontalScale * 0.5, Math.min(horizontalScale * 3, terrainMeterScale));
     const geometries = [];
     const renderedIds = new Set();
 

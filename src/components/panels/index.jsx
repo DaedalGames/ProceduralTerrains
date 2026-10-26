@@ -1,6 +1,6 @@
 import { translateText, useLanguage } from '../../i18n/LanguageContext.jsx';
 import React, { useEffect, useState } from 'react';
-import { Cog, Dices, Eye, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Cog, Dices, Eye, RefreshCw } from 'lucide-react';
 import SidePanel, { PanelTabs } from './SidePanel.jsx';
 import { PANEL_ICONS } from '../icons/panelIcons.jsx';
 import { SliderCtl, ToggleRow, SelectRow } from '../controls.jsx';
@@ -103,11 +103,15 @@ function SurfaceTab({ ctx }) {
 
 // ---------------------------------------------------------------- panels
 function TerrainPanel({ ctx }) {
-  useLanguage();
+  const { language } = useLanguage();
   const realTerrainMode = !!ctx.realTerrainMode;
   const [tab, setTab] = useState(() => realTerrainMode ? 'import' : 'shape');
   const { params, onParam, worldMode } = ctx;
   const isStudio = worldMode === 'studio';
+  const heightMap = ctx.importedMaps?.height;
+  const realHeightsActive = !!heightMap?.elevation && heightMap.settings?.elevationMode === 'meters'
+    && ['replace', 'blend'].includes(heightMap.settings?.mode);
+  const onlyRealHeights = realHeightsActive && heightMap.settings.mode === 'replace';
   // Erosion lives as a tab here (Tile mode only). Its bake state is shared
   // between the tab body and the footer's Bake / Reset buttons.
   const erosion = useErosionBake(ctx);
@@ -141,9 +145,29 @@ function TerrainPanel({ ctx }) {
         : realTerrainMode ? null : <RandomizeTerrainButton onRandomize={ctx.onRandomizeTerrain} />}>
       {!realTerrainMode && <PanelTabs active={activeTab} onChange={setTab} tabs={tabs} />}
       {realTerrainMode && <>
-        <h3 className="setting-label">{translateText("Terrain settings")}</h3>
-        <SliderCtl def={TERRAIN_SLIDERS.find((def) => def.key === 'heightScale')}
-          value={params.heightScale} onChange={(value) => onParam('heightScale', value)} settingId="terrain.heightScale" />
+        <h3 className="setting-label">{translateText("Terrain Height")}</h3>
+        {realHeightsActive && <div className="real-elevation-status" role="status" data-setting-id="terrain.activeElevation">
+          <div className="real-elevation-status-title"><CheckCircle2 size={15} aria-hidden />
+            <strong>{translateText("Real elevations active")}</strong>
+          </div>
+          {Number.isFinite(heightMap.elevation.min) && Number.isFinite(heightMap.elevation.max) &&
+            <div className="real-elevation-status-range">
+              {Math.round(heightMap.elevation.min).toLocaleString(language)} – {Math.round(heightMap.elevation.max).toLocaleString(language)} m
+            </div>}
+          <p>{translateText(onlyRealHeights
+            ? 'Source elevations are preserved in meters. Vertical Scale adjusts the displayed relief.'
+            : 'Source elevations in meters are blended with procedural noise. Height Scale only adjusts the noise.')}</p>
+        </div>}
+        {realHeightsActive && <SliderCtl
+          def={{ label: 'Vertical Scale', min: 0.01, max: 2, step: 0.01, digits: 2, unit: '×',
+            info: '1× = real elevations. Lower values compress the relief without changing the source elevations.' }}
+          value={heightMap.settings.heightStrength ?? 1}
+          onChange={(value) => ctx.onTileMapSetting?.('height', 'heightStrength', value)}
+          settingId="terrain.realWorldVerticalScale" />}
+        {!onlyRealHeights && <SliderCtl def={realHeightsActive
+          ? { ...TERRAIN_SLIDERS.find((def) => def.key === 'heightScale'), label: 'Noise Height Scale' }
+          : TERRAIN_SLIDERS.find((def) => def.key === 'heightScale')}
+          value={params.heightScale} onChange={(value) => onParam('heightScale', value)} settingId="terrain.heightScale" />}
         <SliderCtl def={NOISE_SLIDERS.find((def) => def.key === 'noiseScale')}
           value={params.noiseScale} onChange={(value) => onParam('noiseScale', value)} settingId="terrain.noiseScale" />
       </>}

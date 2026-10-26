@@ -4,6 +4,8 @@ import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'rea
 import { ImageUp, Mountain, Palette, Waves, Globe, Download, Crosshair, Map, MapPinned } from 'lucide-react';
 import CollapsibleGroup from './CollapsibleGroup.jsx';
 import { SliderCtl, ToggleRow, SelectRow } from '../controls.jsx';
+import { TerrainResolutionSettings } from '../panels/QualitySettingsContent.jsx';
+import SurfaceResolutionSetting from './SurfaceResolutionSetting.jsx';
 import {
   CURATED_LOCATIONS, ELEVATION_SOURCE, IMAGERY_STYLES, CUSTOM_AREA_LIMITS, describeCustomArea,
   formatCoordinateDisplay, parseCoordinateInput, resolveImageryStyle,
@@ -126,8 +128,23 @@ function ImportMapSection({ type, map, ctx, forceOpen = false }) {
           {translateText(Number.isFinite(map?.width) && Number.isFinite(map?.height) ? `${map.width}×${map.height}` : '—')}
         </span>
       </div>
+      {type === 'height' && ctx.realTerrainMode && <>
+        <SurfaceResolutionSetting map={map} onResolution={ctx.onRealWorldResolution} />
+        <TerrainResolutionSettings perf={ctx.perf} onPerfSetting={ctx.onPerfSetting} />
+      </>}
       {map?.error && <p className="section-hint import-map-error">{translateText(map.error)}</p>}
       {map?.warning && <p className="section-hint">{translateText(map.warning)}</p>}
+      {type === 'height' && map?.elevation && <>
+        <ToggleRow label={translateText("True elevation (meters)")}
+          value={settings.elevationMode === 'meters'}
+          onChange={(v) => set('elevationMode', v ? 'meters' : 'normalized')}
+          settingId="terrain.realWorldElevation" />
+        <p className="section-hint">{translateText("Real elevations are independent of the procedural Height Scale.")}</p>
+        {Number.isFinite(map.elevation.min) && Number.isFinite(map.elevation.max) &&
+          <div className="stat-row"><span className="stat-label">{translateText("Elevation")}</span>
+            <span className="stat-value stat-mono">{Math.round(map.elevation.min)} – {Math.round(map.elevation.max)} m</span>
+          </div>}
+      </>}
       <SelectRow
         label={translateText("Usage Mode")}
         value={settings.mode}
@@ -150,7 +167,9 @@ function ImportMapSection({ type, map, ctx, forceOpen = false }) {
       {type === 'height' && (
         <>
           <SliderCtl
-            def={{ label: 'Height Strength', min: 0, max: 2, step: 0.01, digits: 2 }}
+            def={map?.elevation && settings.elevationMode === 'meters'
+              ? { label: 'Vertical Scale', min: 0.01, max: 2, step: 0.01, digits: 2, unit: '×' }
+              : { label: 'Height Strength', min: 0, max: 2, step: 0.01, digits: 2 }}
             value={settings.heightStrength}
             onChange={(v) => set('heightStrength', v)}
           />
@@ -481,7 +500,8 @@ export default function ImportMapsContent({ ctx }) {
           type={type}
           map={ctx.importedMaps?.[type]}
           ctx={ctx}
-          forceOpen={targetId === `terrain.${type}Map`}
+          forceOpen={targetId === `terrain.${type}Map` || (type === 'height'
+            && ['terrain.realWorldElevation', 'terrain.surfaceResolution'].includes(targetId))}
         />
       ))}
     </>

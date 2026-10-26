@@ -4,6 +4,7 @@
 // ============================================================================
 
 export const PALETTE_UNIFORMS_GLSL = /* glsl */ `
+uniform float uTerrainSpecular; // geographic terrain stays matte
 uniform vec3 uColDeep;
 uniform vec3 uColShallow;
 uniform vec3 uColSand;
@@ -156,7 +157,7 @@ vec3 terrainLighting(vec3 albedo, vec3 n, vec3 sunDir, float ao,
 
   float spec = pow(max(dot(reflect(-sunDir, n), viewDir), 0.0), 32.0);
   float shoreSheen = 1.0 - smoothstep(0.0, max(sandBand, 0.5), abs(hRel));
-  col += spec * (snow * 0.30 + shoreSheen * 0.10 + bwWetland * flatness * 0.15) * proceduralSheen;
+  col += spec * (snow * 0.30 + shoreSheen * 0.10 + bwWetland * flatness * 0.15) * proceduralSheen * uTerrainSpecular;
   return col;
 }
 `;

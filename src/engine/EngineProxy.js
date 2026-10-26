@@ -88,7 +88,7 @@ export const ENGINE_METHODS = Object.freeze([
   'getGraphicsDiagnostics',
   'hasErosionResult', 'importPlanetStyleJSON', 'importTileMap', 'installCachedSurfaceAtlas',
   'getMinimapFrame',
-  'loadRealWorldCustom', 'loadRealWorldLocation', 'loadSeedJSON', 'moveManualShape',
+  'loadRealWorldCustom', 'loadRealWorldLocation', 'setRealWorldResolution', 'loadSeedJSON', 'moveManualShape',
   'moveManualShapeLayer', 'newProject', 'randomizePlanetPreset', 'randomizeSeed',
   'regenerate', 'removeTile', 'renameSnapshot', 'resetPanelSettings', 'resetPerfSettings',
   'resetView', 'restoreSnapshot', 'restoreState', 'retryBoot', 'selectManualShape',
