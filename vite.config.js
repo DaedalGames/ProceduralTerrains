@@ -4,6 +4,9 @@ import surfaceMaterialsApi from './vite-plugins/surfaceMaterialsApi.js';
 import playgroundRuntime from './vite-plugins/playgroundRuntime.js';
 
 export default defineConfig({
+  // Generated QA/release HTML files can refer to stale dependency-cache paths.
+  // Only the application entry should seed the dev server's dependency scan.
+  optimizeDeps: { entries: ['index.html'] },
   // Be explicit here: without the automatic runtime, JSX is compiled to
   // React.createElement and every JSX module must import a `React` binding.
   // The application uses the modern runtime throughout its components.
