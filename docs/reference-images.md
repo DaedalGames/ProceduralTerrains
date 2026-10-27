@@ -1,8 +1,8 @@
 # Reference images in Tile mode
 
 Use a PNG, JPEG or WebP map as a tracing guide while building terrain. In a
-Procedural project, open **Terrain → Import → Reference Image**. In Manual or
-Nodes projects, use the **Reference Image** tool in the toolbar.
+Procedural project, open **Terrain → Import → Reference Image**. In Mini,
+Manual or Nodes projects, use the **Reference Image** tool in the toolbar.
 
 1. Choose your image, then switch the camera to the top view for alignment.
 2. Adjust **Reference Scale**. At 1, the longest image side spans one tile;
@@ -20,8 +20,8 @@ editing clicks. Use the top view to avoid perspective differences between
 the guide and elevated terrain. Tile dimensions also determine the guide's
 size and position, so changing tile size scales both together.
 
-The guide appears only during Tile editing. Planet, Infinite, exploration,
-and Mini views hide it while retaining its settings. It is absent from
+The guide appears during Tile editing, including Mini and Manual Terrain.
+Planet, Infinite and exploration views hide it while retaining its settings. It is absent from
 heightmaps, terrain meshes, runtime exports, minimaps, water reflections,
 screenshots, and project preview thumbnails.
 

@@ -144,8 +144,7 @@ describe('reference image authoring', () => {
     }
     engine.worldMode = 'studio';
     engine.exploreMode = 'walk'; engine._renderReferenceImage();
-    engine.exploreMode = 'none'; engine.mini = { active: true }; engine._renderReferenceImage();
-    engine.mini.active = false;
+    engine.exploreMode = 'none';
     engine.setTileMapSetting('reference', 'visible', false); engine._renderReferenceImage();
     expect(engine.renderer.render).toHaveBeenCalledOnce();
     engine.setTileMapSetting('reference', 'visible', true);
@@ -153,6 +152,26 @@ describe('reference image authoring', () => {
     engine._renderReferenceImage();
     expect(layer.mesh.position.x).toBe(1024);
     expect(engine.renderer.render).toHaveBeenCalledTimes(2);
+    engine.clearReferenceImage();
+  });
+
+  it.each(['procedural', 'mini', 'manual'])('renders and restores the reference in %s editing', async (mode) => {
+    const engine = engineFixture();
+    engine.projectMode = mode === 'manual' ? 'manual' : 'procedural';
+    engine.mini = { active: mode === 'mini' };
+    await engine.importTileMap('reference', file);
+    engine.renderer = { autoClear: true, render: vi.fn() };
+    engine.camera = new THREE.PerspectiveCamera();
+    engine.setTileMapSetting('reference', 'opacity', 0.4);
+    engine.setTileMapSetting('reference', 'scale', 2);
+    const saved = engine._serializeReferenceImage();
+    engine.clearReferenceImage();
+    await engine._restoreReferenceImage(saved);
+    engine._renderReferenceImage();
+    expect(engine.renderer.render).toHaveBeenCalledOnce();
+    expect(engine.referenceImageLayer.mesh.material.opacity).toBe(0.4);
+    expect(engine.referenceImageLayer.mesh.scale.x).toBe(1024);
+    expect(engine.applyAll).not.toHaveBeenCalled();
     engine.clearReferenceImage();
   });
 

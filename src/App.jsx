@@ -88,7 +88,7 @@ const MODE_LABEL = { studio: 'Tile', infinite: 'Infinite World', planet: 'Planet
 const NODE_PANEL_IDS = ['reference', 'explode', 'planet', 'water', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'debug'];
 // Mini Terrain keeps capture/save/undo and the useful advanced panels, but no
 // tile/world layout, streaming or exploration tools.
-const MINI_PANEL_IDS = ['mini', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'skybox', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
+const MINI_PANEL_IDS = ['mini', 'reference', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'skybox', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
 const REAL_TERRAIN_PANEL_IDS = ['terrain', 'markers', 'explode', 'water', 'props', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'history', 'debug'];
 const PerformanceOverlay = lazy(() => import('./components/perf/PerformanceOverlay.jsx'));
 // Start loading the drawer chunk with the app so the first tool click does

@@ -2512,7 +2512,7 @@ export class Engine {
   }
 
   _renderReferenceImage() {
-    if (!this.referenceImageLayer || this.worldMode !== 'studio' || this.mini?.active
+    if (!this.referenceImageLayer || this.worldMode !== 'studio'
         || this.exploreMode !== 'none') return;
     this.referenceImageLayer.sync(this.importedMaps.reference.settings, this.cellSize);
     this.referenceImageLayer.render(this.renderer, this.camera);
