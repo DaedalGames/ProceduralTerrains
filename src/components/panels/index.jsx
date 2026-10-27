@@ -8,7 +8,7 @@ import { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './pane
 export { PANEL_META, PANEL_ORDER, panelAvailable, getPanelDisplay } from './panelMeta.js';
 import MarkersPanel from './MarkersPanel.jsx';
 import MiniTerrainPanel from './MiniTerrainPanel.jsx';
-import ImportMapsContent from '../ui/ImportMapsContent.jsx';
+import ImportMapsContent, { ReferenceImageSection } from '../ui/ImportMapsContent.jsx';
 import CollapsibleGroup from '../ui/CollapsibleGroup.jsx';
 import ControlSection from '../ui/ControlSection.jsx';
 import TileMapDebugSection from '../ui/TileMapDebugSection.jsx';
@@ -1149,6 +1149,7 @@ function NoiseLayersPanelWrapper({ ctx }) {
 
 const COMPONENTS = {
   mini: MiniTerrainPanel,
+  reference: ({ ctx }) => <SidePanel title={translateText('Reference Image')} onClose={ctx.onClose}><ReferenceImageSection ctx={ctx} /></SidePanel>,
   markers: MarkersPanel,
   terrain: TerrainPanel, explode: ExplodePanel, noiseLayers: NoiseLayersPanelWrapper, world: WorldPanel, planet: PlanetPanel, biomes: BiomesPanel,
   water: WaterPanel, props: PropsPanel, clouds: CloudsPanel, visuals: VisualsPanel, skybox: SkyboxPanel, lighting: LightingPanel, export: ExportPanel,

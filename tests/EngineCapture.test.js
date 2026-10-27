@@ -53,6 +53,7 @@ function expectAllHidden(roots) {
 describe('camera capture overlays', () => {
   it('hides authoring overlays only while rendering and restores exact visibility', () => {
     const { engine, roots, authoredContent } = captureHarness();
+    engine._renderReferenceImage = vi.fn();
     const before = Object.fromEntries(
       Object.entries(roots).map(([name, object]) => [name, object.visible]),
     );
@@ -68,6 +69,7 @@ describe('camera capture overlays', () => {
     expect(engine._renderCameraCapture()).toEqual({ triangles: 42, drawCalls: 7 });
     expect(engine.underwater.render).toHaveBeenCalledOnce();
     expect(engine.visualPost.finish).toHaveBeenCalledOnce();
+    expect(engine._renderReferenceImage).not.toHaveBeenCalled();
     for (const [name, object] of Object.entries(roots)) {
       expect(object.visible).toBe(before[name]);
     }

@@ -85,7 +85,7 @@ import { applyGraphColorPreset, createBlankGraph, setGraphColorEnabled } from '.
 import { getWaterBaselineScene } from './engine/water/WaterBaseline.js';
 
 const MODE_LABEL = { studio: 'Tile', infinite: 'Infinite World', planet: 'Planet' };
-const NODE_PANEL_IDS = ['explode', 'planet', 'water', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'debug'];
+const NODE_PANEL_IDS = ['reference', 'explode', 'planet', 'water', 'clouds', 'visuals', 'skybox', 'lighting', 'export', 'performance', 'debug'];
 // Mini Terrain keeps capture/save/undo and the useful advanced panels, but no
 // tile/world layout, streaming or exploration tools.
 const MINI_PANEL_IDS = ['mini', 'terrain', 'noiseLayers', 'water', 'clouds', 'props', 'visuals', 'skybox', 'lighting', 'biomes', 'planet', 'export', 'performance', 'history', 'debug'];
@@ -2611,8 +2611,16 @@ export default function App() {
     onTileAssemblyShape: (shape) => engine().setTileAssemblyShape(shape),
     onRemoveTile: (cx, cz) => engine().removeTile(cx, cz),
     onTileDebug: (next) => engine().setTileDebug(next),
-    onImportTileMap: (type, file) => engine().importTileMap(type, file),
-    onTileMapSetting: (type, key, value) => engine().setTileMapSetting(type, key, value),
+    onImportTileMap: async (type, file) => {
+      const result = await engine().importTileMap(type, file);
+      if (type === 'reference' && result) await flushRecord();
+      return result;
+    },
+    onClearReferenceImage: async () => { await engine().clearReferenceImage(); await flushRecord(); },
+    onTileMapSetting: async (type, key, value) => {
+      await engine().setTileMapSetting(type, key, value);
+      if (type === 'reference') scheduleRecordRef.current?.();
+    },
     onLoadRealWorldLocation: (id, opts) => runGeographicLoad(
       (onProgress) => engine().loadRealWorldLocation(id, { ...opts, onProgress }),
       opts,

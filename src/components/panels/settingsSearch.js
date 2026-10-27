@@ -61,6 +61,7 @@ const SETTINGS_INDEX = [
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldLat', label: 'Real-World Latitude', keywords: 'real world earth latitude coordinates custom area import' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldLon', label: 'Real-World Longitude', keywords: 'real world earth longitude coordinates custom area import' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.heightMap', label: 'Height Map', keywords: 'height import replace blend map' },
+  { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.referenceImage', label: 'Reference Image', keywords: 'png image trace overlay opacity scale position reference' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.realWorldElevation', label: 'True elevation (meters)', keywords: 'real terrain altitude elevation meters geographic height' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.noiseMap', label: 'Noise Map', keywords: 'noise import replace blend map' },
   { panelId: 'terrain', tabId: 'import', sectionLabel: 'Import', settingId: 'terrain.biomeMap', label: 'Biome Map', keywords: 'biome import replace blend map' },
