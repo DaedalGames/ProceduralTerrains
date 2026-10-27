@@ -50,6 +50,35 @@ const edits = {
   propsDensity: 0.71, propsTreeScale: 3.2,
 };
 
+it('restores a reference through the project load path and clears it when opening a legacy project', async () => {
+  const engine = projectEngine();
+  engine.importedMaps = {};
+  engine._decodeImportedImage = vi.fn(async () => ({ width: 1, height: 1,
+    imageData: { data: new Uint8ClampedArray([255, 0, 0, 255]) },
+    preview: 'data:image/png;base64,aW1hZ2U=' }));
+  const payload = engine.createProjectPayload();
+  payload.referenceImage = { version: 1, source: 'local', fileName: 'map.png',
+    dataUrl: 'data:image/png;base64,aW1hZ2U=', settings: { visible: false, opacity: 0.25, scale: 2, x: -1, z: 3 } };
+  await engine.loadSeedJSON(payload);
+  expect(engine.createProjectPayload().referenceImage).toEqual(payload.referenceImage);
+  expect(engine._decodeImportedImage).toHaveBeenCalledOnce();
+  const dispose = vi.spyOn(engine.referenceImageLayer, 'dispose');
+  delete payload.referenceImage;
+  await engine.loadSeedJSON(payload);
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(engine.createProjectPayload()).not.toHaveProperty('referenceImage');
+});
+
+it('rejects an invalid reference before releasing the previous terrain maps', async () => {
+  const engine = projectEngine();
+  engine.restoreState = vi.fn(async () => {});
+  const payload = engine.createProjectPayload();
+  payload.referenceImage = { version: 1, dataUrl: 'https://example.com/map.png' };
+  await expect(engine.loadSeedJSON(payload)).rejects.toThrow('Invalid reference image');
+  expect(engine._clearImportedMaps).not.toHaveBeenCalled();
+  expect(engine.restoreState).toHaveBeenCalledOnce();
+});
+
 describe('Mini project settings persistence', () => {
   it.each(['procedural', 'cove', 'hexagon'])('keeps edited settings after saving and loading a %s Mini', async (variant) => {
     const recipe = variant === 'hexagon' ? 'procedural' : variant;

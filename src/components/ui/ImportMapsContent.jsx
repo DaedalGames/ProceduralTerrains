@@ -6,6 +6,7 @@ import CollapsibleGroup from './CollapsibleGroup.jsx';
 import { SliderCtl, ToggleRow, SelectRow } from '../controls.jsx';
 import { TerrainResolutionSettings } from '../panels/QualitySettingsContent.jsx';
 import SurfaceResolutionSetting from './SurfaceResolutionSetting.jsx';
+import { REFERENCE_CONTROLS, REFERENCE_DEFAULTS } from '../../engine/terrain/ReferenceImageLayer.js';
 import {
   CURATED_LOCATIONS, ELEVATION_SOURCE, IMAGERY_STYLES, CUSTOM_AREA_LIMITS, describeCustomArea,
   formatCoordinateDisplay, parseCoordinateInput, resolveImageryStyle,
@@ -79,6 +80,35 @@ function ImageryStyleSelect({ ctx }) {
       />
       <p className="section-hint realworld-attribution">{translateText(style.attribution)}</p>
     </>
+  );
+}
+
+export function ReferenceImageSection({ ctx }) {
+  useLanguage();
+  const map = ctx.importedMaps?.reference;
+  const settings = map?.settings ?? REFERENCE_DEFAULTS;
+  return (
+    <CollapsibleGroup title={translateText('Reference Image')}
+      icon={<ImageUp size={15} strokeWidth={1.75} />} defaultOpen
+      forceOpen={ctx.settingsTarget?.settingId === 'terrain.referenceImage'} settingId="terrain.referenceImage">
+      <p className="section-hint">{translateText('Trace an existing map without changing terrain heights. Use the top view to align it. The longest image side is measured in tiles; position is relative to the center tile. Reference images are saved in local and portable projects, and excluded from terrain exports.')}</p>
+      <FilePicker fileName={map?.fileName} onPick={(file) => ctx.onImportTileMap('reference', file)} />
+      {map?.loading && <p className="section-hint" role="status">{translateText('Loading reference image…')}</p>}
+      {map?.error && <p className="section-hint import-map-error" role="alert">{translateText(map.error)}</p>}
+      {map?.warning && <p className="section-hint">{translateText(map.warning)}</p>}
+      {map?.preview && <>
+        <img src={map.preview} alt={translateText('Reference image preview')} className="import-map-preview" />
+        <ToggleRow label={translateText('Show Reference')} value={settings.visible}
+          onChange={(value) => ctx.onTileMapSetting('reference', 'visible', value)} />
+        {Object.entries(REFERENCE_CONTROLS).map(([key, def]) => (
+          <SliderCtl key={key} def={def} value={settings[key]}
+            onChange={(value) => ctx.onTileMapSetting('reference', key, value)} />
+        ))}
+        <button type="button" className="file-picker-btn" onClick={() => ctx.onClearReferenceImage()}>
+          {translateText('Remove Reference')}
+        </button>
+      </>}
+    </CollapsibleGroup>
   );
 }
 
@@ -480,6 +510,7 @@ export default function ImportMapsContent({ ctx }) {
   const targetId = ctx.settingsTarget?.settingId ?? null;
   return (
     <>
+      <ReferenceImageSection ctx={ctx} />
       <p className="section-hint">
         {translateText(ctx.realTerrainMode
           ? 'Select a real-world area to import geographic elevation and imagery. Buildings are optional.'

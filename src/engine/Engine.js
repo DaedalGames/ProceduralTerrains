@@ -6,6 +6,7 @@ import { RealWorldMarkerLayer } from './terrain/RealWorldMarkerLayer.js';
 import { resolveSurfaceReference } from './terrain/surface/SurfaceDocument.js';
 import { compileSurfaceGraph } from './terrain/surface/SurfaceGraph.js';
 import * as THREE from 'three';
+import { ReferenceImageLayer, normalizeReferenceImage, normalizeReferenceSettings } from './terrain/ReferenceImageLayer.js';
 
 function createEngineTimer() {
   // Engine can be loaded through an older cached worker/bundle whose Three.js
@@ -1842,7 +1843,8 @@ export class Engine {
     this.cb.onTileDebug?.({ ...this.tileDebug });
   }
 
-  _clearImportedMaps() {
+  _clearImportedMaps({ preserveReference = false } = {}) {
+    if (!preserveReference) this.clearReferenceImage();
     this._cityAbort?.abort();
     this._cityRequestKey = '';
     this._cityLoading = false;
@@ -1869,6 +1871,7 @@ export class Engine {
   }
 
   async importTileMap(type, file) {
+    if (type === 'reference') return this._importReferenceImage(file);
     const okTypes = ['image/png', 'image/jpeg', 'image/webp'];
     if (!file || !okTypes.includes(file.type)) {
       const error = 'Unsupported file type. Use PNG, JPG, or WebP.';
@@ -2407,6 +2410,14 @@ export class Engine {
   }
 
   setTileMapSetting(type, key, value) {
+    if (type === 'reference') {
+      const entry = this.importedMaps.reference;
+      if (!entry) return;
+      entry.settings = normalizeReferenceSettings({ ...entry.settings, [key]: value });
+      this._setImportState('reference');
+      this._needsRender = true;
+      return;
+    }
     const entry = this.importedMaps[type];
     if (!entry) { this._setImportState(type, { error: 'Import a map before enabling this mode.' }); return; }
     const previousBounds = type === 'height' && key === 'heightStrength' ? this._realWorldHeightBounds() : null;
@@ -2433,9 +2444,78 @@ export class Engine {
   }
 
   _setImportState(type, patch = {}) {
-    const entry = this.importedMaps[type];
+    const entry = this.importedMaps?.[type];
     this.importedMapState = { ...this.importedMapState, [type]: entry ? { fileName: entry.fileName, width: entry.width, height: entry.height, preview: entry.preview, settings: { ...entry.settings }, geographic: entry.geoRef ? { bbox: { ...entry.geoRef.bbox0 }, zoom: entry.geoRef.zoom } : null, elevation: entry.geoRef ? { min: entry.meta?.minElev, max: entry.meta?.maxElev } : null, warning: entry.originalWidth > 4096 || entry.originalHeight > 4096 ? 'Large image downscaled for processing.' : '', ...patch } : { ...patch } };
     this.cb.onImportedMaps?.(this.importedMapState);
+  }
+
+  clearReferenceImage() {
+    this._referenceImportId = (this._referenceImportId ?? 0) + 1;
+    this.referenceImageLayer?.dispose();
+    this.referenceImageLayer = null;
+    if (this.importedMaps) this.importedMaps.reference = null;
+    this._setImportState('reference');
+    this._needsRender = true;
+  }
+
+  async _importReferenceImage(file, { settings, silent = false } = {}) {
+    const request = this._referenceImportId = (this._referenceImportId ?? 0) + 1;
+    try {
+      if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+        throw new Error('Unsupported file type. Use PNG, JPG, or WebP.');
+      }
+      this._setImportState('reference', { loading: true });
+      const decoded = await this._decodeImportedImage(file);
+      if (request !== this._referenceImportId || this._disposed) return false;
+      const layer = new ReferenceImageLayer(decoded.imageData, decoded.width, decoded.height);
+      this.referenceImageLayer?.dispose();
+      this.referenceImageLayer = layer;
+      const { imageData, ...metadata } = decoded;
+      this.importedMaps.reference = { ...metadata, fileName: file.name,
+        settings: normalizeReferenceSettings(settings ?? this.importedMaps.reference?.settings) };
+      this._setImportState('reference');
+      this._needsRender = true;
+      if (!silent) this.cb.onToast('Reference image imported');
+      return true;
+    } catch (error) {
+      if (request !== this._referenceImportId || this._disposed) return false;
+      const message = file && ['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
+        ? 'Image failed to load or contains invalid image data.' : error.message;
+      this._setImportState('reference', { error: message, loading: false });
+      this.cb.onToast(message);
+      return false;
+    }
+  }
+
+  _serializeReferenceImage() {
+    const entry = this.importedMaps?.reference;
+    return entry ? { version: 1, source: 'local', fileName: entry.fileName,
+      dataUrl: entry.preview, settings: { ...entry.settings } } : null;
+  }
+
+  async _restoreReferenceImage(input) {
+    const saved = normalizeReferenceImage(input);
+    if (input != null && !saved) throw new Error('Invalid reference image in project.');
+    if (!saved) { this.clearReferenceImage(); return; }
+    if (this.importedMaps.reference?.preview === saved.dataUrl) {
+      this.importedMaps.reference.settings = saved.settings;
+      this._setImportState('reference');
+      this._needsRender = true;
+      return;
+    }
+    const bytes = Uint8Array.from(atob(saved.dataUrl.split(',')[1]), (c) => c.charCodeAt(0));
+    const file = new Blob([bytes], { type: 'image/png' });
+    file.name = saved.fileName;
+    if (!await this._importReferenceImage(file, { settings: saved.settings, silent: true })) {
+      throw new Error('Could not restore reference image.');
+    }
+  }
+
+  _renderReferenceImage() {
+    if (!this.referenceImageLayer || this.worldMode !== 'studio' || this.mini?.active
+        || this.exploreMode !== 'none') return;
+    this.referenceImageLayer.sync(this.importedMaps.reference.settings, this.cellSize);
+    this.referenceImageLayer.render(this.renderer, this.camera);
   }
 
   _rebuildImportedTexture(type) {
@@ -11637,6 +11717,8 @@ export class Engine {
     if (this.projectMode === 'manual') data.manualTerrain = this.manualTerrain?.serialize() ?? { version: 5, baseSource: 'flat', shapes: [], sculpt: null, surfacePaint: null };
     const realWorldSource = normalizeRealWorldSource(this.realWorldSource);
     if (realWorldSource) data.realWorldSource = realWorldSource;
+    const referenceImage = this._serializeReferenceImage();
+    if (referenceImage) data.referenceImage = referenceImage;
     // Only embed paint pixel data when something was actually painted —
     // serialize() returns null for an untouched canvas, which would otherwise
     // bloat the file with ~3M neutral values.
@@ -11855,11 +11937,13 @@ export class Engine {
     this._notifyTiles();
     return ready.then(async (result) => {
       if (result?.error) throw result.error;
-      // Imported pixels are not embedded in project documents. Keep the
+      // Height/biome pixels are not embedded in project documents. Keep the
       // current project's textures intact until the replacement source has
       // compiled successfully, then clear/refetch behind the blocking overlay.
       // A failed load can therefore roll back without losing its maps.
-      this._clearImportedMaps();
+      // Validate/decode the guide before releasing the previous terrain maps.
+      await this._restoreReferenceImage(json?.referenceImage);
+      this._clearImportedMaps({ preserveReference: true });
       if (realWorldSource) {
         this.realWorldSource = realWorldSource;
         this.realWorldBuildingsVisible = realWorldSource.buildingsVisible === true;
@@ -11888,7 +11972,8 @@ export class Engine {
   // on Ctrl+Z / Ctrl+Y. A snapshot captures every editable project setting
   // (params, planet style, noise stack, performance, time-of-day, debug
   // inspection toggles and paint layers) plus the current world mode. Imported
-  // image maps (heavy pixel data) and pure view state (camera) are excluded.
+  // terrain maps (heavy pixel data) and pure view state (camera) are excluded.
+  // Reference images are editor documents and travel with their settings.
 
   // Lightweight snapshot: every editable setting, but NO paint pixel data — the
   // paint canvas is megabytes, so we record only a `paintRev` marker here and
@@ -11908,6 +11993,7 @@ export class Engine {
       timeOfDay: this.timeOfDay,
       worldMode: this.worldMode,
       tileDebug: { ...this.tileDebug },
+      referenceImage: this._serializeReferenceImage(),
       debug: { ...this._debug },
       cullingEnabled: this.board?.cullingEnabled !== false,
       behindCameraCulling: this.board?.behindCameraCulling !== false,
@@ -11973,6 +12059,7 @@ export class Engine {
       : null;
     try {
     this._terrainSourcePendingToken = 'history-restore';
+    if ('referenceImage' in snap) await this._restoreReferenceImage(snap.referenceImage);
 
     // params: full replacement, but keep any newer default keys the snapshot
     // predates so we never end up with undefined settings.
@@ -13578,6 +13665,7 @@ export class Engine {
       this._applyUnderwaterFromSharedTarget(rendered.target);
       if (rendered.target) this.renderer.setRenderTarget(null);
       this.visualPost.finish(this.renderer);
+      this._renderReferenceImage();
       this.profiler.gpu?.frameEnd();
       this.profiler.end('render');
       this._recordRenderedFrame(now);
@@ -14010,6 +14098,9 @@ export class Engine {
   }
 
   dispose() {
+    this._referenceImportId = (this._referenceImportId ?? 0) + 1;
+    this.referenceImageLayer?.dispose();
+    this.referenceImageLayer = null;
     import('./terrain/surface/SurfacePreparationClient.js')
       .then(({ cancelSurfacePreparations }) => cancelSurfacePreparations(this));
     this._cityAbort?.abort();
